@@ -22,24 +22,83 @@ Usage:
 3. The "Task" dropdown box allows manual specification of the conversion direction, with automatic determination by file extension as the default.
 4. The conversion results and logs are located at the bottom left, while the model preview occupies the entire right column.
 
-Issue related:
-- There are black lines on the edges of the converted model: This tool will turn off MMD contour lines by default when outputting PMX.
- If you still see black borders, select all materials in MMD/PMXEditor, ensure that the outline lines are turned off, and check "Double-Sided Drawing".
-- There are still hollowed-out parts: If there are, please check "Force Double-Sided Material" in the interface.
+---------------------------
+
+Notes:
+
+- Black lines along the model edges: this tool turns off MMD outlines by default when
+  writing PMX. If you still see black edges, select all materials in MMD / PMXEditor,
+  make sure the outlines are off and tick "Double-Sided Drawing".
+- Still hollow: first check the "winding auto-detect" line in the log. If it guessed wrong,
+  use --flip-winding; for thin geometry such as hair or skirt hems that needs two-sided
+  rendering, use --force-double-sided, or tick "Force Double-Sided Material" in the UI.
+- Model facing away from the camera: FBX has no "which way is front" field, so a wrong
+  guess is normal. Tick "Auto-detect facing" on the FBX options page (on by default) and
+  the result plus its reason are written to the log. If it is still backwards, tick
+  "Force extra 180° turn" (command line --face-180). It only negates X and Z at the same
+  time, so the vertex / face / bone counts are unaffected. XPS and PSK use a fixed axis
+  mapping and are not affected.
+- Transparent parts not transparent: an overall semi-transparent look with ghosting
+  usually means the game texture uses alpha as a glow mask. Use --alpha strip ("Remove
+  all" in the UI); for everyday use the default auto is recommended, as it judges each
+  texture individually. If lace / gauze / hair tips turn into hard edges, the real
+  transparency was cut away, so switch back to auto or keep. Whichever mode you choose,
+  the original texture is never modified: the alpha-stripped result is written to a
+  "name_noalpha.png" copy.
+- A grey-white slab covering the body: game FBX files often contain an EffectMesh with no
+  material and no texture whose UVs cover the whole atlas. It looks very much like "the
+  texture is flipped", but the UVs are perfectly fine. This tool skips every mesh with no
+  material by default and prints "skip <mesh name>" in the log.
+- FileNotFoundError: Windows limits the total path length to 260 characters by default, so
+  a deeply nested path raises this error even though the path in the message looks
+  completely normal. This tool now switches to the extended-length form automatically, so
+  no registry edit, no admin rights and no reboot are needed. On an older build, please
+  update; as a stopgap, put the file near a drive root (e.g. D:\model\) and convert there.
+  Note that this is not a non-ASCII path problem: Chinese, Japanese, spaces and brackets
+  are all fine, and only the total length matters.
+- MMD reports "MMD can't read UTF8 encorded PMX. Please exchange it to UTF16.": MMD only
+  accepts UTF-16LE, so seeing this message means the file is actually UTF-8. Every PMX
+  written by this tool is UTF-16LE.
+- PmxEditor reports "アンカーデータの読み込みに失敗しました": that is a PmxEditor error and
+  has nothing to do with the PMX file itself. It parsed the same-named .psk next to the
+  model as its own anchor data. Just click OK and the model loads normally. To stop it
+  entirely, move the PMX to another folder or rename it, or turn off
+  [ファイル] → [アンカーデータの自動読み込み／保存] in PmxEditor.
+- Drag and drop works on Windows only; on other systems use the "Browse" button.
+- The settings file config.json stores the language / UI zoom / task direction / options
+  and is recreated with default values if deleted.
 
 Known limitations:
-- FBX structure: Only binary FBX 7.x is supported; ASCII FBX is not supported.
-- Sticker formats: DDS/KTX2/WebP will be skipped (textures degrade to solid colors).
-- Physics: PMX rigid body/joint ↔ VRM SpringBone cannot be converted to each other.
-- Material effect: .sph, .spa, and toon textures are not retained in VRM.
-- Bone names: FBX conversion retains English bone names (Hips, Spine, etc.). Directly applying ready-made MMD motions (.vmd) will not match, so they need to be batch-renamed to standard Japanese names in PMXEditor.
-You can use the PEBoneStorage plugin I developed; see:：
-https://www.bilibili.com/video/BV1MfYX6JEhE/
-https://studio.youtube.com/video/zZj-I4YgIDY/edit
-https://www.nicovideo.jp/watch/sm46811122
-- Expression: When the source model does not have BlendShape/morph, the PMX expression is also 0 and needs to be created manually.
 
-Icon Design and Testing：
+- FBX: both binary FBX 7.x and ASCII FBX can be read.
+- Textures: .dds (DXT1 / DXT3 / DXT5) decodes natively; KTX2 / WebP are not supported and
+  degrade to solid colours.
+- Physics: PMX rigid bodies / joints ↔ VRM SpringBone are not converted into each other.
+- Material effects: .sph / .spa / toon textures are not kept on the VRM side; PMX written
+  in every direction uses no Toon at all.
+- Bone names: FBX conversion keeps English bone names (Hips, Spine, …), which will not
+  match ready-made MMD motions (.vmd), so rename them in bulk to the standard Japanese
+  names in PMXEditor. You can use the PE bone-organising plugin I made:
+https://www.bilibili.com/video/BV1MfYX6JEhE/
+https://www.youtube.com/watch?v=zZj-I4YgIDY
+https://www.nicovideo.jp/watch/sm46811122
+  PSK takes a different route: the 3dsMax Biped naming (Bip001 …) is converted to the
+  standard MMD Japanese names by default, with the English original written into the
+  bone's English name field. XPS works the same way — renamed by rule, and names that
+  cannot be recognised are kept as they are.
+- Expressions: if the source model has no BlendShape / morph, the PMX has 0 expressions
+  and they must be created by hand.
+- PSK / PSKX: PMX's IK / append (inherit) / rigid bodies / joints / UV morphs / material
+  morphs have no counterpart in PSK and are always skipped; a PMX vertex holds at most 4
+  bone weights, so a source file with 5–6 loses some on a round trip. The .psk extension
+  is also used by PmxEditor for its anchor data (see above).
+- XPS / XNALara: only binary .xps is read; older plain-text variants are not supported and
+  raise a clear error. The format stores no BlendShape, so the exported PMX has 0
+  expressions.
+
+---------------------------
+
+Icon Design and Testing:
 沙拉酱、小桃子
 
 Feedback:
@@ -49,12 +108,13 @@ https://space.bilibili.com/4197121
 https://www.aplaybox.com/u/269621856
 https://x.com/SaraKale9
 
-------------------------
+---------------------------
 
 Update history:
 
+2026-10-05 v1.1.6:Fix path length limit; fix metadata files (asset.meta / pathname / preview.png) overwriting each other when unpacking a unitypackage.
 2026-10-02 v1.1.5: Added version checking and fixed some crashes after dragging into MMD after VRM→PMX conversion.
-2026-10-01 v1.1.4：Added the XPS → PMX option.
+2026-10-01 v1.1.4: Added the XPS → PMX option.
 2026-09-27 v1.1.3: Fixed the scaling issue after converting uemodel to PMX, and added an option in UE to automatically align to the reference model.
 2026-09-25 v1.1.2:Added PMX → FBX and PMX → psk/pskx options; the output files will be saved in a folder with the same name.
 2026-09-24 v1.1.1: Added the psk/pskx → PMX option and removed toon.

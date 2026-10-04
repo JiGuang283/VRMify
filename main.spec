@@ -77,7 +77,9 @@ a = Analysis(
     pathex=['.', 'formats', 'convert', 'gfx'],
     binaries=[],
     datas=[],
-    hiddenimports=['fbx2pmx', 'pmx_check', 'pmx2vrm', 'vrm2pmx', 'preview','pmx2psk','psk2pmx','unitypackage_unpack', 'fbx_reader', 'pmxio', 'vrmio','pskio','xps2pmx'
+    hiddenimports=['fbx2pmx', 'pmx_check', 'pmx2vrm', 'vrm2pmx', 'preview','pmx2psk','psk2pmx','unitypackage_unpack', 'fbx_reader', 'pmxio', 'vrmio','pskio','xps2pmx',
+                   # Windows 超长路径（MAX_PATH 260）兼容层
+                   'longpath',
                    # UEFormat（.uemodel）双向转换 + ASCII FBX 写出器
                    'uemodel2pmx', 'pmx2uemodel', 'uemodelio', 'fbxout',
                    # 解压 ZSTD 压缩体（.uemodel 运行期懒加载）

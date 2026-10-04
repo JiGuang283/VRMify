@@ -78,6 +78,7 @@ Model-to-PMX/
 ├── main.py                      # ★ GUI entry point (full implementation)
 ├── main.spec                    # ★ PyInstaller build config
 ├── config.json                  # UI settings (language / zoom / options, etc.)
+├── longpath.py                  # Windows long-path (MAX_PATH 260) compatibility layer
 │
 ├── formats/                     # Format read/write / unpack
 │   ├── fbx_reader.py            #   Binary FBX 7.x parser library
@@ -386,7 +387,15 @@ tag in the `release_tag` field to (re)upload the artifacts to that Release.
 
 1. **Paths with spaces / non-ASCII**: Always wrap them in double quotes on the command line.
 2. **Settings file `config.json`**: Stores language, UI zoom, task direction, and each option; it is recreated with defaults if deleted.
-1. **Shortcuts & interaction**: The preview area supports drag-to-rotate and scroll-to-zoom; clicking the drop area opens a file picker.
+3. **Shortcuts & interaction**: The preview area supports drag-to-rotate and scroll-to-zoom; clicking the drop area opens a file picker.
+
+### Error `FileNotFoundError: [Errno 2]` (path too long)
+
+- Windows limits a path to 260 characters (MAX_PATH) by default. A Unity package unpacks into a deep folder tree, and stacking "output dir / name_date_001 / name_extracted" on top of it overflows easily.
+  The path in the error message looks perfectly normal — it is simply **too long**. Telltale sign: it works from a shallow folder but fails from something like `F:\xxx\yyy\zzz\` on the same machine.
+- **Handled automatically**: over-long paths are switched to the Windows extended-length form (`\\?\`). No registry edit, no admin rights, no reboot.
+- On an older build, please update; as a stopgap, copy the `.unitypackage` near a drive root (e.g. `D:\conv\`) and convert there.
+- This is **not** a non-ASCII path problem: Chinese, Japanese, spaces and brackets are all fine on their own — only the total length matters.
 
 ### Model all-black / black outline / holes
 

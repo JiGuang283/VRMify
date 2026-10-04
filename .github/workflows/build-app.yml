@@ -182,6 +182,25 @@ jobs:
           # 明确指定：同名文件覆盖
           overwrite_files: true
 
+          # 下载表格放在最上面，自动生成的 changelog 追加在后面
+          append_body: false
+          body: |
+            ## DownLoad
+
+            | Platform | Architecture | File |
+            |------|------|------|
+            | **Windows** | x64 | [ModelConvert-${{ github.ref_name }}-windows-x64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ModelConvert-${{ github.ref_name }}-windows-x64.zip) |
+            | **Windows** | ARM64 | [ModelConvert-${{ github.ref_name }}-windows-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ModelConvert-${{ github.ref_name }}-windows-arm64.zip) |
+            | **macOS** | Intel (x64) | [ModelConvert-${{ github.ref_name }}-macos-x64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ModelConvert-${{ github.ref_name }}-macos-x64.zip) |
+            | **macOS** | Apple Silicon (ARM64) | [ModelConvert-${{ github.ref_name }}-macos-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ModelConvert-${{ github.ref_name }}-macos-arm64.zip) |
+            | **Linux** | x64 | [ModelConvert-${{ github.ref_name }}-linux-x64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ModelConvert-${{ github.ref_name }}-linux-x64.zip) |
+            | **Linux** | ARM64 | [ModelConvert-${{ github.ref_name }}-linux-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ModelConvert-${{ github.ref_name }}-linux-arm64.zip) |
+
+            > Windows users choose x64 (most computers), while macOS users choose ARM64 (M1/M2/M3 chips).
+            > Windows 用户选 x64（绝大多数电脑），macOS 用户选 ARM64（M1/M2/M3 芯片）。
+            > Windows 用戶選 x64（絕大多數電腦），macOS 用戶選 ARM64（M1/M2/M3 芯片）。
+            > Windows ユーザーは x64 (ほとんどのコンピュータ) を选択し、macOS ユーザーは ARM64 (M1/M2/M3 チップ) を选択します。
+
       # ========================================
       # 手动更新已有 Release
       # ========================================
@@ -201,3 +220,42 @@ jobs:
             release-artifacts/*.zip \
             --repo "${{ github.repository }}" \
             --clobber
+
+      # 新增：把手动填的 release_tag 也写进下载表格
+      - name: Update Release description
+        if: >
+          github.ref_type != 'tag' &&
+          github.event_name == 'workflow_dispatch' &&
+          inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          # 与 build job 完全一致的消毒逻辑
+          safe=$(printf '%s' "$RELEASE_TAG" \
+            | tr -c 'A-Za-z0-9._-' '-' \
+            | sed -e 's/-\{2,\}/-/g' -e 's/^[-.]*//' -e 's/[-.]*$//')
+          if [ -z "$safe" ]; then safe="build-${GITHUB_RUN_NUMBER}"; fi
+
+          cat > /tmp/body.md <<EOF
+          ## DownLoad
+
+          | Platform | Architecture | File |
+          |------|------|------|
+          | **Windows** | x64 | [ModelConvert-${safe}-windows-x64.zip](https://github.com/${REPO}/releases/download/${RELEASE_TAG}/ModelConvert-${safe}-windows-x64.zip) |
+          | **Windows** | ARM64 | [ModelConvert-${safe}-windows-arm64.zip](https://github.com/${REPO}/releases/download/${RELEASE_TAG}/ModelConvert-${safe}-windows-arm64.zip) |
+          | **macOS** | Intel (x64) | [ModelConvert-${safe}-macos-x64.zip](https://github.com/${REPO}/releases/download/${RELEASE_TAG}/ModelConvert-${safe}-macos-x64.zip) |
+          | **macOS** | Apple Silicon (ARM64) | [ModelConvert-${safe}-macos-arm64.zip](https://github.com/${REPO}/releases/download/${RELEASE_TAG}/ModelConvert-${safe}-macos-arm64.zip) |
+          | **Linux** | x64 | [ModelConvert-${safe}-linux-x64.zip](https://github.com/${REPO}/releases/download/${RELEASE_TAG}/ModelConvert-${safe}-linux-x64.zip) |
+          | **Linux** | ARM64 | [ModelConvert-${safe}-linux-arm64.zip](https://github.com/${REPO}/releases/download/${RELEASE_TAG}/ModelConvert-${safe}-linux-arm64.zip) |
+
+          > Windows: x64 (most computers) · macOS: ARM64 (M1/M2/M3)
+          > Windows：x64（绝大多数电脑） · macOS：ARM64（M1/M2/M3）
+          > Windows：x64（絕大多數電腦） · macOS：ARM64（M1/M2/M3）
+          > Windows：x64（ほとんどのコンピュータ） · macOS：ARM64（M1/M2/M3）
+          EOF
+
+          gh release edit "$RELEASE_TAG" \
+            --repo "$REPO" \
+            --notes-file /tmp/body.md

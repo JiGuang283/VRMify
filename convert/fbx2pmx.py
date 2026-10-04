@@ -868,7 +868,12 @@ def _poly_material_index(g, pvi, nmats):
 
 
 def _find_file(root, basename, limit=60000):
-    """Bounded recursive search for a file by basename under root (returns path)."""
+    """Bounded recursive search for a file by basename under root (returns path).
+
+    用 ``os.path.join(d, e.name)`` 而不是 ``e.path``：当 d 是超长路径时，
+    longpath 会给传给 scandir 的路径加 ``\\\\?\\`` 前缀，而 DirEntry.path
+    会把这个前缀带出来，泄漏到调用方。自己用 name 拼就不会。
+    """
     count = 0
     stack = [root]
     while stack:
@@ -883,9 +888,9 @@ def _find_file(root, basename, limit=60000):
             if count > limit:
                 return None
             if e.is_dir():
-                dirs.append(e.path)
+                dirs.append(os.path.join(d, e.name))
             elif e.name == basename:
-                return e.path
+                return os.path.join(d, e.name)
         stack.extend(dirs)
     return None
 

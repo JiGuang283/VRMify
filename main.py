@@ -50,6 +50,13 @@ for _sub in ("formats", "convert", "gfx"):
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 
+# Windows 超长路径（MAX_PATH 260）兼容层。必须在其他模块 import 之前装上：
+# 它会替换 builtins.open / os.* / shutil.*，让超过 260 字符的路径自动走
+# \\?\ 扩展长度形式。短路径原样透传，对现有用户零影响。
+# 没有这行的话，Unity 资源包解出的深层目录树会报
+# FileNotFoundError: [Errno 2]（路径看着完全正常，极难排查）。
+import longpath  # noqa: F401  (导入即生效)
+
 import fbx2pmx
 import fbxout
 import pmx2psk
@@ -73,9 +80,9 @@ except Exception:                                   # pragma: no cover
 
 # ------------------------------------------------------------------- 版本 --
 # 版本号的唯一来源：界面显示、检查更新、Windows exe 的版本资源都从这里取。
-# 发版时把 tag 打成 v<__version__>（例如 v1.1.5），「检查更新」就是拿 tag 来比大小。
-# 当前值 = 已发布的最新 tag（v1.1.4）；下次发版前记得把它 +1。
-__version__ = "1.1.5"
+# 发版时把 tag 打成 v<__version__>（例如 v1.1.6），「检查更新」就是拿 tag 来比大小。
+# 当前值 = 已发布的最新 tag（v1.1.5）；下次发版前记得把它 +1。
+__version__ = "1.1.6"
 
 # 检查更新：主用 GitHub，连不上时自动改用 Gitee（国内直连 GitHub 常常不通）
 GH_REPO = "SaraKale/Model-To-PMX"
@@ -227,7 +234,7 @@ KIND_LABEL = {"fbx": "FBX", "unitypackage": "Unity", "vrm": "VRM", "pmx": "PMX",
 LANG = {
     "zh_CN": {
         "app_title": "模型转换器 · FBX / VRM / PMX / PSK / XPS",
-        "subtitle": "FBX / unitypackage / VRM / PMX / uemodel / PSK / XPS 互转 · 纯 Python，不需要 Blender / FBX SDK / Unity",
+        "subtitle": "将各类模型文件转换为PMX文件",
         "zoom_label": "界面缩放",
         "lang_label": "语言",
         # 拖放区两行文案：第一行是主提示（含点击说明），第二行只列格式。
@@ -404,7 +411,7 @@ LANG = {
     },
     "zh_TW": {
         "app_title": "模型轉換器 · FBX / VRM / PMX / PSK / XPS",
-        "subtitle": "FBX / unitypackage / VRM / PMX / uemodel / PSK / XPS 互轉 · 純 Python，不需要 Blender / FBX SDK / Unity",
+        "subtitle": "將各類模型文件轉換為PMX文件",
         "zoom_label": "介面縮放",
         "lang_label": "語言",
         "drop_hint": "把模型檔案拖到這裡，也可以點擊此區域選擇檔案",
@@ -578,7 +585,7 @@ LANG = {
     },
     "en": {
         "app_title": "Model Converter · FBX / VRM / PMX / PSK / XPS",
-        "subtitle": "FBX / unitypackage / VRM / PMX / uemodel / PSK / XPS conversion · Pure Python, no Blender / FBX SDK / Unity",
+        "subtitle": "Convert various model files into PMX files.",
         "zoom_label": "UI scale",
         "lang_label": "Language",
         "drop_hint": "Drop model files here, or click to pick files",
@@ -752,7 +759,7 @@ LANG = {
     },
     "ja": {
         "app_title": "モデル変換 · FBX / VRM / PMX / PSK / XPS",
-        "subtitle": "FBX / unitypackage / VRM / PMX / uemodel / PSK / XPS 相互変換 · 純 Python、Blender / FBX SDK / Unity 不要",
+        "subtitle": "各種モデルファイルをPMXファイルに変換します。",
         "zoom_label": "表示倍率",
         "lang_label": "言語",
         "drop_hint": "ここにモデルをドロップ（クリックでも可）",
