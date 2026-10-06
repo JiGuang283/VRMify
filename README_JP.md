@@ -272,7 +272,9 @@ UV 領域のサンプリング（最大 4000 点）と画像全体の統計が�
 UV が取れない場合は画像全体の 90% / 1% にフォールバック。判定の明細（テクスチャ名 → strip / keep ＋ 透明・不透明の割合）はログに出力されます。
 
 `pmx2vrm.py`：`--spec 1.0|0x`、`--scale auto|倍率`、`--rotate auto|none|y180`、
-`--flip-winding`、`--force-double-sided`、`--max-morphs N`、`--title` / `--author`。
+`--flip-winding`、`--force-double-sided`、`--keep-pose`（A ポーズのまま出力。既定は T ポーズに変換）、
+`--outline`（PMX のエッジ設定から MToon の輪郭線を出力）、`--dense-morphs`（モーフを密に格納。既定は疎）、
+`--max-morphs N`、`--title` / `--author`。
 
 `vrm2pmx.py`：`--scale`、`--rotate`、`--flip-winding`、`--edge`（輪郭線を有効化）、
 `--force-double-sided`、`--name`。

@@ -266,7 +266,9 @@ the UV-area sampling (up to 4000 points) and whole-image statistics must corrobo
 With no usable UV it falls back to 90% / 1% over the whole image. Per-texture verdicts (name → strip / keep plus the transparent and opaque ratios) are written to the log.
 
 `pmx2vrm.py`: `--spec 1.0|0x`, `--scale auto|factor`, `--rotate auto|none|y180`,
-`--flip-winding`, `--force-double-sided`, `--max-morphs N`, `--title` / `--author`.
+`--flip-winding`, `--force-double-sided`, `--keep-pose` (keep the A-pose instead of the default T-pose),
+`--outline` (MToon outlines from the PMX edge settings), `--dense-morphs` (dense instead of sparse morph targets),
+`--max-morphs N`, `--title` / `--author`.
 
 `vrm2pmx.py`: `--scale`, `--rotate`, `--flip-winding`, `--edge` (enable outline),
 `--force-double-sided`, `--name`.

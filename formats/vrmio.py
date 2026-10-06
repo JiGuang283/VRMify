@@ -77,6 +77,31 @@ class GLBBuilder:
         self.accessors.append(acc)
         return len(self.accessors) - 1
 
+    def add_sparse_accessor(self, count, indices, values, type_str):
+        """稀疏 FLOAT accessor：没列出的元素一律为 0。
+
+        indices: 非零元素的下标（升序）；values: 对应的展平值。
+        用于 morph target——大多数表情只动几百个顶点，密集存储
+        每个表情都要「顶点数 × 12 字节」，稀疏存储只存动到的那些。
+        glTF 要求 sparse.count ≥ 1，全零的 target 也写 1 个零元素。
+        POSITION 类 accessor 必须带 min/max，按「含隐式 0」的全集计算。
+        """
+        n = _TYPE_COUNT[type_str]
+        if not indices:
+            indices, values = [0], [0.0] * n
+        ib = self.add_bytes(struct.pack("<%dI" % len(indices), *indices))
+        vb = self.add_bytes(struct.pack("<%df" % len(values), *values))
+        lo = [min([0.0] + values[i::n]) for i in range(n)]
+        hi = [max([0.0] + values[i::n]) for i in range(n)]
+        self.accessors.append({
+            "componentType": FLOAT, "count": count, "type": type_str,
+            "min": lo, "max": hi,
+            "sparse": {"count": len(indices),
+                       "indices": {"bufferView": ib,
+                                   "componentType": UNSIGNED_INT},
+                       "values": {"bufferView": vb}}})
+        return len(self.accessors) - 1
+
     # -- image / texture
     def add_image(self, data, mime):
         bv = self.add_bytes(data)
@@ -581,6 +606,123 @@ def decode_image(data):
         except Exception:
             return None
     return None
+
+
+def png_alpha_stats(data, max_rows=512):
+    """统计 PNG 的透明度分布，用来决定材质的 alphaMode。
+
+    返回 (采样像素数, 透明像素数 a<250, 半透明像素数 10<a<245)；
+    图片没有 alpha（RGB / 灰度 / 无 tRNS 的调色板 / JPEG）返回 None。
+    只解 alpha 通道：PNG 的行滤波按「同一通道的左边/上边字节」做，
+    alpha 字节只依赖 alpha 字节，不必把 RGB 也算一遍。
+    大图只抽约 max_rows 行（从最近的「不依赖上一行」的行开始连续解到目标行），
+    纯 Python 也能在一两秒内处理 2048² 的贴图。
+    """
+    if not data or data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    p = 8
+    idat = []
+    w = h = bd = ct = il = 0
+    trns = None
+    while p + 8 <= len(data):
+        ln, ty = struct.unpack(">I4s", data[p:p + 8])
+        body = data[p + 8:p + 8 + ln]
+        p += 12 + ln
+        if ty == b"IHDR":
+            w, h, bd, ct, _, _, il = struct.unpack(">IIBBBBB", body[:13])
+        elif ty == b"IDAT":
+            idat.append(body)
+        elif ty == b"tRNS":
+            trns = body
+        elif ty == b"IEND":
+            break
+    if ct == 3:
+        if not trns:
+            return None
+        lut = bytes(trns) + b"\xff" * (256 - len(trns))
+    elif ct not in (4, 6):
+        return None                                # tRNS 色键这种少见情况忽略
+    if il or bd not in (8, 16) and ct != 3:
+        return (1, 1, 1)                           # 隔行/罕见位深：保守地当半透明
+    try:
+        raw = zlib.decompress(b"".join(idat))
+    except zlib.error:
+        return (1, 1, 1)
+    if ct == 3:
+        if bd != 8:
+            return (1, 1, 1)
+        bpp, aoff = 1, 0
+    else:
+        ch = 4 if ct == 6 else 2
+        bpp = ch * (bd // 8)
+        aoff = bpp - (bd // 8)                     # 16 位取 alpha 的高字节
+    stride = w * bpp
+    if len(raw) < h * (stride + 1):
+        return (1, 1, 1)
+    step = max(1, h // max_rows)
+    filt = [raw[y * (stride + 1)] for y in range(h)]
+
+    def unfilter(y, prev):
+        """只还原第 y 行 alpha（调色板图还原索引），prev 为上一行结果或 None。"""
+        base = y * (stride + 1) + 1
+        src = raw[base + aoff:base + stride:bpp]
+        f = filt[y]
+        if f == 0:
+            return bytearray(src)
+        out = bytearray(len(src))
+        if f == 1:
+            a = 0
+            for x, v in enumerate(src):
+                a = (v + a) & 255
+                out[x] = a
+            return out
+        up = prev if prev is not None else bytes(len(src))
+        if f == 2:
+            for x, v in enumerate(src):
+                out[x] = (v + up[x]) & 255
+            return out
+        a = c = 0
+        for x, v in enumerate(src):
+            b = up[x]
+            if f == 3:
+                a = (v + ((a + b) >> 1)) & 255
+            else:
+                pa = b - c
+                pb = a - c
+                pc = abs(pa + pb)
+                pa = abs(pa)
+                pb = abs(pb)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                a = (v + pr) & 255
+            out[x] = a
+            c = b
+        return out
+
+    n = trans = mid = 0
+    last_y, last_row = -1, None
+    for t in range(0, h, step):
+        if last_y >= 0 and t - last_y <= step:
+            y, prev = last_y + 1, last_row
+        else:
+            y = t
+            while y > 0 and filt[y] > 1 and y > last_y + 1:
+                y -= 1
+            prev = last_row if y == last_y + 1 else None
+        row = prev
+        while y <= t:
+            row = unfilter(y, prev)
+            prev = row
+            y += 1
+        last_y, last_row = t, row
+        if ct == 3:
+            row = row.translate(lut)
+        n += len(row)
+        for v in row:
+            if v < 250:
+                trans += 1
+                if 10 < v < 245:
+                    mid += 1
+    return (n, trans, mid)
 
 
 def load_texture(path):

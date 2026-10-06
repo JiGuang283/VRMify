@@ -257,7 +257,9 @@ python formats/pmxio.py "model.pmx" --in-place    # 直接覆蓋（建議先備�
 拿不到 UV 時退回整圖的 90% / 1%。判定的明細（貼圖名稱 → strip / keep + 透明與實心占比）會打進日誌。
 
 `pmx2vrm.py`：`--spec 1.0|0x`、`--scale auto|倍率`、`--rotate auto|none|y180`、
-`--flip-winding`、`--force-double-sided`、`--max-morphs N`、`--title` / `--author`。
+`--flip-winding`、`--force-double-sided`、`--keep-pose`（保留 A-pose，預設轉成 T-pose）、
+`--outline`（依 PMX 輪廓線設定寫入 MToon 描邊）、`--dense-morphs`（表情改用密集儲存，預設稀疏）、
+`--max-morphs N`、`--title` / `--author`。
 
 `vrm2pmx.py`：`--scale`、`--rotate`、`--flip-winding`、`--edge`（開啟輪廓線）、
 `--force-double-sided`、`--name`。
