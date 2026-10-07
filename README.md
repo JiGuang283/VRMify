@@ -64,10 +64,13 @@ pip install pywebview        # optional: native window + drag & drop; otherwise 
 python ui/app.py
 ```
 
-- Left: add files / folders (PMX, VRM, FBX, unitypackage, uemodel, psk, xps), set the VRM version, physics, expressions …
+- Left: add files / folders (PMX, VRM, zip archives, FBX, unitypackage, uemodel, psk, xps), set the VRM version, physics, expressions …
   and click "Start conversion". Non-PMX formats go through PMX to VRM by default; the Inputs tab can stop at PMX.
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
   after conversion the real output is shown.
+- **Zip packages from model sites can be added directly**: they are extracted to a temp folder, the PMX inside is converted
+  (other formats if there is no PMX) and the output goes next to the archive. Legacy GBK / Shift-JIS (even mixed) file names
+  are restored, so textures resolve.
 - Chinese / English UI; settings are saved to `settings.json`.
 - In a plain browser dropped files have no path — use "Add files". The app exits a minute after the page is closed.
 

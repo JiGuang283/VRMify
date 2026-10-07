@@ -64,9 +64,11 @@ pip install pywebview        # 可选：独立窗口 + 拖放文件；不装就�
 python ui/app.py
 ```
 
-- 左侧：添加文件 / 文件夹（PMX、VRM、FBX、unitypackage、uemodel、psk、xps），设置 VRM 版本、物理、表情等，
+- 左侧：添加文件 / 文件夹（PMX、VRM、zip 压缩包、FBX、unitypackage、uemodel、psk、xps），设置 VRM 版本、物理、表情等，
   点「开始转换」。非 PMX 的格式默认先转 PMX 再转 VRM，也可以在「输入格式」里选只转 PMX。
 - 右侧：three-vrm 预览。还没转换的文件点「预览」会先在后台快速转一份临时 VRM；转换完成后显示实际输出。
+- **模型网站下载的 zip 整包可以直接加**：在临时目录解压，转换里面的 PMX（没有 PMX 时转其它格式），输出放在压缩包旁边。
+  文件名是 GBK / Shift-JIS（甚至混用）的老压缩包也能正确还原，贴图不会丢。
 - 界面支持中文 / English，设置保存在 `settings.json`。
 - 用系统浏览器时拿不到拖入文件的路径，请用「添加文件」按钮；页面关掉一分钟后程序自动退出。
 

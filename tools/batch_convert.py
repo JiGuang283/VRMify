@@ -19,7 +19,6 @@ import argparse
 import glob
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -28,38 +27,10 @@ import zipfile
 from concurrent.futures import ProcessPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GAMES = {"崩坏：星穹铁道": "星穹铁道"}          # 下载站的游戏名 → 文件夹里用的简称
+sys.path[:0] = [os.path.join(ROOT, "convert"), os.path.join(ROOT, "formats")]
+import pipeline  # noqa: E402
 
-
-def char_name(folder):
-    """角色文件夹名 → 输出用的角色名。"""
-    name, sep, rest = folder.partition("_by_")
-    if not sep:
-        return folder
-    game = rest.rsplit("_", 1)[0]
-    game = GAMES.get(game, game)
-    name = name.strip("【】")
-    m = re.search(r"[（(][^（(]*$", name)          # 「(修模绑骨后)」之类的说明；「（星）」保留
-    if m and re.search(r"修|绑|更新|版", m.group()):
-        name = name[:m.start()]
-    name = re.sub(r"\d+(\.\d+)*$", "", name)      # 结尾的版本号
-    for pre in (game + "—", game + "_"):
-        if name.startswith(pre):
-            name = name[len(pre):]
-    return game + "—" + name.strip("_— ")
-
-
-def zip_members(zf):
-    """zip 成员 → (ZipInfo, 解码后的文件名)。没设 UTF-8 标志的按 cp932 / gbk 依次试。"""
-    for info in zf.infolist():
-        raw = (info.filename.encode("utf-8") if info.flag_bits & 0x800
-               else info.filename.encode("cp437"))
-        for enc in ("utf-8", "cp932", "gbk"):
-            try:
-                yield info, raw.decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
+char_name = pipeline.nice_name                   # 角色文件夹名 → 输出用的角色名
 
 
 def collect(model_dir, extract_dir, only=None):
@@ -81,8 +52,8 @@ def collect(model_dir, extract_dir, only=None):
         copy = os.path.join(extract_dir, folder)
         for z in zips:
             with zipfile.ZipFile(z) as zf:
-                for info, name in zip_members(zf):
-                    base = os.path.basename(name)
+                for info, names in pipeline.zip_members(zf):
+                    base = os.path.basename(names[0])
                     if not base.lower().endswith(".pmx") or base in have:
                         continue
                     if not os.path.isdir(copy):
