@@ -128,3 +128,36 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: #000c; color: #fff; padding: 6px 14px;
   border-radius: 8px; font-size: 12px; opacity: 0; transition: opacity .3s; pointer-events: none; max-width: 80vw; }
 .toast.show { opacity: 1; }
+
+/* metadata tab / texture hint */
+.hint.flush { margin-left: 0; }
+.hint.warn { color: var(--warn); }
+.tab-body[data-panel=meta] .field > label { width: 80px; }
+
+/* tune panel */
+.panel.wide { width: 340px; }
+.tune-body { overflow-y: auto; flex: 1; min-height: 0; margin: 0 -4px; padding: 0 4px; }
+.tune-body h3 { display: flex; align-items: center; gap: 6px; margin: 12px 0 4px; }
+.tune-body h3:first-child { margin-top: 2px; }
+.tune-body h3 .btn { margin-left: auto; }
+.tune-body .field > label { width: 96px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tune-body select { flex: 1; min-width: 0; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; font: inherit; }
+.tune-body select.changed, .tune-body input.changed { border-color: var(--accent); }
+.tune-msg { color: var(--muted); padding: 12px 2px; }
+.thumb-row { display: flex; align-items: center; gap: 8px; }
+.thumb-row img, .thumb-row .noimg { width: 64px; height: 64px; border-radius: 6px; border: 1px solid var(--line); object-fit: cover; flex: none;
+  display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; }
+.thumb-row .col { display: flex; flex-direction: column; gap: 4px; }
+.chain { border-top: 1px solid var(--line); padding: 4px 0; }
+.chain .switch { margin: 2px 0; }
+.chain .switch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain .field { margin: 2px 0 2px 22px; }
+.chain .field > label { width: 40px; color: var(--muted); }
+.chain.off .field { display: none; }
+.chain-list { margin-top: 4px; }
+.tune-foot { display: flex; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); margin-top: 6px; }
+.tune-foot .muted { flex: 1; color: var(--muted); font-size: 12px; }
+.chip.tuned { background: var(--accent-soft); color: var(--accent); }
+.mini { background: none; border: 1px solid var(--line); border-radius: 5px; cursor: pointer; padding: 0 5px; font-size: 11px; color: var(--muted); }
+.mini:hover { color: var(--text); background: var(--hover); }
+.tune-foot .btn.primary { padding: 2px 10px; font-weight: 600; }

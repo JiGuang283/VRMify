@@ -44,6 +44,7 @@
         <div class="tabs" id="tabs">
           <button data-tab="vrm" class="on" data-i18n="tabVrm"></button>
           <button data-tab="input" data-i18n="tabInput"></button>
+          <button data-tab="meta" data-i18n="tabMeta"></button>
           <button data-tab="output" data-i18n="tabOutput"></button>
         </div>
       </div>
@@ -66,6 +67,49 @@
         <label class="switch"><input type="checkbox" data-opt="vrm.outline"><span data-i18n="outline"></span></label>
         <label class="switch"><input type="checkbox" data-opt="vrm.keep_pose"><span data-i18n="keepPose"></span></label>
         <label class="switch"><input type="checkbox" data-opt="vrm.double_sided"><span data-i18n="doubleSided"></span></label>
+        <h3 data-i18n="texTitle"></h3>
+        <div class="field">
+          <label data-i18n="texMax"></label>
+          <div class="seg" data-opt="vrm.tex_max">
+            <button data-v="0" data-i18n="texOrig"></button><button data-v="4096">4096</button><button data-v="2048">2048</button><button data-v="1024">1024</button>
+          </div>
+        </div>
+        <label class="switch"><input type="checkbox" data-opt="vrm.tex_jpeg"><span data-i18n="texJpeg"></span></label>
+        <div class="hint" id="texHint"></div>
+      </div>
+
+      <div class="tab-body" data-panel="meta" hidden>
+        <div class="hint flush" data-i18n="metaHint"></div>
+        <div class="field"><label data-i18n="metaAuthor"></label><input type="text" class="input" data-opt="meta.author"></div>
+        <div class="field"><label data-i18n="metaVersion"></label><input type="text" class="input" data-opt="meta.version" placeholder="1"></div>
+        <div class="field"><label data-i18n="metaContact"></label><input type="text" class="input" data-opt="meta.contact"></div>
+        <div class="field"><label data-i18n="metaCopyright"></label><input type="text" class="input" data-opt="meta.copyright"></div>
+        <div class="field"><label data-i18n="metaLicense"></label><input type="text" class="input" data-opt="meta.license_url" placeholder="https://vrm.dev/licenses/1.0/"></div>
+        <div class="field">
+          <label data-i18n="metaAvatar"></label>
+          <div class="seg" data-opt="meta.avatar_permission">
+            <button data-v="everyone" data-i18n="permEveryone"></button><button data-v="onlySeparatelyLicensedPerson" data-i18n="permLicensed"></button><button data-v="onlyAuthor" data-i18n="permAuthor"></button>
+          </div>
+        </div>
+        <div class="field">
+          <label data-i18n="metaCommercial"></label>
+          <div class="seg" data-opt="meta.commercial_usage">
+            <button data-v="personalNonProfit" data-i18n="comNone"></button><button data-v="personalProfit" data-i18n="comPersonal"></button><button data-v="corporation" data-i18n="comCorp"></button>
+          </div>
+        </div>
+        <div class="field">
+          <label data-i18n="metaMod"></label>
+          <div class="seg" data-opt="meta.modification">
+            <button data-v="prohibited" data-i18n="modNo"></button><button data-v="allowModification" data-i18n="modYes"></button><button data-v="allowModificationRedistribution" data-i18n="modRedist"></button>
+          </div>
+        </div>
+        <div class="field">
+          <label data-i18n="metaCredit"></label>
+          <div class="seg" data-opt="meta.credit_notation">
+            <button data-v="required" data-i18n="creditYes"></button><button data-v="unnecessary" data-i18n="creditNo"></button>
+          </div>
+        </div>
+        <label class="switch"><input type="checkbox" data-opt="meta.allow_redistribution"><span data-i18n="metaRedist"></span></label>
       </div>
 
       <div class="tab-body" data-panel="input" hidden>
@@ -154,6 +198,7 @@
       <span class="spacer"></span>
       <button class="btn small" id="lightBtn" data-i18n="light"></button>
       <button class="btn small" id="exprBtn" data-i18n="expressions"></button>
+      <button class="btn small" id="tuneBtn" data-i18n="tune"></button>
       <button class="btn small" id="infoBtn" data-i18n="info"></button>
       <button class="btn small" id="shotBtn" data-i18n="shot"></button>
     </div>
@@ -174,6 +219,14 @@
         <div id="exprList" class="expr-list"></div>
       </div>
       <div class="panel" id="infoPanel" hidden><dl id="infoList" class="info"></dl></div>
+      <div class="panel tall wide" id="tunePanel" hidden>
+        <div class="tune-body" id="tuneBody"></div>
+        <div class="tune-foot" id="tuneFoot">
+          <span id="tuneState" class="muted"></span>
+          <button id="tuneReset" class="btn small" data-i18n="tuneReset"></button>
+          <button id="tuneSave" class="btn small primary" data-i18n="tuneSave"></button>
+        </div>
+      </div>
     </div>
   </main>
 </div>

@@ -3,7 +3,7 @@ import { STRINGS } from './i18n.js';
 import { Viewer } from '/viewer/viewer-core.js';
 
 const $ = (id) => document.getElementById(id);
-const S = { files: [], opts: {}, lang: 'zh_CN', busy: false, seq: 0, native: false, current: null, logErrors: 0, pending: null };
+const S = { files: [], opts: {}, lang: 'zh_CN', busy: false, seq: 0, native: false, current: null, logErrors: 0, pending: null, features: {} };
 
 // ---------------------------------------------------------------- i18n --
 function t(key, args) {
@@ -17,7 +17,8 @@ function applyLang() {
   document.querySelectorAll('[data-i18n-ph]').forEach((e) => { e.placeholder = t(e.dataset.i18nPh); });
   document.querySelectorAll('[data-lang]').forEach((b) => b.classList.toggle('on', b.dataset.lang === S.lang));
   $('fileList').dataset.empty = t('empty');
-  renderFiles(); renderStatus(); renderOutFolder();
+  renderFiles(); renderStatus(); renderOutFolder(); syncDependents();
+  if (!$('tunePanel').hidden) renderTune();
 }
 
 // ----------------------------------------------------------------- api --
@@ -29,7 +30,7 @@ function toast(s) { const e = $('toast'); e.textContent = s; e.classList.add('sh
 
 async function loadState() {
   const st = await api('/api/state');
-  Object.assign(S, { files: st.files, opts: st.opts, lang: st.lang, busy: st.busy, seq: st.seq, native: st.native });
+  Object.assign(S, { files: st.files, opts: st.opts, lang: st.lang, busy: st.busy, seq: st.seq, native: st.native, features: st.features || {} });
   applyOptsToForm();
   applyLang();
 }
@@ -61,7 +62,7 @@ function handleEvent(ev) {
   else if (ev.type === 'preview_busy') { if (ev.file === S.current) showBusy(t('pvMaking')); }
   else if (ev.type === 'preview') {
     if (ev.file !== S.current) return;
-    if (ev.error) { showBusy(null); toast(t('pvFailed', { err: ev.error })); } else loadModel(ev.url, ev.name);
+    if (ev.error) { showBusy(null); toast(t('pvFailed', { err: ev.error })); } else { loadModel(ev.url, ev.name); loadTune(); }
   }
 }
 
@@ -74,7 +75,7 @@ function renderFiles() {
     const li = document.createElement('li');
     li.className = 'file' + (f.id === S.current ? ' current' : '');
     li.innerHTML = `<div class="row1"><span class="kind">${f.kind}</span><span class="name" title="${esc(f.path)}">${esc(f.name)}</span>
-      <span class="chip ${f.status}">${t('st_' + f.status)}</span>
+      ${f.tuned ? `<span class="chip tuned" title="${t('tuned')}">✎</span>` : ''}<span class="chip ${f.status}">${t('st_' + f.status)}</span>
       <button class="icon" data-act="preview" title="${t('preview')}">👁</button>
       <button class="icon" data-act="reveal" title="${t('reveal')}">📂</button>
       <button class="icon" data-act="remove" title="${t('remove')}">✕</button></div>`;
@@ -90,7 +91,7 @@ function renderFiles() {
       else if (act === 'reveal') api('/api/open', { path: f.outputs.length ? f.outputs[f.outputs.length - 1].path : f.path });
       else if (out !== undefined) {
         const o = f.outputs[+out];
-        if (o.url) { S.current = f.id; renderFiles(); loadModel(o.url, o.name); } else api('/api/open', { path: o.path });
+        if (o.url) { S.current = f.id; renderFiles(); loadModel(o.url, o.name); loadTune(); } else api('/api/open', { path: o.path });
       } else previewFile(f.id);
     });
     ul.append(li);
@@ -132,6 +133,7 @@ function applyOptsToForm() {
     const v = getOpt(el.dataset.opt);
     if (el.classList.contains('seg')) el.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === String(v)));
     else if (el.type === 'checkbox') el.checked = !!v;
+    else if (el.type === 'text') { if (document.activeElement !== el) el.value = v ?? ''; }
     else if (el.type === 'range') { el.value = v; const o = document.querySelector(`output[data-for="${el.dataset.opt}"]`); if (o) o.textContent = (+v).toFixed(1); }
   });
   syncDependents();
@@ -143,6 +145,13 @@ function syncDependents() {
     el.closest('.switch, .field').style.opacity = el.disabled ? 0.45 : 1;
   });
   $('chooseOut').disabled = getOpt('output.mode') !== 'folder';
+  // texture slimming needs Pillow on the Python side
+  const pil = S.features.pillow !== false;
+  document.querySelectorAll('[data-opt="vrm.tex_max"] button, [data-opt="vrm.tex_jpeg"]').forEach((el) => { el.disabled = !pil; });
+  document.querySelector('[data-opt="vrm.tex_max"]').closest('.field').style.opacity = pil ? 1 : 0.45;
+  document.querySelector('[data-opt="vrm.tex_jpeg"]').closest('.switch').style.opacity = pil ? 1 : 0.45;
+  $('texHint').textContent = t(pil ? 'texHint' : 'noPillow');
+  $('texHint').classList.toggle('warn', !pil);
   renderOutFolder();
 }
 function renderOutFolder() {
@@ -160,7 +169,7 @@ document.querySelectorAll('[data-opt]').forEach((el) => {
       setOpt(el.dataset.opt, b.dataset.v); applyOptsToForm(); saveOpts();
     });
   } else el.addEventListener('input', () => {
-    setOpt(el.dataset.opt, el.type === 'checkbox' ? el.checked : +el.value);
+    setOpt(el.dataset.opt, el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value.trim() : +el.value);
     applyOptsToForm(); saveOpts();
   });
 });
@@ -209,19 +218,26 @@ $('clearLog').onclick = () => { $('log').innerHTML = ''; S.logErrors = 0; render
 
 // ------------------------------------------------------------- preview --
 const viewer = new Viewer($('pv'));
-viewer.onLoad = (info) => { fillPreviewPanels(info); viewer.frame(document.querySelector('[data-frame].on').dataset.frame); };
+viewer.onLoad = (info) => {
+  fillPreviewPanels(info);
+  // reload after saving tune edits keeps the camera
+  if (S.keepView) { viewer.camera.position.copy(S.keepView.pos); viewer.controls.target.copy(S.keepView.tgt); viewer.controls.update(); S.keepView = null; }
+  else viewer.frame(document.querySelector('[data-frame].on').dataset.frame);
+  if (T.fid === S.current && T.info && T.info.ready && T.dirty) viewer.setSpringParams(springParams());
+};
 let modelUrl = null;
 
 function showBusy(text) { $('pvBusy').hidden = !text; $('pvBusyText').textContent = text || ''; }
 async function previewFile(id) {
-  S.current = id; renderFiles();
+  S.current = id; renderFiles(); loadTune();
   const r = await api('/api/preview', { id });
   if (r.url) loadModel(r.url, r.name);
   else if (r.pending) showBusy(t('pvMaking'));
   else if (r.error) toast(r.error);
 }
-async function loadModel(url, name) {
+async function loadModel(url, name, keepView) {
   showBusy(t('pvLoading'));
+  S.keepView = keepView && viewer.vrm ? { pos: viewer.camera.position.clone(), tgt: viewer.controls.target.clone() } : null;
   try {
     await viewer.loadUrl(url, name);
     modelUrl = url;
@@ -267,11 +283,12 @@ $('pvSpring').addEventListener('change', () => viewer.setSpring($('pvSpring').ch
 function panelToggle(btn, panel) {
   $(btn).onclick = () => {
     const open = $(panel).hidden;
-    ['lightPanel', 'exprPanel', 'infoPanel'].forEach((p) => { $(p).hidden = true; });
+    ['lightPanel', 'exprPanel', 'infoPanel', 'tunePanel'].forEach((p) => { $(p).hidden = true; });
     $(panel).hidden = !open;
+    if (open && panel === 'tunePanel') loadTune();
   };
 }
-panelToggle('lightBtn', 'lightPanel'); panelToggle('exprBtn', 'exprPanel'); panelToggle('infoBtn', 'infoPanel');
+panelToggle('lightBtn', 'lightPanel'); panelToggle('exprBtn', 'exprPanel'); panelToggle('infoBtn', 'infoPanel'); panelToggle('tuneBtn', 'tunePanel');
 function updateLight() {
   viewer.setLight({ az: +$('lAz').value, el: +$('lEl').value, intensity: +$('lI').value, ambient: +$('lAmb').value, shadow: $('lShadow').checked });
   $('lAzV').textContent = $('lAz').value + '°'; $('lElV').textContent = $('lEl').value + '°';
@@ -285,7 +302,176 @@ $('shotBtn').onclick = async () => {
   if (r.path) toast(t('saved', { path: r.path }));
 };
 
+// ---------------------------------------------------------------- tune --
+// Per-model adjustments written into the converted VRM (convert/vrm_edit.py): name, thumbnail,
+// which expression drives each VRM preset, SpringBone multipliers. Physics changes preview live.
+const T = { fid: null, info: null, edits: {}, dirty: false };
+const MAIN_PRESETS = {
+  '1.0': ['happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral', 'aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight'],
+  '0.x': ['joy', 'angry', 'sorrow', 'fun', 'neutral', 'a', 'i', 'u', 'e', 'o', 'blink', 'blink_l', 'blink_r'],
+};
+// three-vrm loads VRM 0.x presets under their 1.0 names
+const V0_TO_V1 = { a: 'aa', i: 'ih', u: 'ou', e: 'ee', o: 'oh', joy: 'happy', sorrow: 'sad', fun: 'relaxed', blink_l: 'blinkLeft', blink_r: 'blinkRight' };
+const presetLabel = (p) => ((STRINGS[S.lang] || STRINGS.zh_CN).preset || {})[p] || p;
+const clone = (o) => JSON.parse(JSON.stringify(o || {}));
+const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+
+async function loadTune() {
+  if ($('tunePanel').hidden) return;
+  const fid = S.current;
+  if (!fid) { T.fid = null; T.info = null; renderTune(); return; }
+  const r = await api('/api/tune', { id: fid });
+  if (fid !== S.current) return;
+  T.fid = fid; T.info = r; T.edits = clone(r.edits); delete T.edits.thumbnail; T.dirty = false;
+  renderTune();
+}
+
+function assigned(p, edits) {
+  const e = (edits || T.edits).expressions || {};
+  return p in e ? e[p] : (T.info.assign[p] || '');
+}
+
+// name of a source expression in the currently loaded (saved) model, for the "Try" button
+function exprNameInModel(sid) {
+  const saved = clone(T.info.edits);
+  const is1 = T.info.spec === '1.0';
+  for (const p of T.info.presets) if (assigned(p, saved) === sid) return is1 ? p : (V0_TO_V1[p] || p);
+  return sid.startsWith('@') ? 'orig_' + sid.slice(1) : sid;
+}
+
+function springParams() {
+  const sp = T.edits.spring || {}, gs = num(sp.stiffness, 1), gd = num(sp.drag, 1), gg = num(sp.gravity, 0), ch = sp.chains || {};
+  const out = [];
+  for (const c of T.info.springs || []) {
+    const e = ch[c.key] || {}, cs = num(e.stiffness, 1), cg = num(e.gravity, 0);
+    for (const j of c.joints) out.push({ node: j.node, enabled: !e.off,
+      stiffness: Math.max(0, j.stiffness * gs * cs), gravityPower: Math.max(0, j.gravityPower + gg + cg),
+      dragForce: Math.min(1, Math.max(0, j.dragForce * gd)) });
+  }
+  return out;
+}
+
+function markDirty() {
+  T.dirty = true;
+  $('tuneState').textContent = t('tuneDirty');
+  $('tuneSave').disabled = false;
+}
+
+function slider(label, val, min, max, step, onInput, fmt) {
+  const d = document.createElement('div'); d.className = 'field';
+  d.innerHTML = `<label>${esc(label)}</label><input type="range" min="${min}" max="${max}" step="${step}" value="${val}"><output>${fmt(val)}</output>`;
+  const inp = d.querySelector('input'), o = d.querySelector('output');
+  inp.addEventListener('input', () => { o.textContent = fmt(inp.value); onInput(+inp.value); });
+  return d;
+}
+const fmtMul = (v) => '×' + (+v).toFixed(2), fmtAdd = (v) => '+' + (+v).toFixed(2);
+
+function renderTune() {
+  const body = $('tuneBody'); body.innerHTML = '';
+  const msg = (text) => { body.innerHTML = `<div class="tune-msg">${esc(text)}</div>`; $('tuneFoot').hidden = true; };
+  if (!T.info || T.fid !== S.current) return msg(t('tuneNoFile'));
+  if (T.info.error) return msg(T.info.error);
+  if (T.info.editable === false) return msg(t('tuneNotEditable'));
+  if (!T.info.ready) return msg(t('tuneNotReady'));
+  $('tuneFoot').hidden = false;
+  $('tuneState').textContent = T.dirty ? t('tuneDirty') : t('tuneClean');
+  $('tuneSave').disabled = !T.dirty;
+  const h3 = (k) => { const h = document.createElement('h3'); h.textContent = t(k); body.append(h); return h; };
+
+  // name
+  h3('tuneTitle');
+  const nf = document.createElement('div'); nf.className = 'field';
+  nf.innerHTML = `<input type="text" class="input" placeholder="${esc(T.info.title || '')}" value="${esc(T.edits.title || '')}">`;
+  nf.querySelector('input').addEventListener('input', (e) => { T.edits.title = e.target.value.trim(); markDirty(); });
+  body.append(nf);
+
+  // thumbnail (saved immediately: it is a picture of the current view)
+  h3('tuneThumb');
+  const tr = document.createElement('div'); tr.className = 'thumb-row';
+  tr.innerHTML = (T.info.thumbnail ? `<img src="${T.info.thumbnail}" alt="">` : `<div class="noimg">${t('thumbNone')}</div>`) +
+    `<div class="col"><div><button class="btn small" data-a="shot">${t('thumbFromView')}</button> ` +
+    (T.info.thumbnail ? `<button class="btn small ghost" data-a="rm">${t('thumbRemove')}</button>` : '') +
+    `</div><div class="hint flush">${t('thumbHint')}</div></div>`;
+  tr.addEventListener('click', async (e) => {
+    const a = e.target.dataset.a;
+    if (!a || !viewer.vrm) return;
+    const r = await api('/api/tune/thumb', { id: T.fid, data: a === 'shot' ? viewer.snapshotSquare(1024) : '' });
+    if (r.error) return toast(r.error);
+    T.info.thumbnail = r.thumbnail || null;
+    toast(t('thumbSaved'));
+    renderTune();
+  });
+  body.append(tr);
+
+  // preset expressions
+  h3('tuneExpr');
+  const opts = `<option value="">${esc(t('exprNone'))}</option>` +
+    T.info.expressions.map((x) => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join('');
+  for (const p of MAIN_PRESETS[T.info.spec] || []) {
+    const d = document.createElement('div'); d.className = 'field';
+    d.innerHTML = `<label title="${esc(p)}">${esc(presetLabel(p))}</label><select>${opts}</select><button class="mini" title="${t('tryExpr')}">▶</button>`;
+    const sel = d.querySelector('select'), base = T.info.assign[p] || '';
+    sel.value = assigned(p);
+    sel.classList.toggle('changed', sel.value !== base);
+    sel.addEventListener('change', () => {
+      T.edits.expressions = T.edits.expressions || {};
+      if (sel.value === base) delete T.edits.expressions[p]; else T.edits.expressions[p] = sel.value;
+      sel.classList.toggle('changed', sel.value !== base);
+      markDirty();
+    });
+    d.querySelector('button').addEventListener('click', () => {
+      if (!sel.value) return;
+      viewer.resetExpressions(); viewer.setExpression(exprNameInModel(sel.value), 1);
+      clearTimeout(renderTune.tryTimer); renderTune.tryTimer = setTimeout(() => viewer.resetExpressions(), 1500);
+    });
+    body.append(d);
+  }
+
+  // physics (VRM 1.0 SpringBone)
+  if ((T.info.springs || []).length) {
+    h3('tunePhysics');
+    const sp = T.edits.spring = T.edits.spring || {};
+    sp.chains = sp.chains || {};
+    const live = () => { viewer.setSpringParams(springParams()); markDirty(); };
+    const sub = document.createElement('div'); sub.className = 'hint flush'; sub.textContent = t('allChains'); body.append(sub);
+    body.append(slider(t('stiffMul'), num(sp.stiffness, 1), 0.2, 3, 0.05, (v) => { sp.stiffness = v; live(); }, fmtMul));
+    body.append(slider(t('dragMul'), num(sp.drag, 1), 0.2, 2, 0.05, (v) => { sp.drag = v; live(); }, fmtMul));
+    body.append(slider(t('gravAdd'), num(sp.gravity, 0), 0, 1, 0.02, (v) => { sp.gravity = v; live(); }, fmtAdd));
+    const flt = document.createElement('div'); flt.className = 'field';
+    flt.innerHTML = `<label>${esc(t('chains', { n: T.info.springs.length }))}</label><input class="input" placeholder="${esc(t('filter'))}">`;
+    body.append(flt);
+    const list = document.createElement('div'); list.className = 'chain-list'; body.append(list);
+    for (const c of T.info.springs) {
+      const e = sp.chains[c.key] || {};
+      const get = () => (sp.chains[c.key] = sp.chains[c.key] || {});
+      const row = document.createElement('div'); row.className = 'chain' + (e.off ? ' off' : ''); row.dataset.name = c.name.toLowerCase();
+      const sw = document.createElement('label'); sw.className = 'switch';
+      sw.innerHTML = `<input type="checkbox" ${e.off ? '' : 'checked'}><span title="${esc(c.name)}">${esc(c.name)} · ${c.joints.length}</span>`;
+      sw.querySelector('input').addEventListener('change', (ev) => { get().off = !ev.target.checked; row.classList.toggle('off', !ev.target.checked); live(); });
+      row.append(sw,
+        slider(t('stiffMul'), num(e.stiffness, 1), 0.2, 3, 0.05, (v) => { get().stiffness = v; live(); }, fmtMul),
+        slider(t('gravAdd'), num(e.gravity, 0), 0, 1, 0.02, (v) => { get().gravity = v; live(); }, fmtAdd));
+      list.append(row);
+    }
+    flt.querySelector('input').addEventListener('input', (ev) => {
+      const q = ev.target.value.trim().toLowerCase();
+      for (const r of list.children) r.style.display = !q || r.dataset.name.includes(q) ? '' : 'none';
+    });
+  }
+}
+
+async function saveTune(edits) {
+  const r = await api('/api/tune/save', { id: T.fid, edits });
+  if (r.error) return toast(r.error);
+  toast(r.applied ? t('tuneSaved', { n: r.applied }) : t('tuneSavedNone'));
+  T.dirty = false;
+  if (modelUrl && r.applied) await loadModel(modelUrl, viewer.name, true);
+  await loadTune();
+}
+$('tuneSave').onclick = () => saveTune(T.edits);
+$('tuneReset').onclick = () => { T.edits = {}; saveTune({}); };
+
 // ------------------------------------------------------------- startup --
 await loadState();
 pollEvents();
-window.__app = { S, viewer, previewFile };
+window.__app = { S, T, viewer, previewFile };

@@ -5,6 +5,7 @@
 //   await v.loadUrl(url, name)  |  await v.loadBuffer(arrayBuffer, name)
 //   v.setMotion('walk'); v.setLight({ az: 35, el: 40, intensity: 1.4, ambient: 0.6, shadow: true });
 //   v.frame('face'); v.setExpression('happy', 1); v.snapshot() → PNG data URL
+//   v.setSpringParams([{ node, stiffness, gravityPower, dragForce, enabled }])  live SpringBone tuning
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -105,7 +106,8 @@ export class Viewer {
 
   clear() {
     if (this.vrm) { this.scene.remove(this.vrm.scene); VRMUtils.deepDispose(this.vrm.scene); }
-    this.vrm = null; this.info = null; this.springManager = null; this.name = '';
+    this.vrm = null; this.info = null; this.springManager = null; this.name = ''; this.gltf = null;
+    this._jointsByNode = null; this._removedJoints = new Set();
   }
 
   _setModel(gltf, v, name) {
@@ -115,7 +117,7 @@ export class Viewer {
     if (v.meta && v.meta.metaVersion === '0') VRMUtils.rotateVRM0(v);
     v.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
     this.scene.add(v.scene);
-    this.vrm = v; this.name = name;
+    this.vrm = v; this.name = name; this.gltf = gltf;
     this.springManager = v.springBoneManager || null;
     if (!this.springOn) v.springBoneManager = undefined;
     v.humanoid.resetNormalizedPose();
@@ -214,6 +216,31 @@ export class Viewer {
   }
   resetPhysics() { if (this.springManager) this.springManager.reset(); }
 
+  // glTF node index → SpringBone joint (three-vrm keeps no spring/chain grouping, the file does)
+  _joints() {
+    if (this._jointsByNode || !this.springManager || !this.gltf) return this._jointsByNode || new Map();
+    const m = new Map(), assoc = this.gltf.parser.associations;
+    for (const j of this.springManager.joints) {
+      const a = assoc.get(j.bone);
+      if (a && a.nodes != null) m.set(a.nodes, j);
+    }
+    return (this._jointsByNode = m);
+  }
+
+  setSpringParams(list) {
+    const m = this._joints(), mgr = this.springManager;
+    if (!mgr) return;
+    let readded = false;
+    for (const p of list) {
+      const j = m.get(p.node);
+      if (!j) continue;
+      Object.assign(j.settings, { stiffness: p.stiffness, gravityPower: p.gravityPower, dragForce: p.dragForce });
+      if (p.enabled === false && !this._removedJoints.has(j)) { mgr.deleteJoint(j); this._removedJoints.add(j); }
+      else if (p.enabled !== false && this._removedJoints.has(j)) { mgr.addJoint(j); this._removedJoints.delete(j); readded = true; }
+    }
+    if (readded) mgr.reset();
+  }
+
   _applyMotion(f) {
     const v = this.vrm;
     if (!v) return;
@@ -234,6 +261,15 @@ export class Viewer {
   resetExpressions() { if (this.vrm && this.vrm.expressionManager) this.vrm.expressionManager.resetValues(); }
 
   snapshot() { this.renderer.render(this.scene, this.camera); return this.renderer.domElement.toDataURL('image/png'); }
+
+  // centre square of the current view, scaled to size×size (VRM thumbnails are square)
+  snapshotSquare(size = 1024) {
+    this.renderer.render(this.scene, this.camera);
+    const src = this.renderer.domElement, s = Math.min(src.width, src.height);
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    c.getContext('2d').drawImage(src, (src.width - s) / 2, (src.height - s) / 2, s, s, 0, 0, size, size);
+    return c.toDataURL('image/png');
+  }
 
   // --------------------------------------------------------------- loop --
   _tick() {

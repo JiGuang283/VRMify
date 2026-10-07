@@ -15,11 +15,18 @@
   POST /api/preview  {id}             给某个文件准备预览（PMX 等会先快速转一份临时 VRM）
   POST /api/open     {path}           在资源管理器里显示文件
   POST /api/snapshot {name, data}     把预览截图存到模型旁边
-  GET  /file/<token>                  预览要读的 VRM（只提供登记过的文件）
+  POST /api/tune     {id}             调整面板要的信息（可选表情、物理链、当前调整）
+  POST /api/tune/save  {id, edits}    保存某个文件的调整，并套到它已有的输出 / 预览 VRM 上
+  POST /api/tune/thumb {id, data}     把预览截图存成这个文件的 VRM 缩略图（data 为空 = 去掉）
+  GET  /file/<token>                  预览要读的 VRM / 缩略图（只提供登记过的文件）
+
+调整（表情指定、物理、标题、缩略图，见 convert/vrm_edit.py）按源文件路径存在 edits.json，
+缩略图在 edits/ 里；以后再转这个文件会自动套上。
 
 静态文件：/ → ui/web/，/viewer/ → gfx/web/（three-vrm 预览组件和离线库）。
 """
 import base64
+import hashlib
 import itertools
 import json
 import os
@@ -41,15 +48,21 @@ if getattr(sys, "frozen", False):                  # PyInstaller：资源在 _ME
 else:
     ROOT = os.path.dirname(HERE)
     DATA_DIR = ROOT
+# 测试 / 调试时可以把 settings.json、edits.json 放到别处，不动用户自己的设置
+DATA_DIR = os.environ.get("MODEL2VRM_DATA") or DATA_DIR
 for _p in ("convert", "formats"):
     _d = os.path.join(ROOT, _p)
     if _d not in sys.path:
         sys.path.insert(0, _d)
 import pipeline  # noqa: E402
+import vrm_edit  # noqa: E402
+from vrmconv import textures  # noqa: E402
 
 WEB = os.path.join(ROOT, "ui", "web")
 VIEWER = os.path.join(ROOT, "gfx", "web")
 SETTINGS = os.path.join(DATA_DIR, "settings.json")
+EDITS = os.path.join(DATA_DIR, "edits.json")
+EDITS_DIR = os.path.join(DATA_DIR, "edits")
 LANGS = ("zh_CN", "en")
 
 
@@ -67,6 +80,7 @@ class Backend:
         self.last_seen = time.time()
         self.tmp = tempfile.mkdtemp(prefix="model2vrm_preview_")
         self.opts, self.lang = self._load_settings()
+        self.edits = self._load_edits()
 
     # --------------------------------------------------------- settings --
     def _load_settings(self):
@@ -84,6 +98,30 @@ class Backend:
                 json.dump({"lang": self.lang, "opts": self.opts}, f, ensure_ascii=False, indent=1)
         except OSError:
             pass
+
+    # ------------------------------------------------------------ edits --
+    def _load_edits(self):
+        try:
+            with open(EDITS, encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_edits(self):
+        try:
+            with open(EDITS, "w", encoding="utf-8") as f:
+                json.dump(self.edits, f, ensure_ascii=False, indent=1)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _key(f):
+        return os.path.normcase(os.path.abspath(f["path"]))
+
+    def edits_for(self, f):
+        with self.lock:
+            return json.loads(json.dumps(self.edits.get(self._key(f)) or {}))
 
     # ----------------------------------------------------------- events --
     def emit(self, **ev):
@@ -108,14 +146,17 @@ class Backend:
 
     # ------------------------------------------------------------ files --
     def _entry(self, f):
-        return {k: f[k] for k in ("id", "path", "name", "kind", "size", "status", "outputs", "error")}
+        e = {k: f[k] for k in ("id", "path", "name", "kind", "size", "status", "outputs", "error")}
+        e["tuned"] = not vrm_edit.is_empty(self.edits.get(self._key(f)))
+        return e
 
     def state(self):
         with self.lock:
             return {"files": [self._entry(f) for f in self.files.values()], "opts": self.opts,
                     "lang": self.lang, "busy": self.busy,
                     "seq": self.events[-1][0] if self.events else 0,
-                    "native": self.window is not None}
+                    "native": self.window is not None,
+                    "features": {"pillow": textures.available()}}
 
     def add_paths(self, paths):
         added = []
@@ -136,7 +177,7 @@ class Backend:
                 self.files[fid] = {"id": fid, "path": os.path.abspath(p), "name": os.path.basename(p),
                                    "kind": kind, "size": os.path.getsize(p),
                                    "status": "preview" if kind == "vrm" else "pending",
-                                   "outputs": [], "error": None, "preview": None}
+                                   "outputs": [], "error": None, "preview": None, "preview_path": None}
                 added.append(fid)
         for fid in added:
             self.emit(type="file", file=self._entry(self.files[fid]))
@@ -221,7 +262,8 @@ class Backend:
                 self.emit(type="progress", index=n, total=len(ids), name=f["name"])
                 t0 = time.time()
                 try:
-                    outs = pipeline.convert_file(f["path"], opts, log=lambda m, t=None: self.log(m, t, fid))
+                    outs = pipeline.convert_file(f["path"], opts, log=lambda m, t=None: self.log(m, t, fid),
+                                                 edits=self.edits_for(f))
                     self._update(fid, status="done", outputs=self._outputs(outs))
                     self.log("完成（%.1f 秒）" % (time.time() - t0), "ok", fid)
                     done += 1
@@ -261,12 +303,13 @@ class Backend:
             try:
                 os.makedirs(out_dir, exist_ok=True)
                 outs = pipeline.convert_file(f["path"], opts, log=lambda m, t=None: self.log(m, t, fid),
-                                             out_dir=out_dir)
+                                             out_dir=out_dir, edits=self.edits_for(f))
                 vrm = [p for p in outs if p.lower().endswith(".vrm")][-1]
                 url = self._outputs([vrm])[0]["url"]
                 with self.lock:
                     if fid in self.files:
                         self.files[fid]["preview"] = url
+                        self.files[fid]["preview_path"] = vrm
                 self.emit(type="preview", file=fid, url=url, name=os.path.basename(vrm))
             except Exception as e:  # noqa: BLE001
                 self.log(traceback.format_exc(), "err", fid)
@@ -274,6 +317,87 @@ class Backend:
 
         threading.Thread(target=work, daemon=True).start()
         return {"pending": True}
+
+    # ------------------------------------------------------------- tune --
+    def _tune_targets(self, f):
+        """这个文件已有的 VRM：输出的 + 预览用的临时文件。"""
+        out = [o["path"] for o in f["outputs"] if o["path"].lower().endswith(".vrm")]
+        if f.get("preview_path"):
+            out.append(f["preview_path"])
+        return [p for p in out if os.path.isfile(p)]
+
+    def tune_info(self, fid):
+        with self.lock:
+            f = self.files.get(fid)
+            if not f:
+                return {"error": "no such file"}
+            if f["kind"] not in pipeline.CONVERTIBLE:
+                return {"editable": False}
+            targets = self._tune_targets(f)
+            edits = self.edits_for(f)
+        if not targets:
+            return {"editable": True, "ready": False, "edits": edits}
+        try:
+            info = vrm_edit.describe(targets[0])
+        except (OSError, ValueError) as e:
+            return {"error": str(e)}
+        th = edits.get("thumbnail")
+        info.update(editable=True, ready=True, edits=edits,
+                    thumbnail=("/file/%s/thumb.png" % self.token_for(th)) if th and os.path.isfile(th) else None)
+        return info
+
+    def tune_save(self, fid, edits):
+        with self.lock:
+            f = self.files.get(fid)
+            if not f or f["kind"] not in pipeline.CONVERTIBLE:
+                return {"error": "no such file"}
+            key = self._key(f)
+            old = self.edits.get(key) or {}
+            edits = dict(edits or {})
+            if "thumbnail" not in edits and old.get("thumbnail"):
+                edits["thumbnail"] = old["thumbnail"]      # 缩略图单独由 tune_thumb 设置
+            if vrm_edit.is_empty(edits):
+                self.edits.pop(key, None)
+            else:
+                self.edits[key] = edits
+            self._save_edits()
+            targets = self._tune_targets(f)
+        applied = []
+        for p in targets:
+            try:
+                vrm_edit.apply(p, edits)
+                applied.append(p)
+            except Exception as e:  # noqa: BLE001
+                self.log("调整没能写进 %s：%s" % (os.path.basename(p), e), "err", fid)
+        if applied:
+            self.log("已把调整写进 %s" % "、".join(os.path.basename(p) for p in applied), "ok", fid)
+        self._update(fid)
+        return {"ok": True, "applied": len(applied)}
+
+    def tune_thumb(self, fid, data):
+        """data：PNG data URL；空 = 去掉缩略图。"""
+        with self.lock:
+            f = self.files.get(fid)
+            if not f or f["kind"] not in pipeline.CONVERTIBLE:
+                return {"error": "no such file"}
+            edits = self.edits_for(f)
+            path = None
+            old = edits.get("thumbnail")
+            if not data and old and os.path.dirname(os.path.abspath(old)) == os.path.abspath(EDITS_DIR):
+                try:
+                    os.remove(old)
+                except OSError:
+                    pass
+            if data:
+                os.makedirs(EDITS_DIR, exist_ok=True)
+                path = os.path.join(EDITS_DIR, hashlib.md5(self._key(f).encode("utf-8")).hexdigest()[:16] + ".png")
+                with open(path, "wb") as fh:
+                    fh.write(base64.b64decode(data.split(",", 1)[1]))
+            edits["thumbnail"] = path or ""
+        r = self.tune_save(fid, edits)
+        if path:
+            r["thumbnail"] = "/file/%s/thumb.png?t=%d" % (self.token_for(path), int(time.time() * 1000))
+        return r
 
     # ---------------------------------------------------------- dialogs --
     def pick(self, folder=False, output=False):
@@ -381,7 +505,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_error(404)
             size = os.path.getsize(p)
             self.send_response(200)
-            self.send_header("Content-Type", "model/gltf-binary")
+            self.send_header("Content-Type", "image/png" if p.lower().endswith(".png") else "model/gltf-binary")
             self.send_header("Content-Length", str(size))
             self.end_headers()
             with open(p, "rb") as f:
@@ -423,6 +547,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(b.preview(body.get("id")))
         if route == "/api/open":
             return self._json({"ok": b.reveal(body.get("path"))})
+        if route == "/api/tune":
+            return self._json(b.tune_info(body.get("id")))
+        if route == "/api/tune/save":
+            return self._json(b.tune_save(body.get("id"), body.get("edits")))
+        if route == "/api/tune/thumb":
+            return self._json(b.tune_thumb(body.get("id"), body.get("data")))
         if route == "/api/snapshot":
             return self._json({"path": b.snapshot(body.get("name"), body.get("data", ""), body.get("model"))})
         return self._json({"error": "unknown"}, 404)
