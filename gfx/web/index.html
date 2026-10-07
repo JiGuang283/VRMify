@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VRM 预览</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --text: #1f2328; --muted: #6a7380; --line: #e2e5ea;
+    --accent: #3b6fd8; --accent-soft: #e8effc; --viewport: #8a8f98;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16181c; --panel: #1f2227; --text: #e6e8eb; --muted: #9aa3ae; --line: #30343b;
+            --accent: #7aa2ff; --accent-soft: #263552; --viewport: #3a3d43; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.45 "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif; }
+  body { display: flex; overflow: hidden; }
+  #side { width: 300px; flex: none; height: 100%; overflow-y: auto; background: var(--panel);
+    border-right: 1px solid var(--line); padding: 14px 14px 24px; }
+  #view { flex: 1; position: relative; background: var(--viewport); }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  h1 { font-size: 15px; margin: 0 0 2px; }
+  h2 { font-size: 12px; margin: 18px 0 8px; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
+  .sub { color: var(--muted); font-size: 12px; word-break: break-all; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row label { flex: none; width: 64px; color: var(--muted); }
+  .row input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  .row .val { width: 38px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .check { display: flex; align-items: center; gap: 6px; margin: 6px 0; cursor: pointer; }
+  .check input { accent-color: var(--accent); }
+  #info { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; }
+  #info dt { color: var(--muted); }
+  #info dd { margin: 0; font-variant-numeric: tabular-nums; }
+  #expr { max-height: 280px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+  #expr .row label { width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  #exprFilter { width: 100%; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; margin-bottom: 6px; }
+  #drop { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 16px; text-align: center; pointer-events: none; text-shadow: 0 1px 3px #0008; }
+  #drop.over { background: #3b6fd833; outline: 3px dashed #fff; outline-offset: -12px; }
+  #status { position: absolute; left: 12px; bottom: 10px; color: #fff; font-size: 12px; text-shadow: 0 1px 2px #000a; }
+  #toast { position: absolute; right: 12px; bottom: 10px; color: #fff; background: #000a; padding: 4px 10px;
+    border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .3s; }
+  #toast.show { opacity: 1; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/three.module.min.js",
+  "three/addons/": "./vendor/three/addons/",
+  "@pixiv/three-vrm": "./vendor/three-vrm/three-vrm.module.min.js"
+} }
+</script>
+</head>
+<body>
+<aside id="side">
+  <h1 id="title">VRM 预览</h1>
+  <div class="sub" id="file">把 .vrm 拖进右侧，或</div>
+  <div class="row"><button id="open" class="primary">打开文件…</button><input id="picker" type="file" accept=".vrm,.glb" hidden></div>
+
+  <h2>视角</h2>
+  <div class="seg">
+    <button data-frame="body" class="on">全身</button><button data-frame="upper">上半身</button>
+    <button data-frame="face">脸部</button><button data-frame="back">背面</button>
+  </div>
+
+  <h2>动作</h2>
+  <div class="seg" id="motions">
+    <button data-motion="tpose">T 姿势</button><button data-motion="idle" class="on">待机</button>
+    <button data-motion="walk">走路</button><button data-motion="run">跑步</button>
+    <button data-motion="legRaise">抬腿</button><button data-motion="turn">转身</button>
+  </div>
+  <div class="row"><label>速度</label><input id="speed" type="range" min="0.25" max="2" step="0.25" value="1"><span class="val" id="speedV">1×</span></div>
+  <label class="check"><input id="spring" type="checkbox" checked> 物理（SpringBone）</label>
+  <label class="check"><input id="pause" type="checkbox"> 暂停</label>
+  <div class="row"><button id="resetPhys">重置物理</button></div>
+
+  <h2>灯光</h2>
+  <div class="row"><label>水平角度</label><input id="lightAz" type="range" min="-180" max="180" step="5" value="35"><span class="val" id="lightAzV">35°</span></div>
+  <div class="row"><label>高度</label><input id="lightEl" type="range" min="-10" max="90" step="5" value="40"><span class="val" id="lightElV">40°</span></div>
+  <div class="row"><label>主光</label><input id="lightI" type="range" min="0" max="3" step="0.1" value="1.4"><span class="val" id="lightIV">1.4</span></div>
+  <div class="row"><label>环境光</label><input id="ambI" type="range" min="0" max="2" step="0.05" value="0.6"><span class="val" id="ambIV">0.6</span></div>
+  <label class="check"><input id="shadow" type="checkbox" checked> 投影</label>
+  <div class="seg" id="bgs"><button data-bg="#8a8f98" class="on">灰</button><button data-bg="#2b2d31">深</button><button data-bg="#eef0f3">浅</button></div>
+
+  <h2>表情</h2>
+  <input id="exprFilter" placeholder="筛选表情名…">
+  <div id="expr"><div class="sub">未加载模型</div></div>
+  <div class="row"><button id="exprReset">全部归零</button></div>
+
+  <h2>模型信息</h2>
+  <dl id="info"></dl>
+
+  <h2>截图</h2>
+  <div class="row"><button id="shot">保存截图</button></div>
+</aside>
+<main id="view">
+  <div id="drop">把 .vrm 文件拖到这里</div>
+  <div id="status"></div>
+  <div id="toast"></div>
+</main>
+<script type="module" src="./viewer.js"></script>
+</body>
+</html>

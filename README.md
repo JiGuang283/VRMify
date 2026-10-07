@@ -8,6 +8,11 @@
 >
 > 本项目派生自 SaraKale/Model-To-PMX（GPL-3.0），2026-10 起修改：重做了 PMX → VRM，删除了
 > VRM → PMX、PMX → uemodel / psk / FBX 输出；以下内容仍是原项目说明，待更新。
+>
+> **三维预览**：`python gfx/web_preview.py 模型.vrm`（或界面里的「三维预览（three-vrm）」按钮）用
+> three-vrm 显示转换结果——MToon 着色、SpringBone 摆动（待机 / 走路 / 跑步 / 抬腿）、灯光与投影、
+> 表情滑块、截图。装了 `pywebview` 时是独立窗口，否则用系统浏览器；页面库在 `gfx/web/vendor/`，离线可用。
+> 开发用的批量转换与检查工具见 [tools/README.md](tools/README.md)。
 
 Convert `.fbx`, `.unitypackage`, `.vrm`, `.pmx`, and `.uemodel` (UEFormat) into each other — and `.psk` / `.pskx` (Unreal ActorX) and `.xps` (XNALara / XPS) into PMX — **entirely with the Python standard library**.
 No Blender / Autodesk FBX SDK / Unity 3D required, and no plugins such as mmd_tools / UniVRM.

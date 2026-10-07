@@ -34,6 +34,7 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+import subprocess
 import webbrowser
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -312,6 +313,10 @@ LANG = {
         "log_title": "转换日志",
         "preview_title": "模型预览（正面实时预览 · 可拖动旋转 / 滚轮缩放）",
         "preview_stats": "拖入任意格式的模型即可实时预览（默认正面）",
+        "btn_web_preview": "三维预览（three-vrm）",
+        "tip_web_preview": "用 three-vrm 打开最近转换的 VRM：MToon 着色、SpringBone 摆动、表情都和导入游戏后一致",
+        "web_preview_pick": "选择要预览的 VRM",
+        "web_preview_err": "无法启动三维预览：{err}",
         "pv_front": "正视",
         "pv_left": "左视",
         "pv_back": "背视",
@@ -478,6 +483,10 @@ LANG = {
         "log_title": "轉換日誌",
         "preview_title": "模型預覽（正面即時預覽 · 可拖曳旋轉 / 滾輪縮放）",
         "preview_stats": "拖入任意格式的模型即可即時預覽（預設正面）",
+        "btn_web_preview": "三維預覽（three-vrm）",
+        "tip_web_preview": "用 three-vrm 開啟最近轉換的 VRM：MToon 著色、SpringBone 擺動、表情都和匯入遊戲後一致",
+        "web_preview_pick": "選擇要預覽的 VRM",
+        "web_preview_err": "無法啟動三維預覽：{err}",
         "pv_front": "正視",
         "pv_left": "左視",
         "pv_back": "背視",
@@ -644,6 +653,10 @@ LANG = {
         "log_title": "Conversion log",
         "preview_title": "Model preview (live front view · drag to rotate / wheel to zoom)",
         "preview_stats": "Drop any model format to see a live preview (front view by default)",
+        "btn_web_preview": "3D preview (three-vrm)",
+        "tip_web_preview": "Open the latest converted VRM with three-vrm: MToon shading, SpringBone and expressions as they look in apps",
+        "web_preview_pick": "Choose a VRM to preview",
+        "web_preview_err": "Could not start the 3D preview: {err}",
         "pv_front": "Front",
         "pv_left": "Left",
         "pv_back": "Back",
@@ -810,6 +823,10 @@ LANG = {
         "log_title": "変換ログ",
         "preview_title": "モデルプレビュー（正面 リアルタイム・ドラッグで回転／ホイールで拡大）",
         "preview_stats": "任意の形式のモデルをドロップすると即時プレビュー（既定は正面）",
+        "btn_web_preview": "3D プレビュー（three-vrm）",
+        "tip_web_preview": "最近変換した VRM を three-vrm で開きます（MToon・SpringBone・表情をアプリと同じ見た目で確認）",
+        "web_preview_pick": "プレビューする VRM を選択",
+        "web_preview_err": "3D プレビューを起動できません：{err}",
         "pv_front": "正面",
         "pv_left": "左面",
         "pv_back": "背面",
@@ -1362,6 +1379,7 @@ class ConverterApp:
         self._drop_event = threading.Event()
         self._pending_drop = None
         self.last_out_dir = None
+        self.last_vrm = None            # 最近转换出的 .vrm（三维预览用）
         self.last_pmx = None
         self.last_model = None
         self.last_mesh = None
@@ -1790,7 +1808,13 @@ class ConverterApp:
         self.lbl_stats = tk.Label(pvcard, text=t("preview_stats"),
                                   font=F_SMALL, bg=CARD, fg=MUTED,
                                   justify="left", wraplength=px(360))
-        self.lbl_stats.pack(anchor="w", padx=px(10), pady=(0, px(10)))
+        self.lbl_stats.pack(anchor="w", padx=px(10), pady=(0, px(4)))
+        rowwp = tk.Frame(pvcard, bg=CARD)
+        rowwp.pack(fill="x", padx=px(10), pady=(0, px(10)))
+        self._btn(rowwp, t("btn_web_preview"), self.open_web_preview, kind="soft",
+                  padx=px(12), pady=px(4)).pack(side="left")
+        tk.Label(rowwp, text=t("tip_web_preview"), font=F_SUB, bg=CARD, fg=MUTED,
+                 justify="left", anchor="w", wraplength=px(260)).pack(side="left", padx=(px(8), 0))
 
         # ---- progress
         self.pb = tk.Frame(r, bg=BORDER, height=px(4))
@@ -3499,6 +3523,9 @@ class ConverterApp:
         self.btn_go.configure(state="normal", bg=ACCENT)
         self._progress(False)
         self.last_out_dir = os.path.dirname(made[0]) if made else None
+        vrms = [p for p in made if str(p).lower().endswith(".vrm")]
+        if vrms:
+            self.last_vrm = vrms[-1]
         if made:
             self.log("")
             self.log(t("log_done", n=len(made)), "head")
@@ -3515,12 +3542,35 @@ class ConverterApp:
             self.status(t("status_none"))
         self._save_settings()
 
+    def open_web_preview(self):
+        """在独立进程里打开 three-vrm 三维预览（gfx/web_preview.py）。"""
+        path = self.last_vrm if self.last_vrm and os.path.isfile(self.last_vrm) else None
+        if path is None:
+            path = filedialog.askopenfilename(
+                title=t("web_preview_pick"), filetypes=[("VRM", "*.vrm"), ("glTF", "*.glb")],
+                initialdir=self.last_out_dir or None)
+            if not path:
+                return
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--web-preview", path]
+        else:
+            cmd = [sys.executable, os.path.join(BASE, "gfx", "web_preview.py"), path]
+        try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.Popen(cmd, cwd=BASE, creationflags=flags)
+        except OSError as e:
+            messagebox.showerror(t("msg_title"), t("web_preview_err", err=e))
+
     def _on_close(self):
         self._save_settings()
         self.root.destroy()
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--web-preview":
+        import web_preview                  # 打包后的 exe 用同一个可执行文件启动三维预览
+        web_preview.main(sys.argv[2:])
+        return
     declare_dpi_aware()
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")

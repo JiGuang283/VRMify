@@ -76,8 +76,9 @@ a = Analysis(
     # 运行到 import 处会报 ModuleNotFoundError。
     pathex=['.', 'formats', 'convert', 'gfx'],
     binaries=[],
-    datas=[],
-    hiddenimports=['fbx2pmx', 'pmx_check', 'pmx2vrm', 'preview','psk2pmx','unitypackage_unpack', 'fbx_reader', 'pmxio', 'vrmio','pskio','xps2pmx',
+    # 三维预览页面（three.js / three-vrm 离线副本）
+    datas=[('gfx/web', 'gfx/web')],
+    hiddenimports=['fbx2pmx', 'pmx_check', 'pmx2vrm', 'preview', 'web_preview', 'psk2pmx','unitypackage_unpack', 'fbx_reader', 'pmxio', 'vrmio','pskio','xps2pmx',
                    # Windows 超长路径（MAX_PATH 260）兼容层
                    'longpath',
                    # UEFormat（.uemodel）读取 + ASCII FBX 写出器（uemodel/psk/xps → PMX 用）
