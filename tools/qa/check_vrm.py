@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path[:0] = [os.path.join(ROOT, "formats"), os.path.join(ROOT, "convert")]
 import vrmio  # noqa: E402
-import pmx2vrm  # noqa: E402
+from vrmconv.humanoid import _vrm_anchor  # noqa: E402
 
 # ---------------------------------------------------------------- humanoid --
 _B10 = set("hips spine chest upperChest neck head leftEye rightEye jaw leftUpperLeg leftLowerLeg "
@@ -162,7 +162,7 @@ def check(path, validators=None):
         if k not in hb:
             errs.append("humanoid：缺少必需骨位 %s" % k)
     for h, n in hb.items():
-        a = pmx2vrm._vrm_anchor(h, hb)
+        a = _vrm_anchor(h, hb)
         if a is None:
             continue
         p = par.get(n)
