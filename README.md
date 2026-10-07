@@ -5,7 +5,7 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 
 **Python standard library only**: no Blender, Unity, mmd_tools or UniVRM — binary formats are read and written directly.
 
-[English](README.md) | [简体中文](README_SC.md) | [繁體中文](README_TC.md) | [日本語](README_JP.md)
+[English](README.md) | [简体中文](README_SC.md)
 
 > This project is derived from [SaraKale/Model-To-PMX](https://github.com/SaraKale/Model-To-PMX) (GPL-3.0).
 > Modified since 2026-10: PMX → VRM was reworked (skeleton, expressions, MToon materials, SpringBone physics),

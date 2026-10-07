@@ -5,7 +5,7 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 
 **全部用 Python 标准库实现**：不需要 Blender、Unity、mmd_tools、UniVRM，直接读写二进制格式。
 
-[English](README.md) | [简体中文](README_SC.md) | [繁體中文](README_TC.md) | [日本語](README_JP.md)
+[English](README.md) | [简体中文](README_SC.md)
 
 > 本项目派生自 [SaraKale/Model-To-PMX](https://github.com/SaraKale/Model-To-PMX)（GPL-3.0）。
 > 2026-10 起修改：重做了 PMX → VRM（骨骼、表情、MToon 材质、SpringBone 物理），
