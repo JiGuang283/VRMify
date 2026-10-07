@@ -57,7 +57,21 @@ adjustable lighting and shadows, expression sliders, snapshots. Works offline.
 
 ## 3. Usage
 
-### GUI
+### New UI (preview)
+
+```bash
+pip install pywebview        # optional: native window + drag & drop; otherwise the system browser is used
+python ui/app.py
+```
+
+- Left: add files / folders (PMX, VRM, FBX, unitypackage, uemodel, psk, xps), set the VRM version, physics, expressions …
+  and click "Start conversion". Non-PMX formats go through PMX to VRM by default; the Inputs tab can stop at PMX.
+- Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
+  after conversion the real output is shown.
+- Chinese / English UI; settings are saved to `settings.json`.
+- In a plain browser dropped files have no path — use "Add files". The app exits a minute after the page is closed.
+
+### Classic GUI
 
 ```bash
 python main.py
@@ -142,12 +156,17 @@ Model-To-VRM/
 │   │   ├── springbone.py   physics → SpringBone
 │   │   └── vrm_ext.py      VRM extension bodies
 │   ├── fbx2pmx.py  uemodel2pmx.py  psk2pmx.py  xps2pmx.py   other formats → PMX
-│   └── pmx_check.py        PMX check
+│   ├── pmx_check.py        PMX check
+│   └── pipeline.py         conversion flow: detect format → other formats to PMX → VRM (used by the new UI)
 ├── formats/                format I/O (pmxio, vrmio (GLB), fbx_reader, uemodelio, pskio, xpsio …)
+├── ui/                     new UI
+│   ├── app.py              entry point (pywebview window / browser)
+│   ├── server.py           backend: file list, options, conversion jobs, local HTTP API
+│   └── web/                page (HTML / CSS / JS, Chinese and English)
 ├── gfx/
-│   ├── preview.py          in-window live preview (pure-Python rasteriser)
-│   ├── web_preview.py      3D preview (local server + window)
-│   └── web/                3D preview page; vendor/ holds offline copies of three.js and three-vrm
+│   ├── preview.py          classic GUI live preview (pure-Python rasteriser)
+│   ├── web_preview.py      standalone 3D preview (local server + window)
+│   └── web/                three-vrm viewer component viewer-core.js and preview page; vendor/ holds offline three.js and three-vrm
 └── tools/                  batch conversion and QA (not bundled)
 ```
 

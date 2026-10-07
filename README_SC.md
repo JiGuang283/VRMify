@@ -57,7 +57,20 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 
 ## 三、使用方法
 
-### 图形界面
+### 新界面（试用）
+
+```bash
+pip install pywebview        # 可选：独立窗口 + 拖放文件；不装就用系统浏览器打开
+python ui/app.py
+```
+
+- 左侧：添加文件 / 文件夹（PMX、VRM、FBX、unitypackage、uemodel、psk、xps），设置 VRM 版本、物理、表情等，
+  点「开始转换」。非 PMX 的格式默认先转 PMX 再转 VRM，也可以在「输入格式」里选只转 PMX。
+- 右侧：three-vrm 预览。还没转换的文件点「预览」会先在后台快速转一份临时 VRM；转换完成后显示实际输出。
+- 界面支持中文 / English，设置保存在 `settings.json`。
+- 用系统浏览器时拿不到拖入文件的路径，请用「添加文件」按钮；页面关掉一分钟后程序自动退出。
+
+### 旧界面
 
 ```bash
 python main.py
@@ -142,12 +155,17 @@ Model-To-VRM/
 │   │   ├── springbone.py   物理 → SpringBone
 │   │   └── vrm_ext.py      VRM 扩展本体
 │   ├── fbx2pmx.py  uemodel2pmx.py  psk2pmx.py  xps2pmx.py   其他格式 → PMX
-│   └── pmx_check.py        PMX 校验
+│   ├── pmx_check.py        PMX 校验
+│   └── pipeline.py         转换流程：识别格式 → 其他格式先转 PMX → 再转 VRM（新界面用）
 ├── formats/                格式读写（pmxio、vrmio(GLB)、fbx_reader、uemodelio、pskio、xpsio …）
+├── ui/                     新界面
+│   ├── app.py              入口（pywebview 窗口 / 浏览器）
+│   ├── server.py           后端：文件列表、选项、转换任务、本地 HTTP 接口
+│   └── web/                页面（HTML / CSS / JS，中英双语）
 ├── gfx/
-│   ├── preview.py          界面内的实时预览（纯 Python 软光栅）
-│   ├── web_preview.py      三维预览（本地服务器 + 窗口）
-│   └── web/                三维预览页面，vendor/ 里是 three.js、three-vrm 离线副本
+│   ├── preview.py          旧界面内的实时预览（纯 Python 软光栅）
+│   ├── web_preview.py      独立的三维预览（本地服务器 + 窗口）
+│   └── web/                three-vrm 预览组件 viewer-core.js 与预览页，vendor/ 里是 three.js、three-vrm 离线副本
 └── tools/                  批量转换和质量检查（不随程序打包）
 ```
 

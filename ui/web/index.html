@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model-To-VRM</title>
+<link rel="stylesheet" href="app.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/viewer/vendor/three/three.module.min.js",
+  "three/addons/": "/viewer/vendor/three/addons/",
+  "@pixiv/three-vrm": "/viewer/vendor/three-vrm/three-vrm.module.min.js"
+} }
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">◆</span> Model-To-VRM</div>
+  <div class="seg small" id="langSeg">
+    <button data-lang="zh_CN">中文</button><button data-lang="en">EN</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="left">
+    <!-- files -->
+    <section class="card files-card">
+      <div class="card-head">
+        <h2 data-i18n="files"></h2>
+        <div class="actions">
+          <button id="addFiles" class="btn" data-i18n="addFiles"></button>
+          <button id="addFolder" class="btn" data-i18n="addFolder"></button>
+          <button id="clearFiles" class="btn ghost" data-i18n="clear"></button>
+        </div>
+      </div>
+      <div id="drop" class="drop"><span data-i18n="dropHint"></span></div>
+      <ul id="fileList" class="file-list"></ul>
+    </section>
+
+    <!-- settings -->
+    <section class="card settings-card">
+      <div class="card-head">
+        <h2 data-i18n="settings"></h2>
+        <div class="tabs" id="tabs">
+          <button data-tab="vrm" class="on" data-i18n="tabVrm"></button>
+          <button data-tab="input" data-i18n="tabInput"></button>
+          <button data-tab="output" data-i18n="tabOutput"></button>
+        </div>
+      </div>
+
+      <div class="tab-body" data-panel="vrm">
+        <div class="field">
+          <label data-i18n="spec"></label>
+          <div class="seg" data-opt="vrm.spec">
+            <button data-v="1.0">1.0</button><button data-v="0.x" data-i18n="spec0x"></button>
+          </div>
+        </div>
+        <label class="switch"><input type="checkbox" data-opt="vrm.spring"><span data-i18n="spring"></span></label>
+        <div class="hint" data-i18n="springHint"></div>
+        <label class="switch sub"><input type="checkbox" data-opt="vrm.spring_skirt"><span data-i18n="springSkirt"></span></label>
+        <div class="field sub">
+          <label data-i18n="stiffness"></label>
+          <input type="range" min="0.5" max="2" step="0.1" data-opt="vrm.spring_stiffness"><output data-for="vrm.spring_stiffness"></output>
+        </div>
+        <label class="switch"><input type="checkbox" data-opt="vrm.morphs"><span data-i18n="morphs"></span></label>
+        <label class="switch"><input type="checkbox" data-opt="vrm.outline"><span data-i18n="outline"></span></label>
+        <label class="switch"><input type="checkbox" data-opt="vrm.keep_pose"><span data-i18n="keepPose"></span></label>
+        <label class="switch"><input type="checkbox" data-opt="vrm.double_sided"><span data-i18n="doubleSided"></span></label>
+      </div>
+
+      <div class="tab-body" data-panel="input" hidden>
+        <div class="field">
+          <label data-i18n="target"></label>
+          <div class="seg" data-opt="target">
+            <button data-v="vrm" data-i18n="targetVrm"></button><button data-v="pmx" data-i18n="targetPmx"></button>
+          </div>
+        </div>
+        <h3 data-i18n="fbx"></h3>
+        <div class="field">
+          <label data-i18n="fbxAlpha"></label>
+          <div class="seg" data-opt="fbx.alpha">
+            <button data-v="auto" data-i18n="alphaAuto"></button><button data-v="keep" data-i18n="alphaKeep"></button><button data-v="strip" data-i18n="alphaStrip"></button>
+          </div>
+        </div>
+        <div class="grid2">
+          <label class="switch"><input type="checkbox" data-opt="fbx.auto_facing"><span data-i18n="autoFacing"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="fbx.face_180"><span data-i18n="face180"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="fbx.morphs"><span data-i18n="fbxMorphs"></span></label>
+        </div>
+        <h3 data-i18n="ue"></h3>
+        <label class="switch"><input type="checkbox" data-opt="uemodel.alpha"><span data-i18n="ueAlpha"></span></label>
+        <h3 data-i18n="psk"></h3>
+        <div class="grid2">
+          <label class="switch"><input type="checkbox" data-opt="psk.jp_bones"><span data-i18n="jpBones"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="psk.ik"><span data-i18n="ik"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="psk.morphs"><span data-i18n="inMorphs"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="psk.alpha"><span data-i18n="inAlpha"></span></label>
+        </div>
+        <h3 data-i18n="xps"></h3>
+        <div class="grid2">
+          <label class="switch"><input type="checkbox" data-opt="xps.jp_bones"><span data-i18n="jpBones"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="xps.ik"><span data-i18n="ik"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="xps.hide_unused"><span data-i18n="hideUnused"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="xps.double_sided"><span data-i18n="xpsDouble"></span></label>
+          <label class="switch"><input type="checkbox" data-opt="xps.edge"><span data-i18n="xpsEdge"></span></label>
+        </div>
+      </div>
+
+      <div class="tab-body" data-panel="output" hidden>
+        <div class="field">
+          <label data-i18n="outLocation"></label>
+          <div class="seg" data-opt="output.mode">
+            <button data-v="beside" data-i18n="outBeside"></button><button data-v="folder" data-i18n="outFolder"></button>
+          </div>
+        </div>
+        <div class="field folder-row">
+          <span id="outFolder" class="path"></span>
+          <button id="chooseOut" class="btn" data-i18n="choose"></button>
+        </div>
+        <label class="switch"><input type="checkbox" data-opt="output.subfolder"><span data-i18n="subfolder"></span></label>
+      </div>
+    </section>
+
+    <!-- run -->
+    <section class="runbar">
+      <button id="start" class="btn primary"><span data-i18n="start"></span> <span id="startCount"></span></button>
+      <button id="stop" class="btn" data-i18n="stop" hidden></button>
+      <div class="progress"><div id="progressFill"></div></div>
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="card log-card" id="logCard">
+      <div class="card-head">
+        <button id="logToggle" class="link"><span class="caret">▸</span> <span data-i18n="log"></span> <span id="logBadge" class="badge" hidden></span></button>
+        <button id="clearLog" class="btn ghost small" data-i18n="clearLog"></button>
+      </div>
+      <pre id="log" class="log" hidden></pre>
+    </section>
+  </aside>
+
+  <main class="right">
+    <div class="pv-toolbar">
+      <div class="pv-title" id="pvTitle"></div>
+      <div class="seg small" id="frameSeg">
+        <button data-frame="body" class="on" data-i18n="body"></button><button data-frame="upper" data-i18n="upper"></button>
+        <button data-frame="face" data-i18n="face"></button><button data-frame="back" data-i18n="back"></button>
+      </div>
+      <div class="seg small" id="motionSeg">
+        <button data-motion="tpose" data-i18n="tpose"></button><button data-motion="idle" class="on" data-i18n="idleM"></button>
+        <button data-motion="walk" data-i18n="walk"></button><button data-motion="run" data-i18n="run"></button>
+        <button data-motion="legRaise" data-i18n="legRaise"></button><button data-motion="turn" data-i18n="turn"></button>
+      </div>
+      <label class="switch small"><input type="checkbox" id="pvSpring" checked><span data-i18n="physics"></span></label>
+      <span class="spacer"></span>
+      <button class="btn small" id="lightBtn" data-i18n="light"></button>
+      <button class="btn small" id="exprBtn" data-i18n="expressions"></button>
+      <button class="btn small" id="infoBtn" data-i18n="info"></button>
+      <button class="btn small" id="shotBtn" data-i18n="shot"></button>
+    </div>
+    <div class="pv" id="pv">
+      <div class="pv-empty" id="pvEmpty"><span data-i18n="pvEmpty"></span></div>
+      <div class="pv-busy" id="pvBusy" hidden><div class="spinner"></div><span id="pvBusyText"></span></div>
+
+      <div class="panel" id="lightPanel" hidden>
+        <div class="field"><label data-i18n="lightAz"></label><input type="range" id="lAz" min="-180" max="180" step="5" value="35"><output id="lAzV"></output></div>
+        <div class="field"><label data-i18n="lightEl"></label><input type="range" id="lEl" min="-10" max="90" step="5" value="40"><output id="lElV"></output></div>
+        <div class="field"><label data-i18n="lightI"></label><input type="range" id="lI" min="0" max="3" step="0.1" value="1.4"><output id="lIV"></output></div>
+        <div class="field"><label data-i18n="ambient"></label><input type="range" id="lAmb" min="0" max="2" step="0.05" value="0.6"><output id="lAmbV"></output></div>
+        <label class="switch"><input type="checkbox" id="lShadow" checked><span data-i18n="shadow"></span></label>
+        <div class="swatches" id="bgSeg"><button data-bg="#8a8f98" class="on" style="background:#8a8f98"></button><button data-bg="#2b2d31" style="background:#2b2d31"></button><button data-bg="#eef0f3" style="background:#eef0f3"></button></div>
+      </div>
+      <div class="panel tall" id="exprPanel" hidden>
+        <div class="field"><input id="exprFilter" class="input" data-i18n-ph="filter"><button id="exprReset" class="btn small" data-i18n="reset"></button></div>
+        <div id="exprList" class="expr-list"></div>
+      </div>
+      <div class="panel" id="infoPanel" hidden><dl id="infoList" class="info"></dl></div>
+    </div>
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

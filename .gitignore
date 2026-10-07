@@ -228,3 +228,6 @@ ref/
 # QA tools: Node dependencies and downloaded VRM schemas
 tools/qa/harness/node_modules/
 tools/qa/.schema-cache/
+
+# New UI settings (per machine)
+settings.json
