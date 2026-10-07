@@ -18,12 +18,13 @@ EXPR_1_0 = {
 # 注意：MMD 标准表情里的「上」「下」是**眉毛**表情（眉パネル），不是视线，
 # 所以不映射到 lookUp / lookDown（以前映射了，VRM 里一看上方眉毛就跳起来）。
 # MMD 没有标准的视线表情，视线交给 lookAt（type=bone）。
+# VRM 0.x 的 presetName 规范里是小写枚举（three-vrm 也只认小写，"Joy" 会被当成自定义表情）
 EXPR_0X = {
-    "まばたき": "Blink", "瞬き": "Blink", "ウィンク": "Blink_R",
-    "ウィンク２": "Blink_L", "ウィンク右": "Blink_R", "ウィンク左": "Blink_L",
-    "怒り": "Angry", "悲しみ": "Sorrow", "困る": "Sorrow",
-    "にこり": "Joy", "笑い": "Joy",
-    "あ": "A", "あ２": "A", "い": "I", "う": "U", "え": "E", "お": "O",
+    "まばたき": "blink", "瞬き": "blink", "ウィンク": "blink_r",
+    "ウィンク２": "blink_l", "ウィンク右": "blink_r", "ウィンク左": "blink_l",
+    "怒り": "angry", "悲しみ": "sorrow", "困る": "sorrow",
+    "にこり": "joy", "笑い": "joy",
+    "あ": "a", "あ２": "a", "い": "i", "う": "u", "え": "e", "お": "o",
 }
 
 
@@ -97,6 +98,7 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     blend_groups = []
     table = EXPR_1_0 if is1 else EXPR_0X
     n_mat_expr = 0
+    used_0x = set()
 
     for mname, deltas, ops in flat:
         slot = None
@@ -173,14 +175,20 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
                 if not obj[k_]:
                     del obj[k_]
             if preset and preset not in expr_preset:
+                # 记下来源的 PMX 表情名：界面里重新指定预设表情（vrm_edit）时要用
+                obj["extras"] = {"source": mname}
                 expr_preset[preset] = obj
             else:
                 # 自定义表情名必须唯一（PMX 里同名表情会互相覆盖）
                 expr_custom[uniq_name(mname, expr_custom)] = obj
         else:
+            # 同一个预设只给第一个（「あ」「あ２」都是 a 时，第二个当自定义）
+            if preset in used_0x:
+                preset = None
+            used_0x.add(preset)
             blend_groups.append({
                 "name": mname,
-                "presetName": preset or "Unknown",
+                "presetName": preset or "unknown",
                 "binds": ([{"mesh": 0, "index": slot, "weight": 100}]
                           if slot is not None else []),
                 "materialValues": [

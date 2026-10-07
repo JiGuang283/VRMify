@@ -12,7 +12,9 @@ opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEF
     target   "vrm"（默认）| "pmx"（非 PMX 输入只转到 PMX 为止）
     output   {"mode": "beside" | "folder", "folder": 路径, "subfolder": 是否建「名字_日期_序号」子文件夹}
     vrm      {"spec": "1.0" | "0.x", "spring", "spring_skirt", "spring_stiffness",
-              "morphs", "outline", "keep_pose", "double_sided"}
+              "morphs", "outline", "keep_pose", "double_sided",
+              "tex_max": 0 | 4096 | 2048 | 1024, "tex_jpeg"}
+    meta     VRM 作者 / 许可信息（键见 vrmconv/vrm_ext.build_vrm1），标题用模型文件名
     fbx      {"alpha": "auto" | "keep" | "strip", "auto_facing", "face_180", "morphs", "center", "flip_z"}
     uemodel  {"alpha", "align_ref"}
     psk      {"jp_bones", "ik", "morphs", "alpha"}
@@ -44,7 +46,12 @@ DEFAULTS = {
     "target": "vrm",
     "output": {"mode": "beside", "folder": "", "subfolder": True},
     "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0,
-            "morphs": True, "outline": False, "keep_pose": False, "double_sided": False},
+            "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
+            "tex_max": 0, "tex_jpeg": False},
+    "meta": {"author": "", "version": "", "contact": "", "copyright": "", "license_url": "",
+             "avatar_permission": "everyone", "commercial_usage": "personalNonProfit",
+             "credit_notation": "required", "allow_redistribution": False,
+             "modification": "prohibited"},
     "fbx": {"alpha": "auto", "auto_facing": True, "face_180": False, "morphs": True,
             "center": True, "flip_z": True},
     "uemodel": {"alpha": True, "align_ref": ""},
@@ -338,23 +345,31 @@ def find_files(root, ext):
     return [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if f.lower().endswith(ext)]
 
 
-def pmx_to_vrm(pmx, out_dir, opts, log, name=None):
-    """PMX → VRM，返回 VRM 路径。"""
+def pmx_to_vrm(pmx, out_dir, opts, log, name=None, edits=None):
+    """PMX → VRM，返回 VRM 路径。edits：界面里对这个模型做的调整（见 vrm_edit），转完套上。"""
     import pmx2vrm
     o = opts["vrm"]
     stem = name or os.path.splitext(os.path.basename(pmx))[0]
     out = os.path.join(out_dir, stem + ".vrm")
     spec = "1.0" if str(o["spec"]).startswith("1") else "0.x"
-    pmx2vrm.convert(pmx, out, spec=spec, meta={"title": stem}, log=log,
+    meta = dict(opts.get("meta") or {}, title=stem)
+    pmx2vrm.convert(pmx, out, spec=spec, meta=meta, log=log,
                     max_morphs=None if o["morphs"] else 0,
                     force_double_sided=o["double_sided"], tpose=not o["keep_pose"],
                     outline=o["outline"], spring=o["spring"], spring_skirt=o["spring_skirt"],
-                    spring_stiffness=float(o["spring_stiffness"]))
+                    spring_stiffness=float(o["spring_stiffness"]),
+                    tex_max=int(o.get("tex_max") or 0), tex_jpeg=bool(o.get("tex_jpeg")))
+    if edits:
+        import vrm_edit
+        if not vrm_edit.is_empty(edits):
+            n = vrm_edit.apply(out, edits)
+            log("已套用界面里的调整（%d 项）" % n, "info")
     return out
 
 
-def convert_file(path, opts=None, log=None, out_dir=None):
-    """转换一个文件，返回输出文件列表。out_dir 不给时按 opts["output"] 决定。"""
+def convert_file(path, opts=None, log=None, out_dir=None, edits=None):
+    """转换一个文件，返回输出文件列表。out_dir 不给时按 opts["output"] 决定；
+    edits：这个文件在界面里的调整（vrm_edit），套到每个输出的 VRM 上。"""
     opts = merged(opts)
     log = log or (lambda m, t=None: None)
     kind = classify(path)
@@ -364,11 +379,11 @@ def convert_file(path, opts=None, log=None, out_dir=None):
     log("→ %s" % os.path.basename(path), "head")
     log("输出目录：%s" % out_dir, "info")
     if kind == "zip":
-        return _convert_zip(path, out_dir, opts, log)
-    return _convert_model(path, kind, out_dir, opts, log)
+        return _convert_zip(path, out_dir, opts, log, edits)
+    return _convert_model(path, kind, out_dir, opts, log, edits)
 
 
-def _convert_zip(path, out_dir, opts, log):
+def _convert_zip(path, out_dir, opts, log, edits=None):
     tmp = tempfile.mkdtemp(prefix="model2vrm_zip_")
     try:
         n = extract_zip(path, tmp)
@@ -382,15 +397,15 @@ def _convert_zip(path, out_dir, opts, log):
         outs = []
         for p in todo:
             log("→ %s" % os.path.relpath(p, tmp), "head")
-            outs += _convert_model(p, classify(p), out_dir, opts, log)
+            outs += _convert_model(p, classify(p), out_dir, opts, log, edits)
         return outs
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _convert_model(path, kind, out_dir, opts, log):
+def _convert_model(path, kind, out_dir, opts, log, edits=None):
     if kind == "pmx":
-        return [pmx_to_vrm(path, out_dir, opts, log)]
+        return [pmx_to_vrm(path, out_dir, opts, log, edits=edits)]
     pmxs = to_pmx(path, kind, out_dir, opts, log)
     for p in pmxs:
         log("已写出 %s" % os.path.basename(p), "ok")
@@ -399,5 +414,5 @@ def _convert_model(path, kind, out_dir, opts, log):
     outs = list(pmxs)
     for p in pmxs:
         log("PMX → VRM：%s" % os.path.basename(p), "info")
-        outs.append(pmx_to_vrm(p, out_dir, opts, log))
+        outs.append(pmx_to_vrm(p, out_dir, opts, log, edits=edits))
     return outs

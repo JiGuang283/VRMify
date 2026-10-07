@@ -124,8 +124,10 @@ class MaterialBuilder:
     结果在 self.materials（glTF materials）和 self.props_0x（0.x 的 materialProperties）。
     """
 
-    def __init__(self, model, base_dir, gb, is1, flat, outline=False, force_double_sided=False):
+    def __init__(self, model, base_dir, gb, is1, flat, outline=False, force_double_sided=False,
+                 tex_opt=None):
         self.model = model
+        self.tex_opt = tex_opt           # textures.Optimizer：嵌入前缩小 / 转 JPEG（None = 原样）
         self.base_dir = base_dir
         self.gb = gb
         self.is1 = is1
@@ -171,9 +173,12 @@ class MaterialBuilder:
         if not data:
             self.img_cache[idx] = -1
             return -1
+        # 透明度统计用原图（瘦身后可能已是 JPEG）；只有完全不透明的贴图才会转 JPEG，结论不变
+        self.tex_alpha[idx] = vrmio.png_alpha_stats(data)
+        if self.tex_opt is not None:
+            data, mime = self.tex_opt(data, mime)
         ti = self.gb.add_texture(self.gb.add_image(data, mime))
         self.img_cache[idx] = ti
-        self.tex_alpha[idx] = vrmio.png_alpha_stats(data)
         return ti
 
     def toon_params(self, mat):
@@ -368,6 +373,11 @@ class MaterialBuilder:
             nmc = sum(1 for m in self.materials if "matcapTexture" in
                       m["extensions"]["VRMC_materials_mtoon"])
             log("材质：MToon（VRMC_materials_mtoon）· 加算球面贴图 → matcap %d 个" % nmc)
+        if self.tex_opt is not None:
+            if not self.tex_opt.active and (self.tex_opt.max_size or self.tex_opt.jpeg):
+                log("提示：没有安装 Pillow，贴图瘦身（缩小 / JPEG）未生效", "warn")
+            elif self.tex_opt.summary():
+                log(self.tex_opt.summary())
         if self.sph_skipped:
             log("提示：%d 个材质的乘算球面贴图（.sph）在 MToon 里没有对应项，已忽略"
                 % self.sph_skipped, "warn")

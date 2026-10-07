@@ -47,3 +47,27 @@ python tools/qa/dynamics.py a.vrm --fps 30 --jitter 0.3 --motions idle,walk_real
 
 动作：`idle`（放下手臂、轻微晃动）、`walk_real` / `run`（带根运动的走路 / 跑步）、`leg_raise`
 （抬腿 70°）等，定义在 `qa/harness/motions.mjs`。超出参考范围的数值标「!」，`--strict` 时返回 1。
+
+## 回归对比 `regress.py`
+
+改转换代码前后，用本机的真实模型确认输出有没有变、变在哪里：
+
+```bash
+python tools/regress.py record model/角色A model/角色B/某.pmx   # 记下基准（默认 VRM 1.0，--spec 0x 记 0.x）
+python tools/regress.py check                                   # 用当前代码重转、校验、对比基准
+python tools/regress.py check --code ../旧版本的代码目录          # 用另一份代码转（比如 git worktree）
+```
+
+* 基准在 `tests/.golden/`（不进仓库：模型许可不允许再分发，衍生数据也只留在本机），记录 glTF JSON 全文和二进制块的 sha256。
+* `check` 对每个样本：转换 → `check_vrm` 结构和 Schema 校验 → 列出 JSON 里不同的路径（最多 20 条）、二进制块是否一致。
+  有错误或差异时退出码为 1。变化是否符合预期要自己判断，确认后重新 `record`。
+
+## 单元测试 `tests/`
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+不需要真实模型：`tests/synth.py` 合成一个小的 MMD 人形 PMX（标准骨名、头发物理、几个表情、两张贴图），
+测转换（1.0 / 0.x、元信息、结果确定性、贴图瘦身）、转换后调整（`vrm_edit` 的套用 / 还原 / 幂等）和 zip 输入。
+装了 jsonschema 时顺带做官方 Schema 校验；没装 Pillow 时跳过贴图瘦身的测试。

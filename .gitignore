@@ -225,9 +225,15 @@ vrm/
 vrm_new/
 ref/
 
-# QA tools: Node dependencies and downloaded VRM schemas
+# QA tools: Node dependencies, downloaded VRM schemas, regression baselines (derived from local models)
+tests/.golden/
 tools/qa/harness/node_modules/
 tools/qa/.schema-cache/
 
-# New UI settings (per machine)
+# New UI settings and per-model tuning (per machine)
 settings.json
+edits.json
+edits/
+
+# Local preview launch config (machine-specific paths)
+.claude/launch.json

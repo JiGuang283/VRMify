@@ -32,7 +32,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
         sys.path.insert(0, _p)
 import pmxio  # noqa: E402
 import vrmio  # noqa: E402
-from vrmconv import expressions, mesh, skeleton, vrm_ext  # noqa: E402
+from vrmconv import expressions, mesh, skeleton, textures, vrm_ext  # noqa: E402
 from vrmconv.materials import MaterialBuilder  # noqa: E402
 from vrmconv.springbone import _build_springs  # noqa: E402
 
@@ -44,11 +44,15 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             tpose=True, outline=False, sparse_morphs=True,
             spring=True, spring_skirt=True, spring_stiffness=1.0,
             spring_gravity=0.0, spring_gravity_skirt=0.1, spring_center=True,
-            spring_opts=None):
+            spring_opts=None, tex_max=0, tex_jpeg=False):
     """PMX → VRM，返回统计 dict。log(msg, tag=None) 用于输出进度。
 
     各阶段在 vrmconv/ 里：skeleton（骨骼、T-pose、节点）→ springbone（物理）→
     mesh + materials（网格、MToon）→ expressions（表情）→ vrm_ext（VRM 扩展）。
+
+    tex_max / tex_jpeg：贴图最大边长（0 = 原样）/ 不透明贴图改存 JPEG（需要 Pillow，见 vrmconv/textures）。
+    meta：title / author / version / contact / copyright / license_url / avatar_permission /
+        commercial_usage / credit_notation / allow_redistribution / modification（见 vrm_ext）。
 
     reverse_winding:
         "auto"（默认）——用「几何面法线 vs 顶点法线」投票自动判定；
@@ -169,7 +173,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     if max_morphs is not None and max_morphs >= 0:
         flat = flat[:int(max_morphs)]
     mats = MaterialBuilder(model, base_dir, gb, is1, flat, outline=outline,
-                           force_double_sided=force_double_sided)
+                           force_double_sided=force_double_sided,
+                           tex_opt=textures.Optimizer(tex_max, tex_jpeg))
     prims, mat_gidx = mesh.build_primitives(model, xf, xf_dir, vpos, vnrm, vweights,
                                             reverse_winding, mats.make)
     _log("网格：%d 个 primitive（材质）" % len(prims))
@@ -311,6 +316,10 @@ def main(argv=None):
                     help="表情用密集存储（默认稀疏存储，文件小很多）")
     ap.add_argument("--max-morphs", type=int, default=None,
                     help="只导出前 N 个表情（0 = 不导出，默认全部）")
+    ap.add_argument("--tex-max", type=int, default=0,
+                    help="贴图最大边长（如 2048 / 1024，默认 0 = 原样；需要 Pillow）")
+    ap.add_argument("--tex-jpeg", action="store_true",
+                    help="不透明贴图改存 JPEG（文件小很多；需要 Pillow）")
     ap.add_argument("--title", default=None)
     ap.add_argument("--author", default=None)
     a = ap.parse_args(argv)
@@ -333,6 +342,7 @@ def main(argv=None):
                  spring_gravity_skirt=a.spring_gravity_skirt,
                  spring_center=not a.no_spring_center,
                  sparse_morphs=not a.dense_morphs,
+                 tex_max=a.tex_max, tex_jpeg=a.tex_jpeg,
                  log=lambda msg, tag=None: print(msg))
     print("完成：%s（%.2f MB）" % (out, st["bytes"] / 1048576.0))
     return 0

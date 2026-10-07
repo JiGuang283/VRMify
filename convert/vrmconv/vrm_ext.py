@@ -7,8 +7,18 @@ def _degmap(xr, yr):
             "xRange": xr, "yRange": yr}
 
 
+def _pick(meta, key, allowed, default):
+    v = meta.get(key)
+    return v if v in allowed else default
+
+
 def build_vrm1(meta, title, human, mesh_node, expr):
-    """VRMC_vrm。meta：用户给的作者 / 许可等；expr：expressions.build_expressions 的结果。"""
+    """VRMC_vrm。meta：用户给的作者 / 许可等；expr：expressions.build_expressions 的结果。
+
+    默认值和以前一致：谁都可以「扮演」（avatarPermission=everyone，不然有的应用拒绝加载），
+    其余取保守值（仅个人非商用、禁止再分发和修改、要求署名）——转换的大多是别人的模型，
+    放宽要由用户在界面里明确选。
+    """
     author = meta.get("author") or ""
     vrm_ext = {
         "specVersion": "1.0",
@@ -16,25 +26,29 @@ def build_vrm1(meta, title, human, mesh_node, expr):
                                     for k, v in human.items()}},
         "meta": {
             "name": title,
-            "version": meta.get("version", "1"),
+            "version": meta.get("version") or "1",
             "authors": [author] if author else ["unknown"],
-            "copyrightInformation": meta.get("copyright", ""),
-            "contactInformation": meta.get("contact", ""),
+            "copyrightInformation": meta.get("copyright") or "",
+            "contactInformation": meta.get("contact") or "",
             "thirdPartyLicenses": "",
             # thumbnailImage 规范要求是图片索引（整数）；没有缩略图就不写，
-            # 写 null 过不了 VRM 1.0 schema 校验。
-            "licenseUrl": meta.get("license_url",
-                                   "https://vrm.dev/licenses/1.0/"),
-            "avatarPermission": meta.get("avatar_permission", "everyone"),
+            # 写 null 过不了 VRM 1.0 schema 校验。缩略图由 vrm_edit 写入。
+            "licenseUrl": meta.get("license_url") or "https://vrm.dev/licenses/1.0/",
+            "avatarPermission": _pick(meta, "avatar_permission",
+                                      ("onlyAuthor", "onlySeparatelyLicensedPerson", "everyone"),
+                                      "everyone"),
             "allowExcessivelyViolentUsage": False,
             "allowExcessivelySexualUsage": False,
-            "commercialUsage": meta.get("commercial_usage",
-                                        "personalNonProfit"),
+            "commercialUsage": _pick(meta, "commercial_usage",
+                                     ("personalNonProfit", "personalProfit", "corporation"),
+                                     "personalNonProfit"),
             "allowPoliticalOrReligiousUsage": False,
             "allowAntisocialOrHateUsage": False,
-            "creditNotation": "required",
-            "allowRedistribution": False,
-            "modification": "prohibited",
+            "creditNotation": _pick(meta, "credit_notation", ("required", "unnecessary"), "required"),
+            "allowRedistribution": bool(meta.get("allow_redistribution", False)),
+            "modification": _pick(meta, "modification",
+                                  ("prohibited", "allowModification", "allowModificationRedistribution"),
+                                  "prohibited"),
         },
         "firstPerson": {"meshAnnotations": [{"node": mesh_node,
                                              "type": "auto"}]},
@@ -68,17 +82,21 @@ def build_vrm0(meta, title, human, expr, material_props):
         "specVersion": "0.0",
         "meta": {
             "title": title,
-            "version": meta.get("version", "1"),
+            "version": meta.get("version") or "1",
             "author": meta.get("author") or "",
-            "contactInformation": meta.get("contact", ""),
+            "contactInformation": meta.get("contact") or "",
             "reference": "",
-            "allowedUserName": "Everyone",
+            "allowedUserName": {"everyone": "Everyone",
+                                "onlySeparatelyLicensedPerson": "ExplicitlyLicensedPerson",
+                                "onlyAuthor": "OnlyAuthor"}.get(
+                                    meta.get("avatar_permission"), "Everyone"),
             "violentUssageName": "Disallow",
             "sexualUssageName": "Disallow",
-            "commercialUssageName": meta.get("commercial_0x", "Disallow"),
+            "commercialUssageName": ("Allow" if meta.get("commercial_usage") in
+                                     ("personalProfit", "corporation") else "Disallow"),
             "otherPermissionUrl": "",
             "licenseName": "Other",
-            "otherLicenseUrl": meta.get("license_url", ""),
+            "otherLicenseUrl": meta.get("license_url") or "",
         },
         "humanoid": {
             "humanBones": [{"bone": k, "node": v, "useDefaultValues": True}
