@@ -264,6 +264,7 @@ python formats/pmxio.py "model.pmx" --in-place    # 直接覆盖（建议先备�
 `pmx2vrm.py`：`--spec 1.0|0x`、`--scale auto|倍率`、`--rotate auto|none|y180`、
 `--flip-winding`、`--force-double-sided`、`--keep-pose`（保留 A-pose，默认转成 T-pose）、
 `--outline`（按 PMX 轮廓线设置写 MToon 描边）、`--dense-morphs`（表情改用密集存储，默认稀疏）、
+`--no-spring` / `--no-spring-skirt` / `--spring-stiffness 倍率` / `--spring-gravity 重力` / `--spring-gravity-skirt 重力` / `--no-spring-center`（PMX 物理 → VRM 1.0 SpringBone，默认开启）、
 `--max-morphs N`、`--title` / `--author`。
 
 `vrm2pmx.py`：`--scale`、`--rotate`、`--flip-winding`、`--edge`（开启轮廓线）、
@@ -449,7 +450,7 @@ Release 默认是**草稿（draft）**状态——请到 Releases 页面确认�
 
 - **FBX 结构**：二进制 FBX 7.x 与 ASCII FBX **都能读**（旧文档里「不支持 ASCII」的说法已过时）。
 - **贴图格式**：`.dds` 已能原生解码（DXT1 / DXT3 / DXT5）——内置预览能显示，XPS / PSK 路径也原样拷贝，因为 MMD 本体就认 `.dds`。KTX2 / WebP 仍不支持，会退化为纯色。
-- **物理**：PMX 刚体/关节 ↔ VRM SpringBone **不会互相转换**。
+- **物理**：仅 PMX → VRM **1.0** 会把刚体/关节转成 SpringBone（以「表现和原生 VRM 一致」为目标的近似，不是复刻 MMD 的 Bullet 物理）；VRM 0.x 输出和反方向（VRM SpringBone → PMX 刚体）不转换。
 - **材质效果**：球谐贴图（.sph/.spa）、toon 贴图在 VRM 侧不保留；反向（→ PMX）时本工具一律不上 toon。
 - **骨骼名**：FBX 转换保留英文骨骼名（`Hips`、`Spine` …），直接套 MMD 现成动作（.vmd）匹配不上，需在 PMXEditor 里批量改为日文标准名。
   PSK 走的是另一条路：Bip001 那套 3dsMax Biped 命名**默认就转成 MMD 标准日文名**，英文原名写进骨骼的英文名备注。

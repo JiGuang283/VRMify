@@ -274,6 +274,7 @@ UV が取れない場合は画像全体の 90% / 1% にフォールバック。�
 `pmx2vrm.py`：`--spec 1.0|0x`、`--scale auto|倍率`、`--rotate auto|none|y180`、
 `--flip-winding`、`--force-double-sided`、`--keep-pose`（A ポーズのまま出力。既定は T ポーズに変換）、
 `--outline`（PMX のエッジ設定から MToon の輪郭線を出力）、`--dense-morphs`（モーフを密に格納。既定は疎）、
+`--no-spring` / `--no-spring-skirt` / `--spring-stiffness 倍率` / `--spring-gravity 重力` / `--spring-gravity-skirt 重力` / `--no-spring-center`（PMX 物理 → VRM 1.0 SpringBone。既定で有効）、
 `--max-morphs N`、`--title` / `--author`。
 
 `vrm2pmx.py`：`--scale`、`--rotate`、`--flip-winding`、`--edge`（輪郭線を有効化）、
@@ -448,7 +449,7 @@ Release は**ドラフト**として作成されます——Releases ページ�
 
 - **FBX 構造**：バイナリ FBX 7.x と ASCII FBX の **両方に対応**（以前の「ASCII 非対応」は誤りでした）。
 - **テクスチャ形式**：`.dds` はネイティブにデコード可能（DXT1 / DXT3 / DXT5）——内蔵プレビューで表示でき、XPS / PSK 経路でもそのままコピーします（MMD 本体が `.dds` に対応）。KTX2 / WebP は未対応で、単色に退化します。
-- **物理**：PMX 剛体/ジョイント ↔ VRM SpringBone は**相互変換されない**。
+- **物理**：PMX → VRM **1.0** のみ剛体/ジョイントを SpringBone に変換（ネイティブ VRM と同等の挙動を目標にした近似で、MMD の Bullet 物理の再現ではない）。VRM 0.x 出力と逆方向（VRM SpringBone → PMX 剛体）は変換されない。
 - **材質効果**：球環境マップ（.sph/.spa）・toon マップは VRM 側に保持されない。逆方向（→ PMX）では本ツールは一切 toon を適用しません。
 - **ボーン名**：FBX 変換は英語ボーン名（`Hips`、`Spine` …）を維持するため、MMD の既存モーション（.vmd）と一致せず、PMXEditor で日本語標準名へ一括変更が必要。
   PSK は別ルートです。Bip001（3ds Max Biped）の命名は**既定で MMD 標準の日本語名に変換**され、元の英語名はボーンの英語名フィールドに残ります。

@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local models and conversion outputs (model licenses forbid redistribution)
+model/
+vrm/
+vrm_new/
+ref/

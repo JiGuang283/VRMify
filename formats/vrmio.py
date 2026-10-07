@@ -608,6 +608,87 @@ def decode_image(data):
     return None
 
 
+def decode_rgba(data, max_pixels=4 << 20):
+    """贴图字节 → (宽, 高, 行列表)，每行是 (r, g, b, a) 元组的列表；失败返回 None。
+
+    纯 Python，给 toon 渐变这类小图取色用（BMP / TGA / DDS 先转成 PNG）。
+    只支持 8 位、非隔行的 PNG；超过 max_pixels 的大图不解（太慢）。
+    """
+    if not data:
+        return None
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        data = decode_image(data)
+        if not data or data[:8] != b"\x89PNG\r\n\x1a\n":
+            return None
+    p = 8
+    idat = []
+    w = h = bd = ct = il = 0
+    plte = trns = None
+    while p + 8 <= len(data):
+        ln, ty = struct.unpack(">I4s", data[p:p + 8])
+        body = data[p + 8:p + 8 + ln]
+        p += 12 + ln
+        if ty == b"IHDR":
+            w, h, bd, ct, _, _, il = struct.unpack(">IIBBBBB", body[:13])
+        elif ty == b"IDAT":
+            idat.append(body)
+        elif ty == b"PLTE":
+            plte = body
+        elif ty == b"tRNS":
+            trns = body
+        elif ty == b"IEND":
+            break
+    if bd != 8 or il or ct not in (0, 2, 3, 4, 6) or w * h > max_pixels:
+        return None
+    if ct == 3 and not plte:
+        return None
+    bpp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ct]
+    stride = w * bpp
+    try:
+        raw = zlib.decompress(b"".join(idat))
+    except zlib.error:
+        return None
+    if len(raw) < h * (stride + 1):
+        return None
+    rows = []
+    prev = bytearray(stride)
+    for y in range(h):
+        base = y * (stride + 1)
+        f = raw[base]
+        out = bytearray(raw[base + 1:base + 1 + stride])
+        if f == 1:
+            for x in range(bpp, stride):
+                out[x] = (out[x] + out[x - bpp]) & 255
+        elif f == 2:
+            for x in range(stride):
+                out[x] = (out[x] + prev[x]) & 255
+        elif f == 3:
+            for x in range(stride):
+                left = out[x - bpp] if x >= bpp else 0
+                out[x] = (out[x] + ((left + prev[x]) >> 1)) & 255
+        elif f == 4:
+            for x in range(stride):
+                a = out[x - bpp] if x >= bpp else 0
+                b = prev[x]
+                c = prev[x - bpp] if x >= bpp else 0
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                out[x] = (out[x] + (a if pa <= pb and pa <= pc
+                                    else (b if pb <= pc else c))) & 255
+        prev = out
+        if ct == 6:
+            rows.append([tuple(out[i:i + 4]) for i in range(0, stride, 4)])
+        elif ct == 2:
+            rows.append([tuple(out[i:i + 3]) + (255,) for i in range(0, stride, 3)])
+        elif ct == 0:
+            rows.append([(v, v, v, 255) for v in out])
+        elif ct == 4:
+            rows.append([(out[i], out[i], out[i], out[i + 1]) for i in range(0, stride, 2)])
+        else:
+            rows.append([tuple(plte[3 * v:3 * v + 3]) +
+                         ((trns[v] if trns and v < len(trns) else 255),) for v in out])
+    return w, h, rows
+
+
 def png_alpha_stats(data, max_rows=512):
     """统计 PNG 的透明度分布，用来决定材质的 alphaMode。
 

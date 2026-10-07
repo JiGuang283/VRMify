@@ -268,6 +268,7 @@ With no usable UV it falls back to 90% / 1% over the whole image. Per-texture ve
 `pmx2vrm.py`: `--spec 1.0|0x`, `--scale auto|factor`, `--rotate auto|none|y180`,
 `--flip-winding`, `--force-double-sided`, `--keep-pose` (keep the A-pose instead of the default T-pose),
 `--outline` (MToon outlines from the PMX edge settings), `--dense-morphs` (dense instead of sparse morph targets),
+`--no-spring` / `--no-spring-skirt` / `--spring-stiffness k` / `--spring-gravity g` / `--spring-gravity-skirt g` / `--no-spring-center` (PMX physics → VRM 1.0 SpringBone, on by default),
 `--max-morphs N`, `--title` / `--author`.
 
 `vrm2pmx.py`: `--scale`, `--rotate`, `--flip-winding`, `--edge` (enable outline),
@@ -434,7 +435,7 @@ tag in the `release_tag` field to (re)upload the artifacts to that Release.
 - **FBX structure**: both binary FBX 7.x and ASCII FBX are read (the older "ASCII is not supported" note was wrong).
 - **Texture formats**: `.dds` is decoded natively (DXT1 / DXT3 / DXT5) — the built-in preview shows it, and it is copied
   as-is on the XPS / PSK paths because MMD itself reads `.dds`. KTX2 / WebP are still not decoded, so they degrade to a solid colour.
-- **Physics**: PMX rigidbody/joint ↔ VRM SpringBone are **not** converted between each other.
+- **Physics**: PMX → VRM **1.0** converts rigid bodies/joints to SpringBone (an approximation tuned to behave like native VRM models, not a replica of MMD's Bullet physics); VRM 0.x output and the reverse direction (VRM SpringBone → PMX rigid bodies) are not converted.
 - **Material effects**: Spherical maps (.sph/.spa) and toon maps are not preserved on the VRM side; in the other direction (→ PMX) this tool never applies toon.
 - **Bone names**: FBX conversion keeps English bone names (`Hips`, `Spine` …), so they won't match MMD's ready-made motions (.vmd); you must batch-rename them to the Japanese standard names in PMXEditor.
   PSK takes a different route: the Bip001 (3ds Max Biped) naming is **converted to MMD standard Japanese names by default**, with the original English name kept in the bone's English-name field.
