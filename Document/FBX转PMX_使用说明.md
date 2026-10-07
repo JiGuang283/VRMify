@@ -17,10 +17,8 @@
 | `formats/vrmio.py` | GLB/glTF 容器读写 + 图片编解码 |
 | `formats/uemodelio.py` | UEFormat `.uemodel` 读写（v1–v10） |
 | `formats/pskio.py` | Unreal ActorX `.psk` / `.pskx` 读取 |
-| `convert/pmx2vrm.py` | **PMX → VRM 转换器**，见 `VRM互转_使用说明.md` |
-| `convert/vrm2pmx.py` | **VRM → PMX 转换器**，见 `VRM互转_使用说明.md` |
+| `convert/pmx2vrm.py` | **PMX → VRM 转换器**，见 `PMX转VRM_使用说明.md` |
 | `convert/uemodel2pmx.py` | **uemodel（UEFormat）→ PMX 转换器** |
-| `convert/pmx2uemodel.py` | **PMX → uemodel（UEFormat）转换器** |
 | `convert/psk2pmx.py` | **PSK / PSKX（Unreal ActorX）→ PMX 转换器**，见 `PSK转PMX_使用说明.md` |
 | `gfx/preview.py` | 实时 3D 正面预览控件（GUI 调用） |
 

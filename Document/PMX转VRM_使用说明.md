@@ -1,4 +1,4 @@
-# VRM ↔ PMX 互转说明
+# PMX → VRM 转换说明
 
 纯 Python 标准库实现，不依赖 Blender、mmd_tools、Unity、UniVRM、pygltflib。
 （GitHub 上那个 `aia7520-gif/pmx2vrm` 是 Blender + mmd_tools + VRM 插件的方案，
@@ -10,9 +10,10 @@
 |---|---|
 | `formats/pmxio.py` | 完整 PMX 2.0 读写（含表情 offset、IK、付与、刚体、关节） |
 | `formats/vrmio.py` | GLB/glTF 容器读写 + PNG 编码 + BMP/TGA 解码 |
-| `convert/pmx2vrm.py` | **PMX → VRM（1.0 / 0.x）** |
-| `convert/vrm2pmx.py` | **VRM（1.0 / 0.x）→ PMX** |
-| `gfx/preview.py` | 实时 3D 正面预览控件（GUI 调用） |
+| `convert/pmx2vrm.py` | **PMX → VRM（1.0 / 0.x）** 入口：`convert()` 和命令行 |
+| `convert/vrmconv/` | 各阶段：`humanoid`（骨骼映射、T-pose）、`skeleton`（节点树、占位骨）、`mesh`、`materials`（MToon）、`expressions`、`springbone`、`vrm_ext` |
+| `gfx/web_preview.py` | 三维预览（three-vrm）：MToon、SpringBone、表情和导入软件后一致 |
+| `tools/qa/` | VRM 结构 / 官方 Schema 检查、SpringBone 动态测试（见 `tools/README.md`） |
 
 ## 常用命令
 
@@ -23,11 +24,11 @@ python convert/pmx2vrm.py "model.pmx" -o "model.vrm"
 # PMX → VRM 0.x（老软件/老 SDK 才需要）
 python convert/pmx2vrm.py "model.pmx" --spec 0x --title "名字" --author "作者"
 
-# VRM → PMX（贴图会自动导出到 PMX 同目录）
-python convert/vrm2pmx.py "model.vrm" -o "model.pmx"
+# 三维预览转换结果
+python gfx/web_preview.py "model.vrm"
 
-# 校验 + 渲染预览
-python convert/pmx_check.py "model.pmx"
+# 检查 VRM（结构 + 官方 Schema）
+python tools/qa/check_vrm.py "model.vrm"
 ```
 
 `pmx2vrm.py` 主要参数：
@@ -50,10 +51,6 @@ python convert/pmx_check.py "model.pmx"
 | `--no-spring-center` | 不设 SpringBone center（默认以模型根节点为 center，人物整体移动时头发/裙摆不会被甩） |
 | `--max-morphs N` | 只导出前 N 个表情；`0` = 完全不导出 |
 | `--title` / `--author` | 写进 VRM meta |
-
-`vrm2pmx.py` 主要参数：`--scale`（默认归一化到 20 MMD 单位）、`--rotate`、
-`--flip-winding`、`--edge`（开启 MMD 轮廓线，默认关闭）、
-`--force-double-sided`、`--name`。
 
 ## 坐标系（这部分决定了模型朝向对不对）
 
@@ -245,31 +242,16 @@ python convert/pmx_check.py "model.pmx"
   占位节点，挂在规范要求的父节点下；如果模型里已有本该挂在它下面的 humanoid 骨
   （比如缺 spine 但有 chest），会把那根骨一起改挂到占位骨下，保证层级合法。
 
-## VRM → PMX 的映射
-
-| VRM / glTF | PMX |
-|---|---|
-| skin joints | 骨骼（按 DFS 重排，父在前；humanoid 里登记但未蒙皮的骨骼也会保留） |
-| 节点世界平移 | 骨骼位置（`tail` 指向第一个子骨骼，叶子骨骼按父子方向给偏移） |
-| JOINTS_0/WEIGHTS_0 | BDEF1 / BDEF2 / BDEF4 |
-| glTF 材质 | PMX 材质（diffuse 取 `baseColorFactor`，**不使用 toon**：`toon_flag=0` + `toon=-1`） |
-| 嵌入贴图 | 导出成 `<pmx名>_texNN.png` 放在 PMX 同目录 |
-| expression / blendShape | PMX 顶点表情（组表情会按权重叠加展开） |
-| `extras.targetNames` 里没被引用的 target | 也会单独建一个 PMX 表情 |
-
 ## 已知限制
 
-1. **不支持的贴图格式**：DDS / KTX2 / WebP 会被跳过（材质退化成纯色）。
-2. **物理**：PMX 物理只转成 VRM **1.0** 的 SpringBone（近似映射，见上文），0.x 不转；
-   反过来 VRM 的 SpringBone / node constraint 也不会转成 PMX 刚体。
+1. **不支持的贴图格式**：KTX2 / WebP 会被跳过（材质退化成纯色）；DDS（DXT1/3/5）会解码成 PNG。
+2. **物理**：PMX 物理只转成 VRM **1.0** 的 SpringBone（近似映射，见上文），0.x 不转。
 3. **材质效果**：加算球面贴图转成 matcap，toon 贴图换算成阴影色和明暗交界；乘算球面贴图、
    共享 toon07～10 在 VRM 侧不保留。
    材质表情只转换漫反射色和环境色（即显示颜色和透明度），高光、轮廓线等其他项忽略。
-   反方向（VRM → PMX）本工具**一律不使用 Toon**，材质写成 `toon_flag=0` + `toon=-1`
-   （PMXEditor / MMD 里显示为「なし」）。
 
-   ⚠️ 顺便记一个坑：PMX 材质的 toon 字段宽度由「共有Toonフラグ」决定，写反了会给每个材质
-   硬套一层 `toon01.bmp`：
+   ⚠️ 读 toon 时的一个坑：PMX 材质的 toon 字段宽度由「共有Toonフラグ」决定，读写反了会把
+   「不使用 toon」当成 `toon01.bmp`（其他格式 → PMX 的转换器写出的材质都是 `toon_flag=0` + `toon=-1`）：
 
    | flag | 含义 | 字段 |
    |---|---|---|
@@ -279,8 +261,7 @@ python convert/pmx_check.py "model.pmx"
    「编号 0 = `toon00.bmp` = 不使用」是误解 —— MMD 的 `Data/` 目录里没有 `toon00.bmp`，
    mmd_tools 源码里写死了 `toon%02d.bmp % (shared + 1)`。本工具 2026-09-24 之前就是错的那个写法。
 4. **骨骼表情**：PMX 的骨骼表情（kind 2）在 VRM 里没有对应物，会被忽略。
-5. **T-pose 重摆**：用的是线性蒙皮（LBS），肩部权重混合区在大角度重摆时
-   会有轻微收缩；物理骨（裙摆、头发）不会转成 SpringBone，所以抬腿时裙子不跟。
+5. **T-pose 重摆**：用的是线性蒙皮（LBS），肩部权重混合区在大角度重摆时会有轻微收缩。
 6. 表情默认用 glTF 稀疏 accessor 存储，只存实际动到的顶点（实测 62.7 MB → 20.1 MB）。
    个别老软件不支持稀疏 accessor 时可以加 `--dense-morphs`。
 

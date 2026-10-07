@@ -165,31 +165,6 @@ PmxEditor 打开 `xxx.pmx` 时，会去找**同名**的 `xxx.psk` 并自动加�
 
 本工具在转换时如果检测到输出 PMX 旁边有同名的 `.psk` / `.pskx`，会在日志里主动提示。
 
-## 反向：PMX → psk / pskx
-
-本工具现在也支持把 PMX 写回 PSK / PSKX（2026-09-25 新增）。
-
-```bash
-# 默认写 .pskx（含法线/顶点色/附加 UV/表情），目标身高 160cm
-python convert/pmx2psk.py "model.pmx" -o "model.pskx"
-
-# 只写标准 .psk（不带扩展块）
-python convert/pmx2psk.py "model.pmx" -o "model.psk" --std
-
-# 指定目标身高、不导出贴图
-python convert/pmx2psk.py "model.pmx" -o "model.pskx" --height 180 --no-textures
-```
-
-GUI 里选任务「PMX → psk / pskx」，在「PSK 选项」页签可切换：
-- 输出格式：`.pskx`（扩展块全写）或 `.psk`（仅标准块）
-- PSK 目标身高：默认 160cm（PMX 常规 20 单位 × 8）
-- 导出贴图：把 PMX 的贴图按材质名拷贝到 `textures/` 下
-
-**反向的已知限制**：
-- 日文骨名优先取 `name_en`，没有则查兜底表（`全ての親`→`Root`、`センター`→`Center`…），再不行是 `bone%03d`。
-- PMX 的 IK / 付与(继承) / 刚体 / 关节 / UV 表情 / 材质表情在 PSK 里没有对应结构，一律跳过。
-- PMX 顶点最多 4 根骨骼权重，若源 PSK 有 5~6 根，「PSK→PMX→PSK」转一圈会丢。
-
 ## 已知限制
 
 1. **朝向是固定映射**：没有 FBX 那样的「自动判定朝向」开关（PSK 的轴约定是明确的）。
