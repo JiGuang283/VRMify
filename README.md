@@ -1,5 +1,14 @@
 # Model Converter (Pure Python)
 
+> **Model-To-VRM** — a VRM-focused fork of [SaraKale/Model-To-PMX](https://github.com/SaraKale/Model-To-PMX)
+> (GPL-3.0). Modified since 2026-10: the PMX → VRM converter was reworked (skeleton, morphs, MToon
+> materials, SpringBone) and the VRM → PMX / PMX → uemodel / PMX → psk / PMX → FBX outputs were removed.
+> Other inputs (FBX, uemodel, psk, xps) still convert to PMX. The rest of this README describes the
+> original multi-format tool and is being updated.
+>
+> 本项目派生自 SaraKale/Model-To-PMX（GPL-3.0），2026-10 起修改：重做了 PMX → VRM，删除了
+> VRM → PMX、PMX → uemodel / psk / FBX 输出；以下内容仍是原项目说明，待更新。
+
 Convert `.fbx`, `.unitypackage`, `.vrm`, `.pmx`, and `.uemodel` (UEFormat) into each other — and `.psk` / `.pskx` (Unreal ActorX) and `.xps` (XNALara / XPS) into PMX — **entirely with the Python standard library**.
 No Blender / Autodesk FBX SDK / Unity 3D required, and no plugins such as mmd_tools / UniVRM.
 It reads and writes the binary formats directly — just drag a file into the window to convert.
