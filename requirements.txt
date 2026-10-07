@@ -1,0 +1,5 @@
+# Optional runtime packages — the converter itself is pure standard library.
+# pywebview: native window for the new UI (drag & drop); without it the UI opens in the browser.
+pywebview>=5
+# Pillow: texture slimming (max size / JPEG); without it textures are embedded as-is.
+Pillow>=10

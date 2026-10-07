@@ -25,6 +25,8 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 | **Materials** | MToon. Shade color and shading boundary come from the PMX toon ramp (pink skin shadows, like native VRoid models); colors written in linear space; opaque / cutout / blend chosen from the texture's alpha; additive sphere maps → matcap |
 | **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo, emotions); material morphs → material color binds (show / hide parts) |
 | **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies |
+| **Textures** | Optional max size (4096 / 2048 / 1024) and JPEG for opaque textures — VRM files usually shrink by half or more (needs Pillow); textures with transparency stay PNG |
+| **Metadata** | Author, version, contact and usage license (who may use it, commercial use, modification, redistribution, credit) set in the UI; conservative defaults |
 | **Compatibility** | Output passes the official VRM JSON schemas and avoids data that aborts UniVRM imports (duplicate blend shape names, missing color components …) |
 
 Conversion details: [Document/PMX转VRM_使用说明.md](Document/PMX转VRM_使用说明.md) (Chinese).
@@ -45,29 +47,52 @@ The resulting PMX can then be converted to VRM.
 View results with three-vrm (the same MToon / SpringBone rules as UniVRM): idle / walk / run / leg-raise motions,
 adjustable lighting and shadows, expression sliders, snapshots. Works offline.
 
+### Tuning after conversion
+
+The **Tune** panel (top right of the preview) adjusts one model after conversion — **no reconversion**; saving writes straight
+into the output VRM:
+
+- **Name** and **thumbnail** (a square shot of the current preview, shown as the avatar icon in games / VRM apps)
+- **Preset expressions**: which PMX morph drives each VRM preset (happy, blink, mouth A/I/U/E/O …). Automatic mapping only knows
+  the standard Japanese morph names, so models with other names can be completed here; ▶ tries an expression
+- **Physics**: overall stiffness / drag / gravity plus per-chain stiffness, gravity and on/off, previewed live while dragging
+
+Tuning is stored per source file in `edits.json` (thumbnails in `edits/`) and reapplied on later conversions; "Reset all"
+returns to the converted state. Re-tuning never drifts: the original values are stored in the file on the first change and
+every save starts from them.
+
 ---
 
 ## 2. Requirements
 
 - **Python 3.10+** with tkinter (included in the official Windows installer)
-- **Optional**: `Pillow` (faster texture decoding in the classic preview), `pywebview` (3D preview in its own window; otherwise the system browser is used)
+- **Optional** (`pip install -r requirements.txt`): `pywebview` (native window with drag & drop for the new UI; otherwise the
+  system browser is used), `Pillow` (texture slimming; also faster texture decoding in the classic preview)
 - Drag & drop into the window uses native Windows APIs; on other systems use the Browse button
 
 ---
 
 ## 3. Usage
 
-### New UI (preview)
+### New UI
+
+**Double-click `启动.bat`** ("start"; you can also drop files onto it). It uses the project's `.venv` when present, otherwise
+the Python on PATH. Setting up the environment once is recommended:
 
 ```bash
-pip install pywebview        # optional: native window + drag & drop; otherwise the system browser is used
-python ui/app.py
+uv venv .venv && uv pip install -r requirements.txt     # or python -m venv .venv, then .venv\Scripts\pip install -r requirements.txt
 ```
 
-- Left: add files / folders (PMX, VRM, zip archives, FBX, unitypackage, uemodel, psk, xps), set the VRM version, physics, expressions …
-  and click "Start conversion". Non-PMX formats go through PMX to VRM by default; the Inputs tab can stop at PMX.
+From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces the system browser).
+
+- Left: add files / folders (PMX, VRM, zip archives, FBX, unitypackage, uemodel, psk, xps) and click "Start conversion".
+  Settings have four tabs:
+  - **VRM**: version, physics, expressions, outline, texture max size and JPEG
+  - **Inputs**: non-PMX formats go through PMX to VRM by default, or stop at PMX
+  - **Metadata**: author and usage license (the name defaults to the model file name)
+  - **Output**: next to the source / a chosen folder, optional per-run subfolder
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
-  after conversion the real output is shown.
+  after conversion the real output is shown. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
 - **Zip packages from model sites can be added directly**: they are extracted to a temp folder, the PMX inside is converted
   (other formats if there is no PMX) and the output goes next to the archive. Legacy GBK / Shift-JIS (even mixed) file names
   are restored, so textures resolve.
@@ -117,6 +142,7 @@ Common `pmx2vrm.py` options:
 | `--force-double-sided` | Make every material double-sided |
 | `--flip-winding` | Force-reverse triangle winding (detected automatically by default) |
 | `--dense-morphs` / `--max-morphs N` | Dense morph storage / export only the first N morphs |
+| `--tex-max N` / `--tex-jpeg` | Texture max size / store opaque textures as JPEG (needs Pillow) |
 | `--title` / `--author` | Written to the VRM meta |
 
 Other formats → PMX:
@@ -130,14 +156,18 @@ python convert/pmx_check.py "model.pmx"                         # PMX check + pr
 python formats/unitypackage_unpack.py "pack.unitypackage"       # unpack a unitypackage
 ```
 
-### Batch conversion and checks
+### Batch conversion, checks and tests
 
-`tools/` contains batch conversion, VRM structure / official schema checks and a SpringBone dynamics test — see [tools/README.md](tools/README.md):
+`tools/` contains batch conversion, VRM structure / official schema checks, a SpringBone dynamics test and a regression
+comparison on real models — see [tools/README.md](tools/README.md):
 
 ```bash
 python tools/batch_convert.py model -o vrm           # each character with and without SpringBone
 python tools/qa/check_vrm.py vrm                     # needs: pip install jsonschema
 python tools/qa/dynamics.py vrm                      # needs Node.js
+python -m unittest discover -s tests                 # unit tests (synthetic model, no real models needed)
+python tools/regress.py record model/some-character  # record real-model outputs as a baseline
+python tools/regress.py check                        # after code changes: reconvert and compare
 ```
 
 ---
@@ -146,8 +176,11 @@ python tools/qa/dynamics.py vrm                      # needs Node.js
 
 ```
 Model-To-VRM/
-├── main.py                 GUI entry point
-├── main.spec               PyInstaller spec
+├── 启动.bat                double-click launcher for the new UI
+├── requirements.txt        optional packages (pywebview, Pillow)
+├── Model-To-VRM.spec       PyInstaller spec for the new UI
+├── main.py                 classic GUI entry point
+├── main.spec               PyInstaller spec for the classic GUI
 ├── convert/
 │   ├── pmx2vrm.py          PMX → VRM entry (convert() and CLI)
 │   ├── vrmconv/            PMX → VRM stages
@@ -157,10 +190,12 @@ Model-To-VRM/
 │   │   ├── materials.py    MToon materials (toon ramps, alpha modes)
 │   │   ├── expressions.py  expressions
 │   │   ├── springbone.py   physics → SpringBone
+│   │   ├── textures.py     texture slimming (resize, JPEG)
 │   │   └── vrm_ext.py      VRM extension bodies
 │   ├── fbx2pmx.py  uemodel2pmx.py  psk2pmx.py  xps2pmx.py   other formats → PMX
 │   ├── pmx_check.py        PMX check
-│   └── pipeline.py         conversion flow: detect format → other formats to PMX → VRM (used by the new UI)
+│   ├── pipeline.py         conversion flow: detect format → other formats to PMX → VRM (used by the new UI)
+│   └── vrm_edit.py         tuning after conversion: expression presets, physics, name, thumbnail
 ├── formats/                format I/O (pmxio, vrmio (GLB), fbx_reader, uemodelio, pskio, xpsio …)
 ├── ui/                     new UI
 │   ├── app.py              entry point (pywebview window / browser)
@@ -170,7 +205,8 @@ Model-To-VRM/
 │   ├── preview.py          classic GUI live preview (pure-Python rasteriser)
 │   ├── web_preview.py      standalone 3D preview (local server + window)
 │   └── web/                three-vrm viewer component viewer-core.js and preview page; vendor/ holds offline three.js and three-vrm
-└── tools/                  batch conversion and QA (not bundled)
+├── tests/                  unit tests (synth.py builds a small test model)
+└── tools/                  batch conversion, QA, regression comparison (not bundled)
 ```
 
 Modules import each other by bare name (`import pmxio`); `main.py` puts `formats/`, `convert/` and `gfx/` on `sys.path` at runtime.
@@ -180,12 +216,15 @@ Modules import each other by bare name (`import pmxio`); `main.py` puts `formats
 ## 5. Building
 
 ```bash
-pip install pyinstaller
-pyinstaller main.spec
+pip install -r requirements-dev.txt     # pyinstaller + pywebview + Pillow
+pyinstaller Model-To-VRM.spec           # new UI → dist/Model-To-VRM/Model-To-VRM.exe
+pyinstaller main.spec                   # classic GUI
 ```
 
-**Always build with `main.spec`**: the sub-directory modules are added to `sys.path` only at runtime, which PyInstaller's
-static analysis can't see; the spec sets `pathex`, `hiddenimports` and the 3D preview assets (`gfx/web`). Rebuild after source changes.
+**Always build with the spec files**: the sub-directory modules are added to `sys.path` only at runtime, which PyInstaller's
+static analysis can't see; the specs set `pathex`, `hiddenimports` and the page assets (`ui/web`, `gfx/web`). Install pywebview
+and Pillow in the build environment so the exe gets the native window and texture slimming. `settings.json` and `edits.json`
+are written next to the exe. Rebuild after source changes.
 
 Pushing a `v1.2.3`-style tag triggers [GitHub Actions](.github/workflows/build-app.yml), which builds for Windows / macOS / Linux
 (x64 and ARM) and uploads to a draft release.

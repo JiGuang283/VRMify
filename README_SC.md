@@ -25,6 +25,8 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 | **材质** | MToon。阴影色、明暗交界按 PMX 的 toon 贴图换算（皮肤是粉色阴影，和原生 VRoid 一致）；颜色写线性值；按贴图 alpha 分布自动选不透明 / 裁剪 / 半透明；加算球面贴图 → matcap |
 | **表情** | 顶点表情 → morph target（稀疏存储，文件小）；常用表情自动对应 VRM 预设（眨眼、あいうえお、喜怒哀乐）；材质表情 → 材质颜色绑定（显示 / 隐藏部件） |
 | **物理** | PMX 刚体 / 关节 → VRM 1.0 SpringBone：头发、裙摆、飘带、袖子按原生 VRM 的手感换算，碰撞体来自 PMX 的跟随骨骼刚体 |
+| **贴图** | 可选限制最大边长（4096 / 2048 / 1024）、不透明贴图存成 JPEG，VRM 文件通常能小一半以上（需要 Pillow）；带透明的贴图保持 PNG |
+| **VRM 信息** | 作者、版本、联系方式、使用许可（谁可以使用、商用、修改、再分发、署名）在界面里填；默认取保守值 |
 | **兼容性** | 输出通过 VRM 官方 JSON Schema 校验，避开 UniVRM 导入时会中断的数据（BlendShape 重名、颜色分量缺失等） |
 
 物理和材质的换算细节见 [Document/PMX转VRM_使用说明.md](Document/PMX转VRM_使用说明.md)。
@@ -45,28 +47,49 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 用 three-vrm（和 UniVRM 同一套 MToon / SpringBone 规则）查看转换结果：待机 / 走路 / 跑步 / 抬腿动作、
 可调的灯光和投影、表情滑块、截图。离线可用。
 
+### 转换后调整
+
+预览右上角的「调整」面板，对单个模型做转换后的微调，**不用重新转换**，保存后直接写进输出的 VRM：
+
+- **名称**、**缩略图**（用当前预览画面，正方形，导入游戏 / VRM 软件时列表里显示的头像）
+- **预设表情**：每个 VRM 预设（开心、眨眼、口型あいうえお …）用哪个 PMX 表情。自动对应只认标准日文表情名，
+  命名不规范的模型可以在这里补齐；「▶」可以试看
+- **物理**：整体的硬度 / 阻尼 / 重力，以及每条链的硬度、重力和开关，拖动滑块时预览实时生效
+
+调整按源文件记在 `edits.json`（缩略图在 `edits/`），以后再转这个文件会自动套上；「全部还原」回到转换时的样子。
+同一个 VRM 反复调整不会越调越歪：第一次调整时原始值存进了文件里，每次都从原始值重新套用。
+
 ---
 
 ## 二、环境要求
 
 - **Python 3.10+**（需自带 tkinter；Windows 官方安装包默认包含）
-- **可选**：`Pillow`（加速旧界面里的贴图解码）、`pywebview`（三维预览用独立窗口，不装就用系统浏览器）
+- **可选**（`pip install -r requirements.txt`）：`pywebview`（新界面用独立窗口、可以拖放文件，不装就用系统浏览器）、
+  `Pillow`（贴图瘦身；也会加速旧界面里的贴图解码）
 - 拖放文件进窗口依赖 Windows 原生接口；其他系统用「浏览」按钮选择文件
 
 ---
 
 ## 三、使用方法
 
-### 新界面（试用）
+### 新界面
+
+**双击 `启动.bat`**（也可以把文件拖到它上面）。它优先用项目里的 `.venv`，没有就用系统的 Python。
+第一次使用建议建好环境：
 
 ```bash
-pip install pywebview        # 可选：独立窗口 + 拖放文件；不装就用系统浏览器打开
-python ui/app.py
+uv venv .venv && uv pip install -r requirements.txt     # 或 python -m venv .venv 再 .venv\Scripts\pip install -r requirements.txt
 ```
 
-- 左侧：添加文件 / 文件夹（PMX、VRM、zip 压缩包、FBX、unitypackage、uemodel、psk、xps），设置 VRM 版本、物理、表情等，
-  点「开始转换」。非 PMX 的格式默认先转 PMX 再转 VRM，也可以在「输入格式」里选只转 PMX。
+命令行启动：`python ui/app.py [文件或文件夹 ...]`（`--browser` 强制用系统浏览器）。
+
+- 左侧：添加文件 / 文件夹（PMX、VRM、zip 压缩包、FBX、unitypackage、uemodel、psk、xps），点「开始转换」。设置分四页：
+  - **VRM**：版本、物理、表情、描边、贴图最大边长和 JPEG
+  - **输入格式**：非 PMX 的格式默认先转 PMX 再转 VRM，也可以只转 PMX
+  - **VRM 信息**：作者和使用许可（名称默认用模型文件名）
+  - **输出**：源文件旁 / 指定文件夹，是否每次建子文件夹
 - 右侧：three-vrm 预览。还没转换的文件点「预览」会先在后台快速转一份临时 VRM；转换完成后显示实际输出。
+  「调整」面板见上面的[转换后调整](#转换后调整)。
 - **模型网站下载的 zip 整包可以直接加**：在临时目录解压，转换里面的 PMX（没有 PMX 时转其它格式），输出放在压缩包旁边。
   文件名是 GBK / Shift-JIS（甚至混用）的老压缩包也能正确还原，贴图不会丢。
 - 界面支持中文 / English，设置保存在 `settings.json`。
@@ -115,6 +138,7 @@ python gfx/web_preview.py "model.vrm"
 | `--force-double-sided` | 所有材质双面 |
 | `--flip-winding` | 强制反转三角绕序（默认自动判定） |
 | `--dense-morphs` / `--max-morphs N` | 表情用密集存储 / 只导出前 N 个 |
+| `--tex-max N` / `--tex-jpeg` | 贴图最大边长 / 不透明贴图存 JPEG（需要 Pillow） |
 | `--title` / `--author` | 写进 VRM meta |
 
 其他格式 → PMX：
@@ -128,14 +152,18 @@ python convert/pmx_check.py "model.pmx"                         # PMX 校验 + �
 python formats/unitypackage_unpack.py "pack.unitypackage"       # 解包 unitypackage
 ```
 
-### 批量转换和检查
+### 批量转换、检查和测试
 
-`tools/` 下有批量转换、VRM 结构 / 官方 Schema 检查、SpringBone 动态测试，用法见 [tools/README.md](tools/README.md)：
+`tools/` 下有批量转换、VRM 结构 / 官方 Schema 检查、SpringBone 动态测试、真实模型回归对比，
+用法见 [tools/README.md](tools/README.md)：
 
 ```bash
 python tools/batch_convert.py model -o vrm           # 每个角色输出带 / 不带 SpringBone 两份
 python tools/qa/check_vrm.py vrm                     # 需要 pip install jsonschema
 python tools/qa/dynamics.py vrm                      # 需要 Node.js
+python -m unittest discover -s tests                 # 单元测试（用合成的小模型，不需要真实模型）
+python tools/regress.py record model/某角色           # 记下真实模型的转换结果作为基准
+python tools/regress.py check                        # 改代码后重转、对比基准
 ```
 
 ---
@@ -144,8 +172,11 @@ python tools/qa/dynamics.py vrm                      # 需要 Node.js
 
 ```
 Model-To-VRM/
-├── main.py                 图形界面入口
-├── main.spec               PyInstaller 打包配置
+├── 启动.bat                双击启动新界面
+├── requirements.txt        可选依赖（pywebview、Pillow）
+├── Model-To-VRM.spec       新界面的 PyInstaller 打包配置
+├── main.py                 旧界面入口
+├── main.spec               旧界面的 PyInstaller 打包配置
 ├── convert/
 │   ├── pmx2vrm.py          PMX → VRM 入口（convert() 与命令行）
 │   ├── vrmconv/            PMX → VRM 的各个阶段
@@ -155,10 +186,12 @@ Model-To-VRM/
 │   │   ├── materials.py    MToon 材质（toon 换算、透明判定）
 │   │   ├── expressions.py  表情
 │   │   ├── springbone.py   物理 → SpringBone
+│   │   ├── textures.py     贴图瘦身（缩小、JPEG）
 │   │   └── vrm_ext.py      VRM 扩展本体
 │   ├── fbx2pmx.py  uemodel2pmx.py  psk2pmx.py  xps2pmx.py   其他格式 → PMX
 │   ├── pmx_check.py        PMX 校验
-│   └── pipeline.py         转换流程：识别格式 → 其他格式先转 PMX → 再转 VRM（新界面用）
+│   ├── pipeline.py         转换流程：识别格式 → 其他格式先转 PMX → 再转 VRM（新界面用）
+│   └── vrm_edit.py         转换后调整：表情指定、物理、名称、缩略图
 ├── formats/                格式读写（pmxio、vrmio(GLB)、fbx_reader、uemodelio、pskio、xpsio …）
 ├── ui/                     新界面
 │   ├── app.py              入口（pywebview 窗口 / 浏览器）
@@ -168,7 +201,8 @@ Model-To-VRM/
 │   ├── preview.py          旧界面内的实时预览（纯 Python 软光栅）
 │   ├── web_preview.py      独立的三维预览（本地服务器 + 窗口）
 │   └── web/                three-vrm 预览组件 viewer-core.js 与预览页，vendor/ 里是 three.js、three-vrm 离线副本
-└── tools/                  批量转换和质量检查（不随程序打包）
+├── tests/                  单元测试（synth.py 合成测试用的小模型）
+└── tools/                  批量转换、质量检查、回归对比（不随程序打包）
 ```
 
 模块之间用裸名导入（`import pmxio`），`main.py` 运行时会把 `formats/`、`convert/`、`gfx/` 放进 `sys.path`。
@@ -178,12 +212,14 @@ Model-To-VRM/
 ## 五、打包
 
 ```bash
-pip install pyinstaller
-pyinstaller main.spec
+pip install -r requirements-dev.txt     # pyinstaller + pywebview + Pillow
+pyinstaller Model-To-VRM.spec           # 新界面 → dist/Model-To-VRM/Model-To-VRM.exe
+pyinstaller main.spec                   # 旧界面
 ```
 
-**务必用 `main.spec`**：子目录模块是运行时才加进 `sys.path` 的，PyInstaller 的静态分析看不到，
-spec 里配好了 `pathex`、`hiddenimports` 和三维预览的页面资源（`gfx/web`）。改了源码要重新打包。
+**务必用 spec 文件**：子目录模块是运行时才加进 `sys.path` 的，PyInstaller 的静态分析看不到，
+spec 里配好了 `pathex`、`hiddenimports` 和页面资源（`ui/web`、`gfx/web`）。打包环境里装了 pywebview 和 Pillow，
+exe 才有独立窗口和贴图瘦身。`settings.json`、`edits.json` 写在 exe 旁边。改了源码要重新打包。
 
 推送形如 `v1.2.3` 的 tag 会触发 [GitHub Actions](.github/workflows/build-app.yml)，在 Windows / macOS / Linux
 （x64 与 ARM）上自动打包并上传到草稿 Release。

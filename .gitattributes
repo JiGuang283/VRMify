@@ -1,2 +1,3 @@
 # Vendored third-party files: keep byte-for-byte
 gfx/web/vendor/** -text
+*.bat text eol=crlf

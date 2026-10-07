@@ -1,1 +1,5 @@
+-r requirements.txt
+# tests / QA: official VRM JSON Schema validation
 jsonschema>=4.18
+# packaging: pyinstaller Model-To-VRM.spec
+pyinstaller>=6
