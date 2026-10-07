@@ -224,3 +224,7 @@ model/
 vrm/
 vrm_new/
 ref/
+
+# QA tools: Node dependencies and downloaded VRM schemas
+tools/qa/harness/node_modules/
+tools/qa/.schema-cache/

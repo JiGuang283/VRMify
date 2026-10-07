@@ -1,0 +1,11 @@
+{
+  "name": "model-to-vrm-qa-harness",
+  "private": true,
+  "description": "SpringBone behaviour tests for converted VRM files (three.js + three-vrm, headless)",
+  "type": "module",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "@pixiv/three-vrm": "3.5.5",
+    "three": "0.169.0"
+  }
+}
