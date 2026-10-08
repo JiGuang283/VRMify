@@ -96,6 +96,22 @@ class ConvertTest(Base):
         m0 = vrmio.read_glb(out0)[0]["extensions"]["VRM"]["meta"]
         self.assertEqual((m0["allowedUserName"], m0["commercialUssageName"]), ("OnlyAuthor", "Allow"))
 
+    def test_auto_spring(self):
+        # 去掉所有刚体：头发骨（髪1～3）应按名字自动补成 SpringBone，身体补碰撞体
+        import pmxio
+        m = pmxio.read_pmx(self.pmx)
+        m["rigid_bodies"], m["joints"] = [], []
+        bare = os.path.join(self.tmp, "src", "nophys.pmx")
+        pmxio.write_pmx(m, bare)
+        out = os.path.join(self.tmp, "auto.vrm")
+        pmx2vrm.convert(bare, out)
+        s = self.assertValid(out)
+        self.assertEqual(s["springs"], 1)
+        self.assertGreaterEqual(s["colliders"], 5)
+        out2 = os.path.join(self.tmp, "noauto.vrm")
+        pmx2vrm.convert(bare, out2, auto_spring=False)
+        self.assertNotIn("VRMC_springBone", vrmio.read_glb(out2)[0]["extensions"])
+
     def test_deterministic(self):
         a, b = self.convert("det_a"), self.convert("det_b")
         with open(a, "rb") as fa, open(b, "rb") as fb:

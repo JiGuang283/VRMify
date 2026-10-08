@@ -24,7 +24,7 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 | **坐标** | PMX（左手系）→ glTF（右手系）做一次镜面反射，绕序自动判定，模型不会左右翻转或镂空 |
 | **材质** | MToon。阴影色、明暗交界按 PMX 的 toon 贴图换算（皮肤是粉色阴影，和原生 VRoid 一致）；颜色写线性值；按贴图 alpha 分布自动选不透明 / 裁剪 / 半透明；加算球面贴图 → matcap |
 | **表情** | 顶点表情 → morph target（稀疏存储，文件小）；常用表情自动对应 VRM 预设（眨眼、あいうえお、喜怒哀乐）；材质表情 → 材质颜色绑定（显示 / 隐藏部件） |
-| **物理** | PMX 刚体 / 关节 → VRM 1.0 SpringBone：头发、裙摆、飘带、袖子按原生 VRM 的手感换算，碰撞体来自 PMX 的跟随骨骼刚体 |
+| **物理** | PMX 刚体 / 关节 → VRM 1.0 SpringBone：头发、裙摆、飘带、袖子按原生 VRM 的手感换算，碰撞体来自 PMX 的跟随骨骼刚体。模型完全没有物理时（FBX 等常见）按骨骼名和骨架结构自动补：头发、裙摆、袖子、飘带、尾巴会摆动，身体自动加碰撞体 |
 | **贴图** | 可选限制最大边长（4096 / 2048 / 1024）、不透明贴图存成 JPEG，VRM 文件通常能小一半以上（需要 Pillow）；带透明的贴图保持 PNG |
 | **VRM 信息** | 作者、版本、联系方式、使用许可（谁可以使用、商用、修改、再分发、署名）在界面里填；默认取保守值 |
 | **兼容性** | 输出通过 VRM 官方 JSON Schema 校验，避开 UniVRM 导入时会中断的数据（BlendShape 重名、颜色分量缺失等） |
@@ -119,6 +119,7 @@ python ui/app.py "model.vrm"
 | `--no-spring` / `--no-spring-skirt` | 不转物理 / 不转裙摆类物理 |
 | `--spring-stiffness k` | SpringBone 硬度整体倍率，默认 1.0 |
 | `--spring-gravity g` / `--spring-gravity-skirt g` | 头发等 / 裙摆的重力，默认 0 / 0.1 |
+| `--no-auto-spring` | 模型没有物理刚体时不自动补 |
 | `--no-spring-center` | 不以模型根节点为 center（默认设置，人物整体移动时头发不被甩） |
 | `--outline` | 按 PMX 轮廓线设置写 MToon 描边（默认不描边） |
 | `--force-double-sided` | 所有材质双面 |

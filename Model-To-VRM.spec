@@ -53,7 +53,7 @@ a = Analysis(
         'server', 'version', 'pipeline', 'pmx2vrm', 'vrm_edit',
         'vrmconv', 'vrmconv.humanoid', 'vrmconv.skeleton', 'vrmconv.mesh', 'vrmconv.materials',
         'vrmconv.expressions', 'vrmconv.springbone', 'vrmconv.vrm_ext', 'vrmconv.mathutil',
-        'vrmconv.textures',
+        'vrmconv.textures', 'vrmconv.autophys',
         # 其它输入格式（pipeline 里按需 import）
         'fbx2pmx', 'fbx_reader', 'unitypackage_unpack', 'uemodel2pmx', 'uemodelio',
         'psk2pmx', 'pskio', 'xps2pmx', 'xpsio', 'fbxout', 'pmxio', 'vrmio', 'longpath', 'unityasset',

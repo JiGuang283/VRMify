@@ -24,7 +24,7 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 | **Coordinates** | PMX (left-handed) → glTF (right-handed) via one mirror, with automatic winding detection — no mirrored or see-through models |
 | **Materials** | MToon. Shade color and shading boundary come from the PMX toon ramp (pink skin shadows, like native VRoid models); colors written in linear space; opaque / cutout / blend chosen from the texture's alpha; additive sphere maps → matcap |
 | **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo, emotions); material morphs → material color binds (show / hide parts) |
-| **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies |
+| **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies. Models with no physics at all (common for FBX) get it from bone names and skeleton structure: hair, skirts, sleeves, ribbons and tails swing, with body colliders added |
 | **Textures** | Optional max size (4096 / 2048 / 1024) and JPEG for opaque textures — VRM files usually shrink by half or more (needs Pillow); textures with transparency stay PNG |
 | **Metadata** | Author, version, contact and usage license (who may use it, commercial use, modification, redistribution, credit) set in the UI; conservative defaults |
 | **Compatibility** | Output passes the official VRM JSON schemas and avoids data that aborts UniVRM imports (duplicate blend shape names, missing color components …) |
@@ -124,6 +124,7 @@ Common `pmx2vrm.py` options:
 | `--no-spring` / `--no-spring-skirt` | No physics / no skirt-type physics |
 | `--spring-stiffness k` | Overall SpringBone stiffness multiplier, default 1.0 |
 | `--spring-gravity g` / `--spring-gravity-skirt g` | Gravity for hair etc. / skirts, default 0 / 0.1 |
+| `--no-auto-spring` | Don't add physics automatically when the model has none |
 | `--no-spring-center` | Don't use the model root as center (by default whole-body movement doesn't fling the hair) |
 | `--outline` | Write MToon outlines from the PMX edge settings (off by default) |
 | `--force-double-sided` | Make every material double-sided |

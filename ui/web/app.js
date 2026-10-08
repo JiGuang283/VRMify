@@ -147,7 +147,7 @@ function applyOptsToForm() {
 }
 function syncDependents() {
   const is1 = getOpt('vrm.spec') !== '0.x', spring = getOpt('vrm.spring');
-  document.querySelectorAll('[data-opt="vrm.spring"], [data-opt="vrm.spring_skirt"], [data-opt="vrm.spring_stiffness"]').forEach((el) => {
+  document.querySelectorAll('[data-opt="vrm.spring"], [data-opt="vrm.spring_skirt"], [data-opt="vrm.auto_spring"], [data-opt="vrm.spring_stiffness"]').forEach((el) => {
     el.disabled = !is1 || (el.dataset.opt !== 'vrm.spring' && !spring);
     el.closest('.switch, .field').style.opacity = el.disabled ? 0.45 : 1;
   });

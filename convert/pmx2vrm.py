@@ -32,7 +32,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
         sys.path.insert(0, _p)
 import pmxio  # noqa: E402
 import vrmio  # noqa: E402
-from vrmconv import expressions, mesh, skeleton, textures, vrm_ext  # noqa: E402
+from vrmconv import autophys, expressions, mesh, skeleton, textures, vrm_ext  # noqa: E402
 from vrmconv.materials import MaterialBuilder  # noqa: E402
 from vrmconv.springbone import _build_springs  # noqa: E402
 
@@ -44,12 +44,13 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             tpose=True, outline=False, sparse_morphs=True,
             spring=True, spring_skirt=True, spring_stiffness=1.0,
             spring_gravity=0.0, spring_gravity_skirt=0.1, spring_center=True,
-            spring_opts=None, tex_max=0, tex_jpeg=False):
+            spring_opts=None, tex_max=0, tex_jpeg=False, auto_spring=True):
     """PMX → VRM，返回统计 dict。log(msg, tag=None) 用于输出进度。
 
     各阶段在 vrmconv/ 里：skeleton（骨骼、T-pose、节点）→ springbone（物理）→
     mesh + materials（网格、MToon）→ expressions（表情）→ vrm_ext（VRM 扩展）。
 
+    auto_spring：模型完全没有物理刚体时，按骨骼名 / 结构自动补（vrmconv/autophys）。
     tex_max / tex_jpeg：贴图最大边长（0 = 原样）/ 不透明贴图改存 JPEG（需要 Pillow，见 vrmconv/textures）。
     meta：title / author / version / contact / copyright / license_url / avatar_permission /
         commercial_usage / credit_notation / allow_redistribution / modification（见 vrm_ext）。
@@ -153,6 +154,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
 
     # ---- PMX 物理 → SpringBone（只写 VRM 1.0 的 VRMC_springBone）
     spring_ext = None
+    if spring and is1 and auto_spring and autophys.needed(model):
+        autophys.synthesize(model, bs.parents, bs.alias, bs.human_b, _log)
     if spring and is1:
         spring_ext = _build_springs(
             model, bs.parents, bs.alias, bs.human_b, glob, bpos, scale, xf,
@@ -307,6 +310,8 @@ def main(argv=None):
                          "斜着散开的长发加重力会被拉垂）")
     ap.add_argument("--spring-gravity-skirt", type=float, default=0.1,
                     help="下半身（裙摆）SpringBone 重力（默认 0.1，抬腿时裙片落回腿上）")
+    ap.add_argument("--no-auto-spring", action="store_true",
+                    help="模型没有物理刚体时不自动补（默认按骨骼名给头发、裙摆、袖子等加 SpringBone）")
     ap.add_argument("--no-spring-center", action="store_true",
                     help="SpringBone 不设 center（默认以模型根节点为 center，人物整体移动时"
                          "头发/裙摆不会被甩）")
@@ -340,7 +345,7 @@ def main(argv=None):
                  spring_stiffness=a.spring_stiffness,
                  spring_gravity=a.spring_gravity,
                  spring_gravity_skirt=a.spring_gravity_skirt,
-                 spring_center=not a.no_spring_center,
+                 spring_center=not a.no_spring_center, auto_spring=not a.no_auto_spring,
                  sparse_morphs=not a.dense_morphs,
                  tex_max=a.tex_max, tex_jpeg=a.tex_jpeg,
                  log=lambda msg, tag=None: print(msg))
