@@ -19,10 +19,12 @@ _SWING = re.compile(
     r"ribbon|ribon|リボン|necktie|cape|cloak|mantle|scarf|マフラー|tassel|frill|フリル|"
     r"tail|尻尾|shippo|しっぽ|coat|jacket_?(?:l|r|b|f)", re.I)
 _NEVER = re.compile(
-    r"mune|bust|breast|chichi|oppai|胸|pai_|^pai|twist|捩|roll|(?:^|_)ik|ik(?:$|_)|helper|ctrl|"
-    r"control|adj|root|dummy|ダミー|先$|tip$|nub$", re.I)
+    r"mune|bust|breast|chichi|oppai|胸|pai_|^pai|twist|twst|捩|roll|(?:^|_)ik|ik(?:$|_)|helper|ctrl|"
+    r"control|adj|root|dummy|ダミー|先$|tip$|nub$|ndl|offset|target|master|aim|socket|attach|"
+    r"weapon|gun|holster|pocket|pouch|buckle|shell|prop|point", re.I)
 _FACE = re.compile(
     r"eye|目|jaw|顎|tongue|舌|teeth|tooth|歯|mouth|口|brow|眉|lid|瞼|cheek|頬|nose|鼻|face|顔|"
+    r"lip|唇|chin|smile|crease|corner|nostril|temple|forehead|lash|pupil|iris|dimple|"
     r"hat|cap|crown|glass|megane|眼鏡|horn|角|acc|ear|耳|head_?end|headtop|top$", re.I)
 
 _ARM_SEG = (("leftUpperArm", "leftLowerArm"), ("leftLowerArm", "leftHand"),
@@ -120,8 +122,12 @@ def synthesize(model, parents, alias, human_b, log=None):
             return False
         if _SWING.search(nm):
             return True
-        return head is not None and under(b, head) and not _FACE.search(nm)
+        # 名字看不出来、挂在头下面的：只有模型里一根名字像头发的骨都没有时才当头发
+        # （Query 酱的 H01_Front）。有表情骨架的模型头下面是几十根嘴唇 / 眼睑骨，不能动
+        return by_struct and head is not None and under(b, head) and not _FACE.search(nm)
 
+    by_struct = not any(re.search(r"hair|kami|髪|bang|fringe|pony|twin|braid", bones[b]["name"] or "", re.I)
+                        for b in range(nb) if b not in human)
     dyn = [b for b in range(nb) if swing(b)]
     _leaf_tails(model, dyn, children)
     rbs = model.setdefault("rigid_bodies", [])

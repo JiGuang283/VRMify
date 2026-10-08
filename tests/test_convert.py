@@ -112,6 +112,35 @@ class ConvertTest(Base):
         pmx2vrm.convert(bare, out2, auto_spring=False)
         self.assertNotIn("VRMC_springBone", vrmio.read_glb(out2)[0]["extensions"])
 
+    def test_sideways_model_is_turned(self):
+        # 侧着的模型（Unreal 来的 psk 常见）：转正后和正面的结果一样
+        import pmxio
+        m = pmxio.read_pmx(self.pmx)
+        m["rigid_bodies"], m["joints"] = [], []
+        front = os.path.join(self.tmp, "src", "front.pmx")
+        pmxio.write_pmx(m, front)
+
+        def turn(v):                   # 绕 Y 转 -90°：左手从 +X 转到 +Z
+            return (-v[2], v[1], v[0])
+        for v in m["vertices"]:
+            v["pos"], v["normal"] = turn(v["pos"]), turn(v["normal"])
+        for b in m["bones"]:
+            b["pos"] = turn(b["pos"])
+        for mo in m["morphs"]:
+            if mo["kind"] == 1:
+                mo["offsets"] = [(i, turn(o)) for i, o in mo["offsets"]]
+        side = os.path.join(self.tmp, "src", "side.pmx")
+        pmxio.write_pmx(m, side)
+        a, b = os.path.join(self.tmp, "front.vrm"), os.path.join(self.tmp, "side.vrm")
+        pmx2vrm.convert(front, a)
+        pmx2vrm.convert(side, b)
+        ga, gb = vrmio.read_glb(a)[0], vrmio.read_glb(b)[0]
+        ha = ga["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"]["leftHand"]["node"]
+        hb = gb["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"]["leftHand"]["node"]
+        wa, wb = vrmio.node_world_matrices(ga)[ha], vrmio.node_world_matrices(gb)[hb]
+        for k in range(3):
+            self.assertAlmostEqual(vrmio.world_translation(wa)[k], vrmio.world_translation(wb)[k], places=3)
+
     def test_deterministic(self):
         a, b = self.convert("det_a"), self.convert("det_b")
         with open(a, "rb") as fa, open(b, "rb") as fb:

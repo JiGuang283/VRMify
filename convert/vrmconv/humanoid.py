@@ -96,7 +96,7 @@ _EN_LIMBS = {
     "arm": "UpperArm", "upperarm": "UpperArm",
     "forearm": "LowerArm", "lowerarm": "LowerArm", "elbow": "LowerArm",
     "hand": "Hand", "wrist": "Hand",
-    "upleg": "UpperLeg", "upperleg": "UpperLeg", "thigh": "UpperLeg",
+    "upleg": "UpperLeg", "upperleg": "UpperLeg", "thigh": "UpperLeg", "hip": "UpperLeg",
     "leg": "LowerLeg", "lowerleg": "LowerLeg", "calf": "LowerLeg", "shin": "LowerLeg", "knee": "LowerLeg",
     "foot": "Foot", "ankle": "Foot",
     "toebase": "Toes", "toe": "Toes", "toes": "Toes", "toe0": "Toes",
@@ -284,6 +284,32 @@ def _map_humanoid(bones, is1, alias):
                         and not re.search(r"lower|calf|shin|knee", b["name"].lower()):
                     slot = slot.replace("LowerLeg", "UpperLeg")
                 en.setdefault(slot, i)
+    # 两种叫法的冲突（UE / Maya 常见）：
+    #   L_Clavicle + L_Shoulder：Clavicle 是肩、Shoulder 其实是上臂
+    #   Spine1～Spine4 而没有 Spine：第一节当 spine、最后一节当 upperChest、中间当 chest
+    pairs = []                       # (肩骨位, 上臂骨位, 锁骨, 「肩」骨)
+    for side in ("left", "right"):
+        sh = [i for i, b in enumerate(bones) if i not in alias
+              and re.search(r"clavicle|shoulder", b["name"] or "", re.I)
+              and (_en_bone(b["name"]) or ("", ""))[1] == side + "Shoulder"]
+        if len(sh) == 2 and side + "UpperArm" not in en:
+            par = bones[sh[1]].get("parent")
+            a, b = (sh[0], sh[1]) if par == sh[0] else (sh[1], sh[0]) if bones[sh[0]].get("parent") == sh[1] else (None, None)
+            if a is not None:
+                en[side + "Shoulder"], en[side + "UpperArm"] = a, b
+                pairs.append((side + "Shoulder", side + "UpperArm", a, b))
+    if "spine" not in en and "spine" not in human:
+        nums = sorted((int(m.group(1)), i) for i, b in enumerate(bones)
+                      for m in [re.fullmatch(r"(?:.*[_:. ])?spine_?0*(\d+)", (b["name"] or "").lower())] if m)
+        if len(nums) >= 2:
+            seq = [i for _, i in nums]
+            en["spine"] = seq[0]
+            if len(seq) >= 3:
+                en["chest"] = seq[len(seq) // 2] if len(seq) >= 4 else seq[1]
+                en["upperChest"] = seq[-1]
+            else:
+                en["chest"] = seq[1]
+                en.pop("upperChest", None)
     # 英文名只在 MMD 名没对上时补位（同一个模型两套都有时以 MMD 名为准）
     for k, i in en.items():
         if k[0] == "finger":
@@ -291,6 +317,25 @@ def _map_humanoid(bones, is1, alias):
                 fingers[(k[1], k[2])] = i
         elif k not in human:
             human[k] = i
+    for s_slot, u_slot, a, b in pairs:   # 旧的英文名表把 L_Shoulder 当成了肩：以配对结果为准
+        if human.get(s_slot) in (a, b) or human.get(u_slot) in (a, b, None):
+            human[s_slot], human[u_slot] = a, b
+    # 没有叫「下半身 / Hips」的骨：取腿和脊椎的最近公共祖先当 hips。XPS 的 root hips 被转成
+    # センター（腿和上半身都直接挂在它下面），以前这时只能补一根占位骨
+    if "hips" not in human and "spine" in human and ("leftUpperLeg" in human or "rightUpperLeg" in human):
+        def chain(i):
+            out, seen = [], set()
+            while 0 <= i < len(bones) and i not in seen:
+                out.append(i)
+                seen.add(i)
+                i = bones[i].get("parent", -1)
+            return out
+        leg = human.get("leftUpperLeg", human.get("rightUpperLeg"))
+        spine_up = set(chain(bones[human["spine"]].get("parent", -1)))
+        for a in chain(bones[leg].get("parent", -1)):
+            if a in spine_up and a not in alias and a not in human.values():
+                human["hips"] = a
+                break
     for (side, finger), digits in fingers.items():
         for d, slot in _finger_slots(finger, digits, is1).items():
             human.setdefault(side + finger + slot, digits[d])

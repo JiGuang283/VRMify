@@ -81,6 +81,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
                 log(msg)
 
     model = pmxio.read_pmx(pmx_path)
+    skeleton.fix_facing(model, _log)
     base_dir = os.path.dirname(os.path.abspath(pmx_path))
     verts = model["vertices"]
     bones = model["bones"]

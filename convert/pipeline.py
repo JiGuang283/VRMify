@@ -283,6 +283,8 @@ class _LogWriter(io.TextIOBase):
 def to_pmx(path, kind, out_dir, opts, log):
     """非 PMX 输入 → PMX，返回写出的 PMX 路径列表（unitypackage 可能有多个）。"""
     stem = os.path.splitext(os.path.basename(path))[0]
+    # 有的转换器只在拷贝贴图时才建输出目录：没有贴图的模型（白模）写 PMX 时目录还不存在
+    os.makedirs(out_dir, exist_ok=True)
     if kind in ("fbx", "unitypackage"):
         import fbx2pmx
         o = opts["fbx"]

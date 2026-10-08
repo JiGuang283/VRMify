@@ -1,17 +1,72 @@
 # -*- coding: utf-8 -*-
 """骨骼预处理和 glTF 节点树。
 
+  fix_facing     模型侧着 / 背对时绕 Y 轴转正（Unreal 的 psk / uemodel 常见）
   prepare_bones  付与骨合并、humanoid 映射与层级修正、拓扑排序（PMX 坐标）
   apply_tpose    A-pose → T-pose：骨骼位置和顶点一起重摆
   NodeTree       骨骼 → glTF 节点（先记父节点 + 世界坐标，最后统一换算 translation，
                  所以补占位骨、SpringBone 改挂父节点都可以随意改）
 """
+import math
 from types import SimpleNamespace
 
 from .humanoid import (REQUIRED_0X, REQUIRED_1_0, _HIPS_Y, _SYNTH, _append_aliases,
                        _clean_parents, _fix_humanoid_hierarchy, _map_humanoid, _reparent,
                        _topo_bones, _tpose_globals, _vrm_anchor)
 from .mathutil import _I3, _m3vec
+
+
+def fix_facing(model, log):
+    """PMX 约定左手在 +X、脸朝 -Z。从 humanoid 的左右肩 / 胯算出左右方向，不在 X 轴上时
+    绕 Y 轴转最近的 90° 倍数（Unreal 的前方是另一根轴，psk / uemodel 转来的模型常常侧着；
+    xps / FBX 偶尔背对）。侧着的模型做 T-pose 时会把向前伸的手臂当成下垂的再转 90°。
+
+    只在没有物理刚体时转（刚体的欧拉角不好跟着转，原生 PMX 本来就是正的）。返回转的角度。
+    """
+    bones = model["bones"]
+    if model.get("rigid_bodies"):
+        return 0
+    human = _map_humanoid(bones, True, {})
+    pairs = [(human[a], human[b]) for a, b in (("leftUpperArm", "rightUpperArm"), ("leftUpperLeg", "rightUpperLeg"),
+                                                ("leftShoulder", "rightShoulder")) if a in human and b in human]
+    if not pairs:
+        return 0
+    sx = sum(bones[l]["pos"][0] - bones[r]["pos"][0] for l, r in pairs)
+    sz = sum(bones[l]["pos"][2] - bones[r]["pos"][2] for l, r in pairs)
+    if math.hypot(sx, sz) < 1e-6:
+        return 0
+    quarter = round(math.atan2(sz, sx) / (math.pi / 2)) % 4      # 0 = 已经是正的
+    if quarter == 0:
+        return 0
+    t = quarter * math.pi / 2
+    c, s = round(math.cos(t)), round(math.sin(t))
+
+    def rot(v):                       # 把「左」方向转到 +X：x' = x·c + z·s，z' = −x·s + z·c
+        return (v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c)
+
+    for v in model.get("vertices") or []:
+        v["pos"] = rot(v["pos"])
+        v["normal"] = rot(v["normal"])
+        if v.get("sdef"):
+            v["sdef"] = [rot(p) for p in v["sdef"]]
+    for b in bones:
+        b["pos"] = rot(b["pos"])
+        if b.get("tail_kind") == 0 and b.get("tail") is not None and not isinstance(b["tail"], int):
+            b["tail"] = rot(b["tail"])
+        if b.get("fixed_axis"):
+            b["fixed_axis"] = rot(b["fixed_axis"])
+        if b.get("local_axis"):
+            b["local_axis"] = tuple(rot(a) for a in b["local_axis"])
+    for mo in model.get("morphs") or []:
+        if mo["kind"] == 1:
+            mo["offsets"] = [(i, rot(o)) for i, o in mo["offsets"]]
+        elif mo["kind"] == 2:
+            mo["offsets"] = [(i, rot(t_), q_) for i, t_, q_ in mo["offsets"]]   # 骨骼表情的平移
+    deg = quarter * 90
+    if log:
+        log("朝向：模型%s，已绕 Y 轴转 %d° 摆正（左右肩 / 胯不在 X 轴上）"
+            % ("背对" if quarter == 2 else "侧着", deg), "warn")
+    return deg
 
 
 def prepare_bones(bones, is1, log):
