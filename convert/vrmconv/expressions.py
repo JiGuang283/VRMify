@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """表情：PMX 顶点 / 材质表情（含グループ展开）→ morph target + VRM 表情（1.0 expressions / 0.x blendShapeGroups）。"""
-import copy
 import re
 
 import vrmio
@@ -147,49 +146,6 @@ def wink_presets(flat, vertices, is1):
     return out
 
 
-# 有的程序按名字找自定义表情（Dream Select Studio：hideHighlight 失神时去掉眼睛高光、
-# tongue 勒颈昏厥时吐舌头）。模型里对应的表情复制一份、用这个名字（原来的还在），
-# 按顺序取第一个模型里有的
-ALIASES = {
-    "hideHighlight": ["ハイライト消", "ハイライト消し", "ハイライトオフ", "ハイライトOFF", "eye hi off",
-                      "高光消", "目光消"],
-    "tongue": ["舌出し", "ぺろっ", "てへぺろ", "べー"],
-}
-# 脸色（Dream Select Studio 的 faceRed 充血 / faceBlue 缺氧发绀）：游戏不把它们交给 UniVRM，
-# 只读里面的材质颜色绑定，按「原色 × targetValue × 权重插值」自己改材质（形态键不生效）。
-# 所以只绑脸部皮肤材质的颜色和阴影色，值是乘法色调；脸部材质的原色是白色，
-# 别的程序按普通绝对颜色理解也是同样效果。色调按 sRGB 定（写入时转线性，和别的颜色一样），
-# 强度和游戏给 VRoid 脸部材质写死的公式差不多（最多降 20% 左右）：整张脸染色，再强脖子会有明显分界
-FACE_TINT = {"faceRed": (1.0, 0.82, 0.84), "faceBlue": (0.84, 0.87, 1.0)}
-
-
-def _face_material(flat, mats, mat_gidx, table, is1):
-    """脸部皮肤材质（PMX 材质号），找不到时 None。
-
-    脸皮是张嘴（aa）和眨眼（blink）都会动到的材质：口腔、牙齿只有张嘴动，睫毛、眼线只有眨眼动；
-    默认透明的叠加层（红晕等，贴着脸、顶点一样多）除外。
-    两个都动到的里面取顶点最多的；只有其中一个表情时退一步，取它动到的顶点最多的材质。
-    """
-    def deltas(preset):
-        return next((d for n, d, _, _ in flat if d and (table.get(n) or _preset_en(n, is1)) == preset), None)
-    aa, blink = deltas("aa" if is1 else "a"), deltas("blink")
-    if not aa and not blink:
-        return None
-    best, best_key = None, None
-    for mi, vs in enumerate(morphbake.material_vertices(mats.model)):
-        # 默认透明的（红晕、阴影这类叠加层，靠材质表情显示）不是脸皮
-        if mi not in mat_gidx or mats.model["materials"][mi]["diffuse"][3] <= 0.001:
-            continue
-        na = sum(1 for v in vs if v in aa) if aa else 0
-        nb = sum(1 for v in vs if v in blink) if blink else 0
-        if not (na or nb):
-            continue
-        key = (bool(na and nb), len(vs) if (na and nb) else na + nb)
-        if best_key is None or key > best_key:
-            best, best_key = mi, key
-    return best
-
-
 def _preset_en(name, is1):
     s = (name or "").strip().lower().replace("-", "_").replace(" ", "_")
     s = re.sub(r"^blendshape\d*\.", "", s)
@@ -322,7 +278,6 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     n_uv_expr = n_uv_bad = 0
     slot_of = {}                     # PMX 表情名 → morph target 序号（组合预设用）
     delta_of = {}                    # PMX 表情名 → 顶点偏移（组合时查重叠）
-    obj_of = {}                      # PMX 表情名 → 生成的表情（ALIASES 复制用）
     for mname, deltas, _, _ in flat:
         if deltas:
             delta_of.setdefault(mname, deltas)
@@ -426,7 +381,6 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
             for k_ in ("morphTargetBinds", "materialColorBinds", "textureTransformBinds"):
                 if not obj[k_]:
                     del obj[k_]
-            obj_of.setdefault(mname, obj)
             if preset and preset not in expr_preset:
                 # 记下来源的 PMX 表情名：界面里重新指定预设表情（vrm_edit）时要用
                 obj["extras"] = {"source": mname}
@@ -439,7 +393,6 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
             if preset in used_0x:
                 preset = None
             used_0x.add(preset)
-            obj_of.setdefault(mname, len(blend_groups))
             blend_groups.append({
                 "name": mname,
                 "presetName": preset or "unknown",
@@ -495,31 +448,6 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
                                  "presetName": p0 or "unknown",
                                  "binds": [{"mesh": 0, "index": s, "weight": round(w * 100, 2)} for s, w in binds],
                                  "materialValues": [], "isBinary": False})
-    names = set(expr_custom) | {g["name"] for g in blend_groups}
-    added = []
-    face = _face_material(flat, mats, mat_gidx, table, is1) if is1 else None
-    if face is not None:
-        for alias, tint in FACE_TINT.items():
-            if alias not in names and alias not in obj_of:
-                expr_custom[alias] = {"materialColorBinds": [
-                    {"material": mat_gidx[face], "type": t, "targetValue": _lin_rgb(list(tint)) + [1.0]}
-                    for t in ("color", "shadeColor")], "isBinary": False}
-                added.append("%s（%s 染色）" % (alias, materials[face]["name"]))
-    for alias, cands in ALIASES.items():
-        src = next((n for n in cands if n in obj_of), None)
-        if src is None or alias in names or alias in obj_of:
-            continue
-        if is1:
-            obj = copy.deepcopy(obj_of[src])
-            obj.pop("extras", None)
-            expr_custom[alias] = obj
-        else:
-            gr = copy.deepcopy(blend_groups[obj_of[src]])
-            gr.update(name=alias, presetName="unknown")
-            blend_groups.append(gr)
-        added.append("%s ← %s" % (alias, src))
-    if added:
-        log("表情：按名字找的自定义表情：%s" % "，".join(added))
     if recipes:
         log("表情：情绪预设组合眉 / 眼 / 嘴（像 VRoid）：%s" % "，".join(
             "%s = %s" % (p, " + ".join(n if w == 1 else "%s×%g" % (n, w) for n, w, _ in parts))

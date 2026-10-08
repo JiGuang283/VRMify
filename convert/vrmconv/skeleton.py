@@ -87,7 +87,7 @@ def prepare_bones(bones, is1, log):
             % (len(alias), "、".join(bones[i]["name"] for i in
                                     list(alias)[:6]) +
                ("…" if len(alias) > 6 else "")))
-    # 1.0 规范里 chest / neck 可选，但不少程序默认有（Dream Select Studio 的布娃娃缺 chest 就建不出来），
+    # 1.0 规范里 chest / neck 可选，但不少程序、动作数据默认有（比如按躯干关节生成布娃娃），
     # 缺的话和 0.x 一样补占位骨
     required = REQUIRED_0X
     human_b = _map_humanoid(bones, is1, alias)

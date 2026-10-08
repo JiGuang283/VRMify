@@ -74,16 +74,8 @@ class ConvertTest(Base):
         self.assertEqual(ex["preset"]["happy"]["extras"]["source"], "にこり")
         self.assertIn("笑い", ex["custom"])
         self.assertIn("照れ", ex["custom"])
-        # 脸色（Dream Select Studio 的 faceRed / faceBlue）：只给脸部皮肤材质（口型「あ」动到的）
-        # 的颜色、阴影色乘色调，不带形态键（游戏只读材质颜色绑定）
-        for alias, chan in (("faceRed", 0), ("faceBlue", 2)):
-            obj = ex["custom"][alias]
-            self.assertNotIn("morphTargetBinds", obj)
-            self.assertEqual([b["type"] for b in obj["materialColorBinds"]], ["color", "shadeColor"])
-            for b in obj["materialColorBinds"]:
-                self.assertEqual(b["targetValue"][chan], 1.0)       # 红 / 蓝通道不降
-                self.assertEqual(b["targetValue"][3], 1.0)          # alpha 不动
-                self.assertEqual(g["materials"][b["material"]]["name"], "体")
+        # 只输出通用 VRM：不加某个程序私有的自定义表情
+        self.assertFalse({"faceRed", "faceBlue", "hideHighlight", "tongue"} & set(ex["custom"]))
 
     def test_vrm0_lowercase_presets(self):
         out = self.convert("v0", spec="0.x")
@@ -94,7 +86,6 @@ class ConvertTest(Base):
         self.assertTrue(all(p == p.lower() for p in presets), presets)
         self.assertEqual(presets.count("joy"), 1)          # にこり 和 笑い 只能有一个是 joy
         self.assertIn("blink", presets)
-        self.assertNotIn("faceRed", [gr["name"] for gr in groups])    # 脸色只做 1.0
 
     def test_meta(self):
         meta = {"title": "T", "author": "me", "avatar_permission": "onlyAuthor",
@@ -335,8 +326,7 @@ class ComboTest(Base):
         hv = 5 * 8                                   # 头部方块的顶点
         # 「怒り目」带着「怒り」的眉毛（同样的顶点、更大的偏移）：和怒り一起用会动两遍，跳过它用ｷﾘｯ
         for name, panel, vs in (("怒り", 1, (0, 1)), ("怒り目", 2, (0, 1, 2)), ("ｷﾘｯ", 2, (2, 3)),
-                                ("∧", 3, (4, 5)), ("喜び", 2, (2, 3)), ("上", 1, (6,)), ("びっくり", 2, (7,)),
-                                ("ぺろっ", 3, (5,))):
+                                ("∧", 3, (4, 5)), ("喜び", 2, (2, 3)), ("上", 1, (6,)), ("びっくり", 2, (7,))):
             m["morphs"].append({"name": name, "name_en": name, "panel": panel, "kind": 1,
                                 "offsets": [(hv + k, (0.0, 0.05 * panel, 0.0)) for k in vs]})
         # 单眼眨眼按顶点在哪边定（角色的左边是 +X），不按名字：这里故意和 MMD 惯例反着来
@@ -365,7 +355,6 @@ class ComboTest(Base):
         # synth 的「にこり」「笑い」在口面板，不当眉毛 / 眼睛：眉毛用「上」、眼睛用「喜び」
         self.assertEqual(self.binds(g, ex["preset"]["happy"]), [("上", 0.3), ("喜び", 1.0)])
         self.assertIn("にこり", ex["custom"])
-        self.assertEqual(ex["custom"]["tongue"], ex["custom"]["ぺろっ"])     # 按名字找的别名
         # 只找到一个部位（嘴）→ 不组合，没有 sad
         self.assertNotIn("sad", ex["preset"])
 

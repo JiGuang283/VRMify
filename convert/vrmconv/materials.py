@@ -273,7 +273,7 @@ class MaterialBuilder:
             rq = min(9, self.blend_rank)
             self.blend_rank += 1
         edge = self.outline and bool(mat["flag"] & 0x10) and mat["edge_size"] > 0
-        # 材质名在模型内唯一：有的程序按材质名找材质（Dream Select Studio 给脸部染色），
+        # 材质名在模型内唯一：有的程序按材质名找材质，
         # PMX 允许重名，重名时只会找到第一个
         name = mat["name"] or ("mat%d" % mi_)
         used = {m["name"] for m in self.materials}
