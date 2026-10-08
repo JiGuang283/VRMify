@@ -96,6 +96,9 @@ from vrmconv import textures  # noqa: E402
 WEB = os.path.join(ROOT, "ui", "web")
 VIEWER = os.path.join(ROOT, "ui", "viewer")
 SETTINGS = os.path.join(DATA_DIR, "settings.json")
+# 「程序目录」保存位置：程序旁边的 vrm 文件夹（和设置放一起：程序旁边写不了时在 %APPDATA%\Model-To-VRM 下）
+APP_OUT = os.path.normpath(os.path.join(DATA_DIR, "vrm"))
+_OLD_DEFAULT_OUTPUT = {"mode": "beside", "folder": "", "subfolder": True}
 EDITS = os.path.join(DATA_DIR, "edits.json")
 EDITS_DIR = os.path.join(DATA_DIR, "edits")
 LANGS = ("zh_CN", "en")
@@ -126,12 +129,18 @@ class Backend:
         except (OSError, ValueError):
             s = {}
         lang = s.get("lang") if s.get("lang") in LANGS else "zh_CN"
-        return pipeline.merged(s.get("opts")), lang
+        opts = pipeline.merged(s.get("opts"))
+        # 界面的默认保存位置是程序目录下的 vrm。以前的设置文件（没有 v）里还是旧默认值（源文件旁）的，
+        # 多半是没选过，换成新默认；自己选过别的（指定文件夹、关了子文件夹）的不动
+        saved = (s.get("opts") or {}).get("output")
+        if s.get("v", 1) < 2 and (saved is None or saved == _OLD_DEFAULT_OUTPUT):
+            opts["output"]["mode"] = "app"
+        return opts, lang
 
     def _save_settings(self):
         try:
             with open(SETTINGS, "w", encoding="utf-8") as f:
-                json.dump({"lang": self.lang, "opts": self.opts}, f, ensure_ascii=False, indent=1)
+                json.dump({"v": 2, "lang": self.lang, "opts": self.opts}, f, ensure_ascii=False, indent=1)
         except OSError:
             pass
 
@@ -192,7 +201,7 @@ class Backend:
                     "lang": self.lang, "busy": self.busy,
                     "seq": self.events[-1][0] if self.events else 0,
                     "native": self.window is not None, "version": __version__,
-                    "features": {"pillow": textures.available()}}
+                    "features": {"pillow": textures.available()}, "app_out": APP_OUT}
 
     def add_paths(self, paths):
         added = []
@@ -289,6 +298,7 @@ class Backend:
                 return False
             self.busy, self.stop_flag = True, False
             opts = json.loads(json.dumps(self.opts))
+            opts["output"]["app_folder"] = APP_OUT
         threading.Thread(target=self._run, args=(todo, opts), daemon=True).start()
         return True
 

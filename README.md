@@ -50,7 +50,7 @@ components (MMD shading + MMD physics), not through VRM. Works offline.
 
 ### Tuning after conversion
 
-The **Tune** panel (top right of the preview) adjusts one model after conversion — **no reconversion**; saving writes straight
+The **Tune** panel (top right of the preview, opens with the preview) adjusts one model after conversion — **no reconversion**; saving writes straight
 into the output VRM:
 
 - **Name** and **thumbnail** (a square shot of the current preview, shown as the avatar icon in games / VRM apps)
@@ -96,7 +96,7 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   - **VRM**: version, physics, expressions, outline, texture max size and JPEG
   - **Inputs**: non-PMX formats go through PMX to VRM by default, or stop at PMX
   - **Metadata**: author and usage license (the name defaults to the model file name)
-  - **Output**: next to the source / a chosen folder, optional per-run subfolder
+  - **Output**: the app folder (default: a `vrm` folder next to the program) / next to the source / a chosen folder, optional per-run subfolder
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names

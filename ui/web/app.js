@@ -3,7 +3,7 @@ import { STRINGS } from './i18n.js';
 import { Viewer } from '/viewer/viewer-core.js';
 
 const $ = (id) => document.getElementById(id);
-const S = { files: [], opts: {}, lang: 'zh_CN', busy: false, seq: 0, native: false, current: null, logErrors: 0, pending: null, features: {} };
+const S = { files: [], opts: {}, lang: 'zh_CN', busy: false, seq: 0, native: false, current: null, logErrors: 0, pending: null, features: {}, appOut: '' };
 
 // ---------------------------------------------------------------- i18n --
 function t(key, args) {
@@ -30,7 +30,7 @@ function toast(s) { const e = $('toast'); e.textContent = s; e.classList.add('sh
 
 async function loadState() {
   const st = await api('/api/state');
-  Object.assign(S, { files: st.files, opts: st.opts, lang: st.lang, busy: st.busy, seq: st.seq, native: st.native, features: st.features || {} });
+  Object.assign(S, { files: st.files, opts: st.opts, lang: st.lang, busy: st.busy, seq: st.seq, native: st.native, features: st.features || {}, appOut: st.app_out || '' });
   $('ver').textContent = st.version ? 'v' + st.version : '';
   applyOptsToForm();
   applyLang();
@@ -175,10 +175,10 @@ function renderUeRef() {
   $('ueRefClear').disabled = !f;
 }
 function renderOutFolder() {
-  const f = getOpt('output.folder');
-  $('outFolder').textContent = f || t('noFolder');
+  const mode = getOpt('output.mode'), f = mode === 'app' ? S.appOut : getOpt('output.folder');
+  $('outFolder').textContent = mode === 'beside' ? t('outBeside') : (f || t('noFolder'));
   $('outFolder').title = f || '';
-  $('outFolder').style.opacity = getOpt('output.mode') === 'folder' ? 1 : 0.5;
+  $('outFolder').style.opacity = mode === 'beside' ? 0.5 : 1;
 }
 let saveTimer = null;
 function saveOpts() { clearTimeout(saveTimer); saveTimer = setTimeout(() => api('/api/options', { opts: S.opts }), 250); }
@@ -256,7 +256,10 @@ let modelUrl = null;
 
 function showBusy(text) { $('pvBusy').hidden = !text; $('pvBusyText').textContent = text || ''; }
 async function previewFile(id, output) {
-  S.current = id; renderFiles(); loadTune();
+  S.current = id; renderFiles();
+  // the tune panel opens with the preview, unless another panel (light / expressions / info) is open
+  if (['lightPanel', 'exprPanel', 'infoPanel', 'tunePanel'].every((p) => $(p).hidden)) $('tunePanel').hidden = false;
+  loadTune();
   const r = await api('/api/preview', output === undefined ? { id } : { id, output });
   if (r.url) loadModel(r.url, r.name);
   else if (r.pending) showBusy(t('pvMaking'));

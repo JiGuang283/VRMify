@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """界面启动的兜底逻辑：数据目录写不了时改放 %APPDATA%，没有 WebView2 / 窗口起不来时改用浏览器。"""
+import json
 import os
 import re
 import sys
@@ -41,6 +42,40 @@ class DataDirTest(unittest.TestCase):
 
     def test_writable(self):
         self.assertTrue(server._writable(tempfile.mkdtemp(prefix="m2v_w_")))
+
+
+class OutputDefaultTest(unittest.TestCase):
+    """界面默认保存到程序目录下的 vrm；旧设置文件里是旧默认值（源文件旁）的换成新默认。"""
+
+    def load(self, saved):
+        path = os.path.join(tempfile.mkdtemp(prefix="m2v_set_"), "settings.json")
+        if saved is not None:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(saved, f)
+        with mock.patch.object(server, "SETTINGS", path):
+            return server.Backend._load_settings(None)[0]["output"]
+
+    def test_fresh(self):
+        self.assertEqual(self.load(None)["mode"], "app")
+
+    def test_old_default_migrates(self):
+        old = {"opts": {"output": {"mode": "beside", "folder": "", "subfolder": True}}}
+        self.assertEqual(self.load(old)["mode"], "app")
+
+    def test_own_choice_kept(self):
+        mine = {"opts": {"output": {"mode": "folder", "folder": "D:/out", "subfolder": True}}}
+        self.assertEqual(self.load(mine)["mode"], "folder")
+        # 新版存过的「源文件旁」是自己选的
+        self.assertEqual(self.load({"v": 2, "opts": {"output": {"mode": "beside", "folder": "", "subfolder": True}}})["mode"],
+                         "beside")
+
+    def test_app_folder_used(self):
+        import pipeline
+        out = tempfile.mkdtemp(prefix="m2v_app_")
+        opts = pipeline.merged({"output": {"mode": "app", "app_folder": out, "subfolder": False}})
+        self.assertEqual(pipeline.output_dir("X:/models/a.pmx", opts), out)
+        opts["output"].pop("app_folder")                      # 没给路径（命令行）时同「源文件旁」
+        self.assertEqual(pipeline.output_dir(os.path.join(out, "a.pmx"), opts), out)
 
 
 class WindowFallbackTest(unittest.TestCase):

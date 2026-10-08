@@ -12,7 +12,8 @@
 opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEFAULTS 补齐：
 
     target   "vrm"（默认）| "pmx"（非 PMX 输入只转到 PMX 为止）
-    output   {"mode": "beside" | "folder", "folder": 路径, "subfolder": 是否建「名字_日期_序号」子文件夹}
+    output   {"mode": "app" | "beside" | "folder", "folder": 路径, "subfolder": 是否建「名字_日期_序号」子文件夹}
+             app = 程序目录下的 vrm 文件夹（界面用；路径由调用方放在 "app_folder"，没有时同 beside）
     vrm      {"spec": "1.0" | "0.x", "spring", "spring_skirt", "spring_stiffness", "auto_spring",
               "morphs", "gaze", "combo_expr", "outline", "keep_pose", "double_sided",
               "tex_max": 0 | 4096 | 2048 | 1024, "tex_jpeg"}
@@ -251,8 +252,12 @@ def nice_name(stem):
 def output_dir(path, opts):
     """按 output 选项决定这个源文件的输出目录（会建好）。"""
     o = opts["output"]
-    base = o.get("folder") if o.get("mode") == "folder" and o.get("folder") else \
-        os.path.dirname(os.path.abspath(path))
+    if o.get("mode") == "folder" and o.get("folder"):
+        base = o["folder"]
+    elif o.get("mode") == "app" and o.get("app_folder"):
+        base = o["app_folder"]
+    else:
+        base = os.path.dirname(os.path.abspath(path))
     if o.get("subfolder", True):
         stem = nice_name(os.path.splitext(os.path.basename(path))[0])
         day = time.strftime("%Y%m%d")
