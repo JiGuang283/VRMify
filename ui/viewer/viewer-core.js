@@ -417,6 +417,23 @@ export class Viewer {
     if (this.mmd && this.mmd.mesh.morphTargetInfluences) this.mmd.mesh.morphTargetInfluences.fill(0);
   }
 
+  // eye gaze preview: yaw / pitch in degrees as VRM lookAt takes them (±90 = the far end of the range).
+  // ranges = { h, down, up } overrides the max eye angles (the tune panel previews manual values);
+  // null restores the model's own. setLook(null) hands the eyes back to the normal update.
+  setLook(yaw, pitch, ranges) {
+    const la = this.vrm && this.vrm.lookAt, ap = la && la.applier;
+    if (!ap || !ap.applyYawPitch || !ap.rangeMapHorizontalInner) return false;
+    const maps = { h: ['rangeMapHorizontalInner', 'rangeMapHorizontalOuter'], down: ['rangeMapVerticalDown'], up: ['rangeMapVerticalUp'] };
+    if (!ap._origScale) ap._origScale = Object.fromEntries(Object.values(maps).flat().map((k) => [k, ap[k].outputScale]));
+    for (const [k, names] of Object.entries(maps)) {
+      for (const n of names) ap[n].outputScale = ranges && ranges[k] != null ? ranges[k] : ap._origScale[n];
+    }
+    if (yaw === null) { la.autoUpdate = true; ap.applyYawPitch(0, 0); return true; }
+    la.autoUpdate = false;
+    ap.applyYawPitch(yaw, pitch);
+    return true;
+  }
+
   snapshot() { this.renderer.render(this.scene, this.camera); return this.renderer.domElement.toDataURL('image/png'); }
 
   // centre square of the current view, scaled to size×size (VRM thumbnails are square)

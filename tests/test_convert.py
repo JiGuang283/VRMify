@@ -213,6 +213,30 @@ class EditTest(Base):
         self.assertNotIn("extras", g0)
         self.assertEqual(len(self._read(self.v1)), len(orig))
 
+    def test_intensity(self):
+        """预设强度：形态键权重相乘，单个最多到 1；还原后回到原值。"""
+        def happy():
+            g, _ = vrmio.read_glb(self.v1)
+            return [b["weight"] for b in g["extensions"]["VRMC_vrm"]["expressions"]["preset"]["happy"]["morphTargetBinds"]]
+        orig = happy()
+        vrm_edit.apply(self.v1, {"intensity": {"happy": 0.5}})
+        self.assertValid(self.v1)
+        self.assertEqual(happy(), [round(w * 0.5, 4) for w in orig])
+        vrm_edit.apply(self.v1, {"intensity": {"happy": 2.0}})
+        self.assertEqual(happy(), [min(1.0, w * 2) for w in orig])
+        vrm_edit.apply(self.v1, {"intensity": {"happy": 1.0}})       # 100% = 没调
+        self.assertEqual(happy(), orig)
+        g, _ = vrmio.read_glb(self.v1)
+        self.assertNotIn("extras", g)
+
+    def test_intensity_0x(self):
+        vrm_edit.apply(self.v0, {"intensity": {"joy": 0.5}})
+        self.assertValid(self.v0)
+        g, _ = vrmio.read_glb(self.v0)
+        joy = [gr for gr in g["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"] if gr["presetName"] == "joy"]
+        self.assertEqual([b["weight"] for b in joy[0]["binds"]], [50.0])
+        vrm_edit.apply(self.v0, {})
+
     def test_chain_off(self):
         info = vrm_edit.describe(self.v1)
         key = info["springs"][0]["key"]
@@ -328,6 +352,23 @@ class MorphBakeTest(Base):
         look, note = morphbake.eye_look_range(m, mesh.vertex_weights(m["vertices"], len(m["bones"]), {}),
                                               parents, eyes)
         self.assertIsNotNone(look)
+
+    def test_tune_look(self):
+        """调整面板改视线最大转角：describe 给转换时的值，apply 改 rangeMap，空调整还原。"""
+        out = self.convert("eyes_tune")
+        info = vrm_edit.describe(out)
+        orig = info["look"]
+        self.assertTrue(8.0 <= orig["h"] <= 20.0)
+        vrm_edit.apply(out, {"lookAt": {"h": 25, "down": 5, "up": 0}})
+        self.assertValid(out)
+        la = vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["lookAt"]
+        self.assertEqual([la[k]["outputScale"] for k in ("rangeMapHorizontalInner", "rangeMapHorizontalOuter",
+                                                         "rangeMapVerticalDown", "rangeMapVerticalUp")], [25, 25, 5, 0])
+        self.assertEqual(vrm_edit.describe(out)["look"], orig)         # describe 仍是转换时的值
+        vrm_edit.apply(out, {})
+        la = vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["lookAt"]
+        self.assertEqual(la["rangeMapHorizontalOuter"]["outputScale"], orig["h"])
+        self.assertEqual(la["rangeMapVerticalUp"]["outputScale"], orig["up"])
 
     def test_no_gaze(self):
         out = self.convert("eyes_nogaze", gaze=False)

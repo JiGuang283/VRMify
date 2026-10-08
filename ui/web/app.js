@@ -441,10 +441,30 @@ function renderTune() {
   h3('tuneExpr');
   const opts = `<option value="">${esc(t('exprNone'))}</option>` +
     T.info.expressions.map((x) => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join('');
+  const hint = document.createElement('div'); hint.className = 'hint flush'; hint.textContent = t('exprHint'); body.append(hint);
+  const tryExpr = (sid, w) => {
+    if (!sid) return;
+    viewer.resetExpressions(); viewer.setExpression(exprNameInModel(sid), w);
+    clearTimeout(renderTune.tryTimer); renderTune.tryTimer = setTimeout(() => viewer.resetExpressions(), 1500);
+  };
   for (const p of MAIN_PRESETS[T.info.spec] || []) {
-    const d = document.createElement('div'); d.className = 'field';
-    d.innerHTML = `<label title="${esc(p)}">${esc(presetLabel(p))}</label><select>${opts}</select><button class="mini" title="${t('tryExpr')}">▶</button>`;
+    const d = document.createElement('div'); d.className = 'field preset';
+    const k = num((T.edits.intensity || {})[p], 1);
+    d.innerHTML = `<label title="${esc(p)}">${esc(presetLabel(p))}</label><select>${opts}</select>` +
+      `<input type="range" class="strength" min="0" max="1.5" step="0.05" value="${k}" title="${esc(t('exprStrength'))}">` +
+      `<output class="strength">${Math.round(k * 100)}%</output><button class="mini" title="${t('tryExpr')}">▶</button>`;
     const sel = d.querySelector('select'), base = T.info.assign[p] || '';
+    const rng = d.querySelector('input'), out = d.querySelector('output');
+    rng.classList.toggle('changed', k !== 1);
+    rng.addEventListener('input', () => {
+      const v = +rng.value;
+      out.textContent = Math.round(v * 100) + '%';
+      T.edits.intensity = T.edits.intensity || {};
+      if (v === 1) delete T.edits.intensity[p]; else T.edits.intensity[p] = v;
+      rng.classList.toggle('changed', v !== 1);
+      tryExpr(sel.value, v);
+      markDirty();
+    });
     sel.value = assigned(p);
     sel.classList.toggle('changed', sel.value !== base);
     sel.addEventListener('change', () => {
@@ -453,12 +473,41 @@ function renderTune() {
       sel.classList.toggle('changed', sel.value !== base);
       markDirty();
     });
-    d.querySelector('button').addEventListener('click', () => {
-      if (!sel.value) return;
-      viewer.resetExpressions(); viewer.setExpression(exprNameInModel(sel.value), 1);
-      clearTimeout(renderTune.tryTimer); renderTune.tryTimer = setTimeout(() => viewer.resetExpressions(), 1500);
-    });
+    d.querySelector('button').addEventListener('click', () => tryExpr(sel.value, +rng.value));
     body.append(d);
+  }
+
+  // gaze range (VRM look-at max angles)
+  if (T.info.look) {
+    h3('tuneLook');
+    const lh = document.createElement('div'); lh.className = 'hint flush'; lh.textContent = t('lookHint'); body.append(lh);
+    const cur = () => Object.assign({}, T.info.look, T.edits.lookAt || {});
+    // yaw / pitch for each preview arrow, as seen on screen from the front (VRM look-at input:
+    // +yaw = the model's own left = screen right; ±90 = full range)
+    const peek = (dir) => {
+      const [yaw, pitch] = { left: [-90, 0], right: [90, 0], up: [0, 90], down: [0, -90] }[dir];
+      viewer.setLook(yaw, pitch, cur());
+      clearTimeout(renderTune.lookTimer); renderTune.lookTimer = setTimeout(() => viewer.setLook(null), 1500);
+    };
+    const set = (key, v) => {
+      T.edits.lookAt = Object.assign(cur(), { [key]: v });
+      markDirty();
+    };
+    const fmtDeg = (v) => (+v).toFixed(1) + '°';
+    body.append(slider(t('lookH'), cur().h, 0, 40, 0.5, (v) => { set('h', v); peek('left'); }, fmtDeg));
+    body.append(slider(t('lookDown'), cur().down, 0, 30, 0.5, (v) => { set('down', v); peek('down'); }, fmtDeg));
+    body.append(slider(t('lookUp'), cur().up, 0, 30, 0.5, (v) => { set('up', v); peek('up'); }, fmtDeg));
+    const row = document.createElement('div'); row.className = 'field';
+    row.innerHTML = `<label></label>` + ['left', 'right', 'up', 'down'].map((d) =>
+      `<button class="mini" data-d="${d}" title="${esc(t('lookTry'))}">${{ left: '◀', right: '▶', up: '▲', down: '▼' }[d]}</button>`).join(' ') +
+      (T.edits.lookAt ? ` <button class="btn small ghost" data-d="reset">${esc(t('lookReset'))}</button>` : '');
+    row.addEventListener('click', (e) => {
+      const d = e.target.dataset.d;
+      if (!d) return;
+      if (d === 'reset') { delete T.edits.lookAt; markDirty(); renderTune(); return; }
+      peek(d);
+    });
+    body.append(row);
   }
 
   // physics (VRM 1.0 SpringBone)

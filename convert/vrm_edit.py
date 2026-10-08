@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""转换好的 VRM 再调整（不用重新转换）：预设表情指定、SpringBone 参数、标题、缩略图。
+"""转换好的 VRM 再调整（不用重新转换）：预设表情指定和强度、视线范围、SpringBone 参数、标题、缩略图。
 
     import vrm_edit
     info = vrm_edit.describe(path)          # 界面要的：可选表情、当前预设指定、物理链、标题
@@ -9,6 +9,8 @@ edits（纯 JSON，界面按源文件存）：
 
     {"title": "名字",
      "expressions": {"happy": "笑い", "blink": "", ...},   预设 → 来源表情 id（"" = 不设这个预设）
+     "intensity": {"angry": 0.8, ...},                    预设强度 ×（形态键权重相乘，单个权重最多到 1）
+     "lookAt": {"h": 15.0, "down": 10.0, "up": 7.0},       视线最大转角（度）：左右 / 向下 / 向上；不给 = 转换时的值
      "spring": {"stiffness": 1.0, "drag": 1.0, "gravity": 0.0,       整体：硬度 ×、阻尼 ×、重力 +
                 "chains": {"链 key": {"stiffness": 1.0, "gravity": 0.0, "off": false}}},
      "thumbnail": "缩略图 PNG 的路径"}
@@ -66,8 +68,75 @@ def _base(g, create):
         b = {"spec": "0.x", "groups": copy.deepcopy(v.get("blendShapeMaster", {}).get("blendShapeGroups", [])),
              "meta": copy.deepcopy(v["meta"])}
     b["thumb"] = None
+    _base_look(b, v)
     g.setdefault("extras", {})[BASE_KEY] = b
     return b
+
+
+_LOOK_1 = {"h": ("rangeMapHorizontalInner", "rangeMapHorizontalOuter"), "down": ("rangeMapVerticalDown",),
+           "up": ("rangeMapVerticalUp",)}
+_LOOK_0 = {"h": ("lookAtHorizontalInner", "lookAtHorizontalOuter"), "down": ("lookAtVerticalDown",),
+           "up": ("lookAtVerticalUp",)}
+
+
+def _base_look(b, vrm):
+    """基准里记下转换时的视线设置（以前调整过、基准里还没有这一项的文件，补记当前的——
+    那时还没有视线调整，当前值就是转换时的值）。"""
+    if "look" not in b:
+        b["look"] = copy.deepcopy(vrm.get("lookAt") if b["spec"] == "1.0" else
+                                  {k: vrm.get("firstPerson", {}).get(k) for ks in _LOOK_0.values() for k in ks})
+
+
+def _look_deg(b):
+    """基准里的视线最大转角 → {"h", "down", "up"}（度），没有视线设置时 None。"""
+    look = b.get("look") or {}
+    out = {}
+    for k, names in (_LOOK_1 if b["spec"] == "1.0" else _LOOK_0).items():
+        m = look.get(names[0])
+        if not m:
+            return None
+        out[k] = m.get("outputScale") if b["spec"] == "1.0" else m.get("yRange")
+    return out
+
+
+def _apply_look(vrm, b, edits):
+    """视线：先还原转换时的设置，再套用 edits（左右 / 向下 / 向上的最大转角）。"""
+    is1 = b["spec"] == "1.0"
+    if is1:
+        if b.get("look") is not None:
+            vrm["lookAt"] = copy.deepcopy(b["look"])
+    else:
+        for k, m in (b.get("look") or {}).items():
+            if m is not None:
+                vrm.setdefault("firstPerson", {})[k] = copy.deepcopy(m)
+    if not edits or _look_deg(b) is None:
+        return
+    target = vrm["lookAt"] if is1 else vrm["firstPerson"]
+    for k, names in (_LOOK_1 if is1 else _LOOK_0).items():
+        deg = _num(edits.get(k), None)
+        if deg is None:
+            continue
+        deg = min(90.0, max(0.0, deg))
+        for n in names:
+            target[n]["outputScale" if is1 else "yRange"] = deg
+
+
+def _apply_intensity(vrm, is1, edits):
+    """预设强度：把预设里的形态键权重乘上系数（单个权重最多到 1 / 100）。材质颜色、贴图偏移不变。"""
+    for p, f in (edits or {}).items():
+        f = _num(f, 1.0)
+        if f == 1.0:
+            continue
+        f = max(0.0, f)
+        if is1:
+            obj = ((vrm.get("expressions") or {}).get("preset") or {}).get(p)
+            for bd in (obj or {}).get("morphTargetBinds", []):
+                bd["weight"] = round(min(1.0, bd["weight"] * f), 4)
+        else:
+            for gr in vrm.get("blendShapeMaster", {}).get("blendShapeGroups", []):
+                if gr.get("presetName") == p:
+                    for bd in gr.get("binds", []):
+                        bd["weight"] = round(min(100.0, bd["weight"] * f), 2)
 
 
 def _sources_1(expressions):
@@ -133,6 +202,8 @@ def describe(path):
         out["title"] = b["meta"].get("title", "")
     out["expressions"] = [{"id": sid, "label": _label(sid)} for sid in pool]
     out["assign"] = assign
+    _base_look(b, ext["VRMC_vrm"] if b["spec"] == "1.0" else ext["VRM"])
+    out["look"] = _look_deg(b)                  # 转换时的视线最大转角（没有视线设置时 None）
     return out
 
 
@@ -286,7 +357,8 @@ def is_empty(edits):
                                   or _num(c.get("gravity"), 0.0) != 0.0
                                   for c in (sp.get("chains") or {}).values()))
     return (not edits.get("title") and not edits.get("expressions") and neutral_spring
-            and not edits.get("thumbnail"))
+            and not edits.get("thumbnail") and not edits.get("lookAt")
+            and all(_num(v, 1.0) == 1.0 for v in (edits.get("intensity") or {}).values()))
 
 
 def apply(path, edits, out_path=None):
@@ -310,12 +382,16 @@ def apply(path, edits, out_path=None):
     vrm["meta"] = copy.deepcopy(b["meta"])
     n = 0
     # ---- 套用
+    _base_look(b, vrm)
     if is1:
         _apply_expr_1(vrm, b["expressions"], edits.get("expressions"))
         _apply_spring(g, b.get("springBone"), edits.get("spring"))
     else:
         _apply_expr_0(vrm, b["groups"], edits.get("expressions"))
-    n += bool(edits.get("expressions")) + bool(edits.get("spring"))
+    _apply_intensity(vrm, is1, edits.get("intensity"))
+    _apply_look(vrm, b, edits.get("lookAt"))
+    n += bool(edits.get("expressions")) + bool(edits.get("spring")) + bool(edits.get("lookAt"))
+    n += any(_num(v, 1.0) != 1.0 for v in (edits.get("intensity") or {}).values())
     if edits.get("title"):
         vrm["meta"]["name" if is1 else "title"] = str(edits["title"])
         n += 1

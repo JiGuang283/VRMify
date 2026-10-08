@@ -136,7 +136,7 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .tab-body[data-panel=meta] .field > label { width: 80px; }
 
 /* tune panel */
-.panel.wide { width: 340px; }
+.panel.wide { width: 360px; }
 .tune-body { overflow-y: auto; flex: 1; min-height: 0; margin: 0 -4px; padding: 0 4px; }
 .tune-body h3 { display: flex; align-items: center; gap: 6px; margin: 12px 0 4px; }
 .tune-body h3:first-child { margin-top: 2px; }
@@ -144,6 +144,10 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .tune-body .field > label { width: 96px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tune-body select { flex: 1; min-width: 0; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; font: inherit; }
 .tune-body select.changed, .tune-body input.changed { border-color: var(--accent); }
+.tune-body .field.preset > label { width: 64px; }
+.tune-body input.strength { flex: none; width: 56px; }
+.tune-body output.strength { width: 36px; }
+.tune-body input.strength.changed { accent-color: var(--accent); filter: saturate(1.6); }
 .tune-msg { color: var(--muted); padding: 12px 2px; }
 .thumb-row { display: flex; align-items: center; gap: 8px; }
 .thumb-row img, .thumb-row .noimg { width: 64px; height: 64px; border-radius: 6px; border: 1px solid var(--line); object-fit: cover; flex: none;

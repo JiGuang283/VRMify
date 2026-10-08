@@ -56,7 +56,11 @@ into the output VRM:
 - **Name** and **thumbnail** (a square shot of the current preview, shown as the avatar icon in games / VRM apps)
 - **Preset expressions**: which PMX morph drives each VRM preset (happy, blink, mouth A/I/U/E/O …). Automatic mapping only knows
   the standard Japanese morph names, so models with other names can be completed here; ▶ tries an expression.
-  Combined emotion presets show as "怒り+ｷﾘｯ+口角下げ"; switch back to a single morph if you prefer (the combination stays as a custom expression)
+  Combined emotion presets show as "怒り+ｷﾘｯ+口角下げ"; switch back to a single morph if you prefer (the combination stays as a custom expression).
+  The slider next to each preset is its **strength** (0–150%, previewed while dragging): morph weights are scaled and capped at 100% each,
+  so going above 100% only helps combined presets
+- **Gaze range**: how far the eyes turn left/right, down and up at the edge of their range (computed from the eye shape by default);
+  the arrows preview it. Only affects VRM look-at (looking at the camera etc.); the lookLeft etc. expressions baked at conversion keep their angles
 - **Physics**: overall stiffness / drag / gravity plus per-chain stiffness, gravity and on/off, previewed live while dragging
 
 Tuning is stored per source file in `edits.json` (thumbnails in `edits/`) and reapplied on later conversions; "Reset all"
