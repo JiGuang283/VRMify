@@ -13,7 +13,7 @@ import sys
 is_win = sys.platform.startswith('win')
 is_mac = sys.platform == 'darwin'
 app_name = 'Model-To-VRM'
-icon_file = 'MC_2.ico' if is_win else ('MC_2.icns' if is_mac else None)
+icon_file = 'ui/icon.ico' if is_win else None      # 由 tools/make_icon.py 生成
 
 # ---- 版本号：唯一来源是 ui/version.py，写进 exe 的「属性 → 详细信息」
 with open(os.path.join('ui', 'version.py'), encoding='utf-8') as _f:

@@ -72,6 +72,14 @@ python -m unittest discover -s tests -v
 测转换（1.0 / 0.x、元信息、结果确定性、贴图瘦身）、转换后调整（`vrm_edit` 的套用 / 还原 / 幂等）和 zip 输入。
 装了 jsonschema 时顺带做官方 Schema 校验；没装 Pillow 时跳过贴图瘦身的测试。
 
+## 程序图标 `make_icon.py`
+
+```bash
+python tools/make_icon.py      # → ui/icon.ico（exe 图标）+ ui/web/icon.png（页面图标），需要 Pillow
+```
+
+圆角蓝底 + 白色菱形，和界面左上角的「◆」一致；改颜色、形状就改这个脚本再重新生成。
+
 ## 打包发布 `build_release.py`
 
 ```bash
