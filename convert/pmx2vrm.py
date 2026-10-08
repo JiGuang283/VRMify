@@ -176,11 +176,15 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     nodes, top_nodes = tree.gltf_nodes()
 
     # ---- 视线转角：按眼球几何算（lookAt 和补的视线表情都用它）
-    look = morphbake.eye_look_range(model, vweights, bs.parents,
-                                    [bs.human_b.get("leftEye"), bs.human_b.get("rightEye")])
+    look, note = None, None
+    if "leftEye" in bs.human_b or "rightEye" in bs.human_b:
+        look, note = morphbake.eye_look_range(model, vweights, bs.parents,
+                                              [bs.human_b.get("leftEye"), bs.human_b.get("rightEye")])
     if look:
-        _log("视线：左右 %.1f° · 下 %.1f° · 上 %.1f°（按眼球几何，瞳孔走到约 %d%% 瞳孔宽度）"
-             % (look["lookLeft"], look["lookDown"], look["lookUp"], morphbake.LOOK_TRAVEL * 100))
+        _log("视线：左右 %.1f° · 下 %.1f° · 上 %.1f°（%s）"
+             % (look["lookLeft"], look["lookDown"], look["lookUp"], note))
+    elif note:
+        _log("视线：" + note, "warn")
 
     # ---- 逐材质构建网格（材质表情会影响材质的 alphaMode，表情要先整理）
     gb = vrmio.GLBBuilder()

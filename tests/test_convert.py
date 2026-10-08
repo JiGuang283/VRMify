@@ -28,7 +28,7 @@ import pmx2vrm  # noqa: E402
 import synth  # noqa: E402
 import vrm_edit  # noqa: E402
 import vrmio  # noqa: E402
-from vrmconv import morphbake, textures  # noqa: E402
+from vrmconv import mesh, morphbake, textures  # noqa: E402
 
 _VALIDATORS = None
 
@@ -313,10 +313,21 @@ class MorphBakeTest(Base):
         self.assertEqual(la["rangeMapHorizontalInner"]["outputScale"], h)
         self.assertAlmostEqual(la["rangeMapVerticalDown"]["outputScale"], h * 0.7, places=1)
         self.assertAlmostEqual(la["rangeMapVerticalUp"]["outputScale"], h * 0.5, places=1)
-        # 没有眼骨下的顶点时退回 10°
+        # 没有眼骨下的顶点、或者挂在眼骨上的东西不像一只眼睛时退回 10°（日志说明原因）
         m = pmxio.read_pmx(self.pmx)
-        self.assertIsNone(morphbake.eye_look_range(m, [[] for _ in m["vertices"]],
-                                                   [b["parent"] for b in m["bones"]], [0]))
+        parents = [b["parent"] for b in m["bones"]]
+        idx = {b["name"]: i for i, b in enumerate(m["bones"])}
+        eyes = [idx["左目"], idx["右目"]]
+        look, note = morphbake.eye_look_range(m, [[] for _ in m["vertices"]], parents, eyes)
+        self.assertIsNone(look)
+        self.assertIn("10°", note)
+        whole = [[(idx["左目"], 1.0)] for _ in m["vertices"]]        # 整个模型都挂在左眼上
+        look, note = morphbake.eye_look_range(m, whole, parents, eyes)
+        self.assertIsNone(look)
+        self.assertIn("不像一只眼睛", note)
+        look, note = morphbake.eye_look_range(m, mesh.vertex_weights(m["vertices"], len(m["bones"]), {}),
+                                              parents, eyes)
+        self.assertIsNotNone(look)
 
     def test_no_gaze(self):
         out = self.convert("eyes_nogaze", gaze=False)

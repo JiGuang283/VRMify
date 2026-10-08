@@ -161,7 +161,10 @@ LOOK_TRAVEL = 0.28          # 看到最边上时瞳孔走多远（瞳孔宽度�
 
 
 def eye_look_range(model, vweights, parents, eyes):
-    """按眼球几何算视线最大转角 → {"lookLeft", "lookRight", "lookUp", "lookDown"}（度），算不出时 None。
+    """按眼球几何算视线最大转角 → (角度, 说明)。
+
+    角度：{"lookLeft", "lookRight", "lookUp", "lookDown"}（度）；算不出或测出来不合理时为 None
+    （调用方用默认的 10°），说明给日志用。
 
     瞳孔看起来移动多少 = 转角 × 支点到瞳孔的距离。VRoid 的眼骨支点很深（约 6 cm），转 8° 就走
     瞳孔宽度的 29%；MMD 模型的支点常常贴着眼球（2~4 cm），固定 10° 只走 15~25%，转眼不明显。
@@ -170,8 +173,12 @@ def eye_look_range(model, vweights, parents, eyes):
     瞳孔 = 跟着眼骨及其子骨（左目先 等）走的顶点（权重 > 0.5）。
     """
     bones, verts = model["bones"], model["vertices"]
+    real = [e for e in eyes if e is not None]
+    # 两眼间距：测出来的「瞳孔」比它还宽、或者支点离瞳孔比它还远，就是把别的东西也挂在眼骨上了
+    # （整个眼部、脸），这时候算出来的角度不可信
+    span = abs(bones[real[0]]["pos"][0] - bones[real[1]]["pos"][0]) if len(real) == 2 else None
     angles = []
-    for eye in eyes:
+    for eye in real:
         if eye is None:
             continue
         sub = {eye}
@@ -187,16 +194,24 @@ def eye_look_range(model, vweights, parents, eyes):
         if len(pts) < 8:
             continue
         px, _, pz = bones[eye]["pos"]
+        xs = [q[0] for q in pts]
         dist = sorted(math.hypot(q[0] - px, q[2] - pz) for q in pts)
         far = dist[len(dist) // 2:]                  # 眼球前面（瞳孔表面）那一半
         r = sum(far) / len(far)
-        width = max(q[0] for q in pts) - min(q[0] for q in pts)
+        width = max(xs) - min(xs)
+        if span and (width > 0.8 * span or r > 1.5 * span):
+            return None, ("眼骨上挂的顶点不像一只眼睛（宽 %.2f、支点到表面 %.2f，两眼相距 %.2f），用默认 10°"
+                          % (width, r, span))
         if r > 1e-6 and width > 1e-6:
             angles.append(math.degrees(math.atan(LOOK_TRAVEL * width / r)))
     if not angles:
-        return None
-    h = min(20.0, max(8.0, sum(angles) / len(angles)))
-    return {"lookLeft": h, "lookRight": h, "lookDown": round(h * 0.7, 2), "lookUp": round(h * 0.5, 2)}
+        return None, "眼骨上没有找到瞳孔顶点，用默认 10°"
+    raw = sum(angles) / len(angles)
+    h = min(20.0, max(8.0, raw))
+    note = "按眼球几何，瞳孔走到约 %d%% 瞳孔宽度" % round(LOOK_TRAVEL * 100)
+    if h != raw:
+        note += "；算出 %.1f°，限制到 %.0f°" % (raw, h)
+    return {"lookLeft": h, "lookRight": h, "lookDown": round(h * 0.7, 2), "lookUp": round(h * 0.5, 2)}, note
 
 
 def gaze_offsets(left_eye, right_eye, deg=None):
