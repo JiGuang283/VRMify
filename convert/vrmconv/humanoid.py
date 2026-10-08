@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """骨骼：MMD 骨骼名 → VRM humanoid 骨位、付与骨合并、层级修正、A-pose → T-pose。"""
 import math
+import re
 
 from .mathutil import _I3, _align, _axis_angle, _m3mul, _m3T, _m3vec, _to_axis_angle
 
@@ -75,6 +76,66 @@ ALT_TO_VRM = {
     "lankle": "leftFoot", "rankle": "rightFoot",
     "ltoe": "leftToes", "rtoe": "rightToes",
 }
+
+# 英文骨名（FBX 转来的 PMX 保留原名）：去掉前缀和左右标记后**整段**匹配，
+# 不会误伤 J_L_HairTail_00、skirt_L_01 这类非人形骨。
+#   HumanIK / Mixamo / Unity：Character1_LeftUpLeg、mixamorig:LeftForeArm、Chr_LeftHandIndex1
+#   VRoid：J_Bip_L_UpperArm、J_Bip_C_Chest      Blender：thigh.L、upper_arm.R
+#   3ds Max Biped：Bip001 L Thigh、Bip001 Spine1
+_EN_PREFIX = re.compile(r"^(?:character\d*|chr|bip0*1|jbipc|jbip|j|def|org|mch|armature|skeleton|root|rig|"
+                        r"cc_base|valvebiped_bip01|bip01)(?=[a-z])")
+_EN_SIDE = re.compile(r"(?:^|[^a-z])(l|r)(?:[^a-z]|$)|left|right")
+_EN_BONES = {
+    "hips": "hips", "hip": "hips", "pelvis": "hips",
+    "spine": "spine", "spine0": "spine", "spine1": "chest", "spine01": "chest", "spine2": "upperChest",
+    "spine02": "upperChest", "chest": "chest", "upperchest": "upperChest",
+    "neck": "neck", "neck1": "neck", "head": "head",
+}
+_EN_LIMBS = {
+    "eye": "Eye", "shoulder": "Shoulder", "clavicle": "Shoulder",
+    "arm": "UpperArm", "upperarm": "UpperArm",
+    "forearm": "LowerArm", "lowerarm": "LowerArm", "elbow": "LowerArm",
+    "hand": "Hand", "wrist": "Hand",
+    "upleg": "UpperLeg", "upperleg": "UpperLeg", "thigh": "UpperLeg",
+    "leg": "LowerLeg", "lowerleg": "LowerLeg", "calf": "LowerLeg", "shin": "LowerLeg", "knee": "LowerLeg",
+    "foot": "Foot", "ankle": "Foot",
+    "toebase": "Toes", "toe": "Toes", "toes": "Toes", "toe0": "Toes",
+}
+_EN_FINGERS = {"thumb": "Thumb", "index": "Index", "middle": "Middle", "ring": "Ring",
+               "pinky": "Little", "little": "Little"}
+
+
+def _en_bone(name):
+    """英文骨名 → ("slot", 骨位) / ("finger", (side, finger, 节号 0～3)) / None。
+
+    节号按 MMD 的口径：拇指 0～2（VRM 1.0 的 Metacarpal / Proximal / Distal），其余手指 1～3；
+    HumanIK 的拇指是 Thumb1～3、指尖是 4，所以拇指减 1、第 4 节（指尖）丢掉。
+    """
+    s = (name or "").split(":")[-1].split("|")[-1].lower()
+    m = _EN_SIDE.search(s.replace(".", "_").replace(" ", "_"))
+    side = None
+    if m:
+        side = "left" if (m.group(1) or m.group(0)).strip("_. ").startswith("l") else "right"
+    base = re.sub(r"left|right", "", s)
+    base = re.sub(r"(?:^|[_. ])[lr](?=[_. ]|$)", "_", base)       # _L / .L / " L " / J_Bip_L_
+    base = re.sub(r"[^a-z0-9]", "", base)
+    base = _EN_PREFIX.sub("", base)
+    if not base:
+        return None
+    if side is None:
+        v = _EN_BONES.get(base)
+        return ("slot", v) if v else None
+    if base.startswith("hand") and base[4:] and not base[4:].isdigit():
+        base = base[4:]                                              # HumanIK: LeftHandIndex1
+    m = re.fullmatch(r"(thumb|index|middle|ring|pinky|little)(\d)", base)
+    if m:
+        f, d = _EN_FINGERS[m.group(1)], int(m.group(2))
+        if f == "Thumb":
+            d -= 1
+        return ("finger", (side, f, d)) if 0 <= d <= 3 and not (f != "Thumb" and d == 0) else None
+    v = _EN_LIMBS.get(base)
+    return ("slot", side + v) if v else None
+
 
 VRM_PARENT = {
     "spine": "hips", "chest": "spine", "upperChest": "chest",
@@ -198,6 +259,9 @@ def _map_humanoid(bones, is1, alias):
     """PMX 骨 → VRM humanoid 骨位，返回 {骨位: PMX 骨索引}。"""
     human = {}
     fingers = {}                     # (side, finger) → {节号: 骨索引}
+    en = {}                          # 英文骨名兜底：骨位 → 骨索引
+    # HumanIK 的 LeftLeg 是小腿（大腿叫 LeftUpLeg）；只有 Leg、没有 UpLeg / Thigh 时 Leg 才是大腿
+    has_upleg = any(re.search(r"upleg|upperleg|thigh", (b["name"] or "").lower()) for b in bones)
     for i, b in enumerate(bones):
         if i in alias:               # 已并入付与親的骨不参与映射
             continue
@@ -210,6 +274,23 @@ def _map_humanoid(bones, is1, alias):
             v = ALT_TO_VRM.get(_norm(b.get("name_en") or ""))
         if v and v not in human:
             human[v] = i
+        if not v:
+            r = _en_bone(b["name"])
+            if r and r[0] == "finger":
+                en.setdefault(("finger",) + r[1][:2], {}).setdefault(r[1][2], i)
+            elif r:
+                slot = r[1]
+                if not has_upleg and slot.endswith("LowerLeg") and "leg" in _norm(b["name"]) \
+                        and not re.search(r"lower|calf|shin|knee", b["name"].lower()):
+                    slot = slot.replace("LowerLeg", "UpperLeg")
+                en.setdefault(slot, i)
+    # 英文名只在 MMD 名没对上时补位（同一个模型两套都有时以 MMD 名为准）
+    for k, i in en.items():
+        if k[0] == "finger":
+            if (k[1], k[2]) not in fingers:
+                fingers[(k[1], k[2])] = i
+        elif k not in human:
+            human[k] = i
     for (side, finger), digits in fingers.items():
         for d, slot in _finger_slots(finger, digits, is1).items():
             human.setdefault(side + finger + slot, digits[d])

@@ -141,11 +141,13 @@ class MaterialBuilder:
         self.blend_rank = 0
         self.sph_skipped = 0
         self.morph_min_alpha = {}        # PMX 材质 → 材质表情能把 alpha 压到多低
+        self.morph_max_alpha = {}        # PMX 材质 → 材质表情能把 alpha 抬到多高
         for _, _, ops in flat:
             for mi_, mat in enumerate(model["materials"]):
                 r = _morph_material(mat, ops, mi_)
                 if r is not None:
                     self.morph_min_alpha[mi_] = min(self.morph_min_alpha.get(mi_, 1.0), r[0][3])
+                    self.morph_max_alpha[mi_] = max(self.morph_max_alpha.get(mi_, 0.0), r[0][3])
 
     def _find(self, idx):
         """PMX 贴图序号 → 磁盘上的文件路径（找不到为 None）。"""
@@ -229,6 +231,13 @@ class MaterialBuilder:
           * 比例高（柔和的叠加层、薄纱）→ BLEND
         材质表情会把它隐藏（alpha → 0）的不透明材质用 MASK，才能真的隐藏。
         """
+        if mat["diffuse"][3] <= 0.001 and self.morph_max_alpha.get(mi_, 0.0) > 0.5:
+            # 默认隐藏、靠材质表情显示的部件（FBX 的替换网格：另一种手势 / 张嘴的头）：
+            # 用 MASK，显示出来时就是普通的不透明材质，不用 BLEND 的排序
+            st = self.tex_alpha.get(mat["tex"])
+            if st and st[0] and st[1] >= st[0] * 0.001 and st[2] >= (st[0] - st[1] + st[2]) * 0.3:
+                return "BLEND"
+            return "MASK"
         if mat["diffuse"][3] < 0.999:
             return "BLEND"
         st = self.tex_alpha.get(mat["tex"])

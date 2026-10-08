@@ -56,7 +56,7 @@ a = Analysis(
         'vrmconv.textures',
         # 其它输入格式（pipeline 里按需 import）
         'fbx2pmx', 'fbx_reader', 'unitypackage_unpack', 'uemodel2pmx', 'uemodelio',
-        'psk2pmx', 'pskio', 'xps2pmx', 'xpsio', 'fbxout', 'pmxio', 'vrmio', 'longpath',
+        'psk2pmx', 'pskio', 'xps2pmx', 'xpsio', 'fbxout', 'pmxio', 'vrmio', 'longpath', 'unityasset',
         'zstandard',
         # 浏览器模式下的文件对话框（子进程 --dialog）
         'tkinter', 'tkinter.filedialog',

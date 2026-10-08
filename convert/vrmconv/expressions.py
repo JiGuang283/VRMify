@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """表情：PMX 顶点 / 材质表情（含グループ展开）→ morph target + VRM 表情（1.0 expressions / 0.x blendShapeGroups）。"""
+import re
+
 import vrmio
 
 from .materials import _lin_rgb, _mmd_color, _morph_material
@@ -26,6 +28,43 @@ EXPR_0X = {
     "にこり": "joy", "笑い": "joy",
     "あ": "a", "あ２": "a", "い": "i", "う": "u", "え": "e", "お": "o",
 }
+
+
+# 英文表情名（FBX 等转来的模型）→ VRM 1.0 预设。只在日文名没占用这个预设时才用。
+#   VRChat：vrc.v_aa / vrc.blink_left    VRoid：Fcl_MTH_A / Fcl_EYE_Close_L / Fcl_ALL_Joy
+#   Unity 酱：MTH_A / EYE_DEF_C（闭眼）    通用：blink、mouth_a、happy …
+_EN_VOWEL = {"a": "aa", "aa": "aa", "i": "ih", "ih": "ih", "u": "ou", "ou": "ou",
+             "e": "ee", "ee": "ee", "o": "oh", "oh": "oh"}
+_EN_EMO = {"joy": "happy", "happy": "happy", "smile": "happy", "angry": "angry", "anger": "angry",
+           "sorrow": "sad", "sad": "sad", "fun": "relaxed", "relaxed": "relaxed",
+           "surprised": "surprised", "surprise": "surprised", "neutral": "neutral"}
+_TO_0X = {"happy": "joy", "aa": "a", "ih": "i", "ou": "u", "ee": "e", "oh": "o", "sad": "sorrow",
+          "relaxed": "fun", "blinkLeft": "blink_l", "blinkRight": "blink_r"}
+
+
+def _preset_en(name, is1):
+    s = (name or "").strip().lower().replace("-", "_").replace(" ", "_")
+    s = re.sub(r"^blendshape\d*\.", "", s)
+    p = None
+    m = re.fullmatch(r"(?:.*[._])?(?:mth|mouth|v)[._]?(aa|ih|ou|ee|oh|a|i|u|e|o)", s) \
+        or re.fullmatch(r"(aa|ih|ou|ee|oh|a|i|u|e|o)", s)
+    if m:
+        p = _EN_VOWEL[m.group(1)]
+    elif re.search(r"mouth_?open$", s):
+        p = "aa"
+    elif re.search(r"(blink|eye_?close[d]?|eye_def_c)[._]?(l|left)$", s):
+        p = "blinkLeft"
+    elif re.search(r"(blink|eye_?close[d]?|eye_def_c)[._]?(r|right)$", s):
+        p = "blinkRight"
+    elif re.search(r"(?:^|[._])(blink|eye_?close[d]?|eye_def_c)$", s):
+        p = "blink"
+    else:
+        m = re.search(r"(?:^|[._])(?:all_|face_)?([a-z]+)$", s)
+        if m and m.group(1) in _EN_EMO and (s == m.group(1) or re.search(r"(?:^|_)(?:fcl_)?all_|^face_", s)):
+            p = _EN_EMO[m.group(1)]
+    if p and not is1:
+        p = _TO_0X.get(p, p)
+    return p
 
 
 def _flatten_morphs(morphs):
@@ -98,6 +137,7 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     blend_groups = []
     table = EXPR_1_0 if is1 else EXPR_0X
     n_mat_expr = 0
+    jp_presets = {table[n] for n, _, _ in flat if n in table}    # 日文名占用的预设，英文名不抢
     used_0x = set()
 
     for mname, deltas, ops in flat:
@@ -156,6 +196,10 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
             n_mat_expr += 1
 
         preset = table.get(mname)
+        if not preset:
+            preset = _preset_en(mname, is1)
+            if preset in jp_presets:
+                preset = None
         if is1:
             obj = {"morphTargetBinds": ([{"node": 0, "index": slot,
                                           "weight": 1.0}]

@@ -77,7 +77,9 @@ def unpack(src, outdir, list_only=False):
             # pathname 以 '/' 结尾 = 这是一个「文件夹」资源（Unity 里文件夹也是资源）。
             # tar 里没有它的 asset 本体，只有 asset.meta / pathname / preview.png。
             is_folder = raw.endswith('/') or not raw or raw == guid
-            rel = raw.lstrip('Assets/').rstrip('/') or guid
+            # 去掉开头的 "Assets/"（以前用 lstrip('Assets/')，那是按字符集剥：
+            # "Assets/shaders/x" 会被剥成 "haders/x"）
+            rel = (raw[len('Assets/'):] if raw.startswith('Assets/') else raw).rstrip('/') or guid
             if fn == 'asset':
                 dst = os.path.join(outdir, rel)
             else:

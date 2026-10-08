@@ -35,7 +35,7 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 
 | 输入 | 说明 |
 |---|---|
-| FBX / unitypackage | 二进制和 ASCII FBX 7.x；自动判定朝向、处理贴图 alpha 遮罩、跳过游戏里的效果片网格 |
+| FBX / unitypackage | 二进制和 ASCII FBX 7.x；自动判定朝向、处理贴图 alpha 遮罩、跳过游戏里的效果片网格。FBX 里没写贴图文件名时（Unity 资源常见），按 Unity 材质（.mat）找回贴图；英文骨名（HumanIK / Mixamo / VRoid / Blender / 3ds Max）和英文表情名（VRChat、VRoid、`MTH_A` 这类）自动对应 VRM；同一位置的几套替换网格（手势、张嘴的头）只显示一套，其余做成切换表情 |
 | uemodel（UEFormat v1–v10） | FortnitePorting / FModel 导出的中间格式；可按整身模型对齐拆开的部件 |
 | psk / pskx（Unreal ActorX） | 带权重、MRPH 顶点表情、附加 UV；Bip001 骨名转 MMD 日文标准名 |
 | xps（XNALara 二进制） | 自动换轴、骨名转日文标准名、补足 IK、保留贴图 alpha |

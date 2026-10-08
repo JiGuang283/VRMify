@@ -62,6 +62,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 import fbx_reader as fbx
+import unityasset
 
 
 # --------------------------------------------------- 贴图 alpha / 朝向 ------
@@ -275,15 +276,21 @@ def m_translation(m):
     return (m[3], m[7], m[11])
 
 
-def m_trs(t, rot_deg, s):
+# FBX 的 RotationOrder（EFbxRotationOrder）：字母是「先转哪个轴」，矩阵按相反顺序相乘。
+# 0 XYZ（默认）→ Rz·Ry·Rx；6 是 SphericXYZ，按 XYZ 处理。
+_ROT_ORDER = {0: "zyx", 1: "yzx", 2: "xzy", 3: "zxy", 4: "yxz", 5: "xyz", 6: "zyx"}
+
+
+def m_trs(t, rot_deg, s, order=0):
     rx, ry, rz = (math.radians(v) for v in rot_deg)
     cx, sx = math.cos(rx), math.sin(rx)
     cy, sy = math.cos(ry), math.sin(ry)
     cz, sz = math.cos(rz), math.sin(rz)
-    rx_m = [1, 0, 0, 0, 0, cx, -sx, 0, 0, sx, cx, 0, 0, 0, 0, 1]
-    ry_m = [cy, 0, sy, 0, 0, 1, 0, 0, -sy, 0, cy, 0, 0, 0, 0, 1]
-    rz_m = [cz, -sz, 0, 0, sz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-    r = m_mul(rz_m, m_mul(ry_m, rx_m))
+    mats = {"x": [1, 0, 0, 0, 0, cx, -sx, 0, 0, sx, cx, 0, 0, 0, 0, 1],
+            "y": [cy, 0, sy, 0, 0, 1, 0, 0, -sy, 0, cy, 0, 0, 0, 0, 1],
+            "z": [cz, -sz, 0, 0, sz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]}
+    a, b, c = _ROT_ORDER.get(order, "zyx")
+    r = m_mul(mats[a], m_mul(mats[b], mats[c]))
     for i in range(3):
         for j in range(3):
             r[i * 4 + j] *= s[j]
@@ -296,17 +303,18 @@ def parse_matrix_str(s):
     return vals if len(vals) == 16 else m_ident()
 
 
-def m_rot(rot_deg):
-    """欧拉角（度）→ 纯旋转矩阵，与 m_trs 同一套约定（行向量、Rz·Ry·Rx）。
+def m_rot(rot_deg, order=0):
+    """欧拉角（度）→ 纯旋转矩阵，与 m_trs 同一套约定。默认 XYZ 顺序（Rz·Ry·Rx）。
 
-    注意不要改成 Rx·Ry·Rz：实测同一份 FBX 下两种顺序的贴合度差距极大
-    （Rz·Ry·Rx 中位 5.67cm vs Rx·Ry·Rz 中位 18.09cm），当前这个才是对的。
+    注意默认不要改成 Rx·Ry·Rz：实测同一份 FBX 下两种顺序的贴合度差距极大
+    （Rz·Ry·Rx 中位 5.67cm vs Rx·Ry·Rz 中位 18.09cm）。节点自己写了 RotationOrder 时
+    才按它来（只作用于 Lcl Rotation；Pre / PostRotation 按 FBX SDK 的规定总是 XYZ）。
     """
-    return m_trs([0.0, 0.0, 0.0], rot_deg, [1.0, 1.0, 1.0])
+    return m_trs([0.0, 0.0, 0.0], rot_deg, [1.0, 1.0, 1.0], order)
 
 
 def m_rot_inv(rot_deg):
-    """纯旋转矩阵的逆（3×3 转置）。FBX 里的 Rpost⁻¹ / Rp⁻¹ 需要它。"""
+    """纯旋转矩阵的逆（3×3 转置）。FBX 里的 Rpost⁻¹ 需要它。"""
     r = m_rot(rot_deg)
     o = list(r)
     for i in range(3):
@@ -387,10 +395,13 @@ class Scene:
         # 了第 6 位，于是 7 个槽位里有 5 个配错贴图（一致性只有 19%），
         # 表现就是「有些部分的贴图不对 / 像被换了 UV」。
         self.conn_list = []
+        self.conn_prop = {}             # (child, parent) -> 属性名（"OP" 连接，比如贴图接在 DiffuseColor 上）
         for c in root.get("Connections").children:
             if len(c.props) >= 3:
                 self.parents.setdefault(c.props[1], []).append(c.props[2])
                 self.conn_list.append((c.props[1], c.props[2]))
+                if len(c.props) >= 4 and c.props[0] == "OP":
+                    self.conn_prop[(c.props[1], c.props[2])] = str(c.props[3])
 
         self._build_models()
         self._resolve_links()
@@ -438,26 +449,32 @@ class Scene:
         roff = v3("RotationOffset")
         sp = v3("ScalingPivot")
         soff = v3("ScalingOffset")
+        ro = d.get("RotationOrder")
+        order = int(ro[0]) if ro else 0
 
+        def neg(v):
+            return [-v[0], -v[1], -v[2]]
+
+        # Rp / Sp 是**枢轴点**（平移），不是旋转：以前写成 m_rot(rp)，枢轴非零的节点会被转歪
         m = m_translate(t)
         if roff:
             m = m_mul(m, m_translate(roff))
         if rp:
-            m = m_mul(m, m_rot(rp))
+            m = m_mul(m, m_translate(rp))
         if pre:
             m = m_mul(m, m_rot(pre))
-        m = m_mul(m, m_rot(r))
+        m = m_mul(m, m_rot(r, order))
         if post:
             m = m_mul(m, m_rot_inv(post))
         if rp:
-            m = m_mul(m, m_rot_inv(rp))
+            m = m_mul(m, m_translate(neg(rp)))
         if soff:
             m = m_mul(m, m_translate(soff))
         if sp:
-            m = m_mul(m, m_rot(sp))
+            m = m_mul(m, m_translate(sp))
         m = m_mul(m, m_scale(s))
         if sp:
-            m = m_mul(m, m_rot_inv(sp))
+            m = m_mul(m, m_translate(neg(sp)))
         return m
 
     def _build_models(self):
@@ -501,6 +518,7 @@ class Scene:
         self.cluster_bone = {}
         self.texture_materials = {}     # material_id -> [texture id, ...] (ordered)
         self.texture_video = {}         # texture_id -> video_id (embedded name)
+        self.texture_slot = {}          # (material_id, texture_id) -> 材质属性名（DiffuseColor / NormalMap …）
 
         for child, pid in self.conn_list:
             cn = self.byid.get(child)
@@ -532,6 +550,7 @@ class Scene:
                     self.cluster_bone[pid] = child
             elif cn.name == "Texture" and pn.name == "Material":
                 self.texture_materials.setdefault(pid, []).append(child)
+                self.texture_slot[(pid, child)] = self.conn_prop.get((child, pid), "")
             elif cn.name == "Material" and pn.name == "Texture":
                 self.texture_materials.setdefault(cn.props[0], []).append(pid)
             elif cn.name == "Texture" and pn.name == "Video":
@@ -561,28 +580,33 @@ class Scene:
         basename - the actual file is copied at convert() time if it exists.
         """
         self.textures = {}          # texture_id -> {"name": basename, "rel": path}
+
+        def file_of(node):
+            # 文件名可能在 Properties70 里，也可能是 Texture / Video 节点的直接子节点
+            # （Maya / Unity 导出的 FBX 7.x 是后者：FileName: "D:/…/body_01.tga"）
+            d = self._props70(node)
+            for key in ("RelativeFilename", "FileName", "Filename"):
+                v = d.get(key)
+                if v:
+                    return v[0] if isinstance(v, list) else v
+            for key in ("RelativeFilename", "FileName", "Filename"):
+                for ch in node.find(key):
+                    if ch.props and isinstance(ch.props[0], str) and ch.props[0].strip("\x00"):
+                        return ch.props[0]
+            return None
+
         for c in self.objects:
             if c.name != "Texture":
                 continue
             tid = c.props[0]
-            d = self._props70(c)
-            rel = None
-            for key in ("RelativeFilename", "FileName"):
-                v = d.get(key)
-                if v:
-                    rel = v[0] if isinstance(v, list) else v
-                    break
+            rel = file_of(c)
             if not rel:
                 vid = self.texture_video.get(tid)
-                if vid is not None:
-                    vn = self.byid.get(vid)
-                    if vn is not None:
-                        dv = self._props70(vn)
-                        for key in ("RelativeFilename", "FileName"):
-                            v = dv.get(key)
-                            if v:
-                                rel = v[0] if isinstance(v, list) else v
-                                break
+                vn = self.byid.get(vid) if vid is not None else None
+                if vn is not None:
+                    rel = file_of(vn)
+            if rel:
+                rel = rel.split("\x00")[0].replace("\\", "/")
             name = os.path.basename(rel) if rel else _clean_name(c.props[1])
             name = name.split("\x00")[0]
             self.textures[tid] = {"name": name, "rel": rel}
@@ -1396,8 +1420,69 @@ def _strip_tga_alpha(src, dst):
     return "stripped" if had_alpha else "no_alpha"
 
 
+def _alternate_groups(records):
+    """找「互为替换」的网格：顶点数、三角面数相同，包围盒几乎重合（同一个位置的几种形态）。
+
+    Unity 资源常这样做手势 / 表情：Query 酱的 Finger_Nomal / Finger_Pa / Finger_Gu、
+    Head_01_Normal / Head_02_MouthOpen，Unity 里一次只显示一个，FBX 里全都在。
+    返回 [(主网格, [替换网格 …])]；主网格优先选名字里带 normal / default / base 的，否则第一个。
+    """
+    groups, used = [], set()
+    for i, a in enumerate(records):
+        if i in used or a["nv"] < 20:
+            continue
+        grp = [i]
+        for j in range(i + 1, len(records)):
+            b = records[j]
+            if j in used or (b["nv"], b["nt"]) != (a["nv"], a["nt"]):
+                continue
+            ext = max(max(a["hi"][k] - a["lo"][k] for k in range(3)), 1e-6)
+            if all(abs(a["lo"][k] - b["lo"][k]) <= 0.05 * ext and abs(a["hi"][k] - b["hi"][k]) <= 0.05 * ext
+                   for k in range(3)):
+                grp.append(j)
+        if len(grp) < 2:
+            continue
+        used.update(grp)
+        prim = next((k for k in grp if any(w in records[k]["name"].lower()
+                                           for w in ("normal", "nomal", "default", "base", "neutral"))), grp[0])
+        groups.append((records[prim], [records[k] for k in grp if k != prim]))
+    return groups
+
+
+_NOT_DIFFUSE = ("normal", "_nrm", "_nor", "_norm", "bump", "_spec", "specular", "_rough", "_metal",
+                "_ao", "occlusion", "emiss", "_env", "env2", "matcap", "_mask", "_ramp")
+
+
+def _pick_diffuse(scene, mat_id, tids):
+    """一个材质挂了好几张贴图时选哪张当底色：
+
+    1. 连接属性是 DiffuseColor / Diffuse / BaseColor 的；
+    2. 贴图名里有 diffuse / albedo / basecolor 的；
+    3. 名字不像法线 / 高光 / 环境图（_NRM、_SPEC、ENV …）的第一张；
+    4. 都不行就第一张。
+    """
+    texs = [(tid, scene.textures.get(tid)) for tid in tids]
+    texs = [(tid, t) for tid, t in texs if t]
+    if not texs:
+        return None
+    slot = getattr(scene, "texture_slot", {})
+    for tid, t in texs:
+        if slot.get((mat_id, tid), "").lower() in ("diffusecolor", "diffuse", "basecolor", "maps|base_color_map",
+                                                   "maya|diffusetexture", "3dsmax|parameters|base_color_map"):
+            return t["name"]
+    for tid, t in texs:
+        if any(k in t["name"].lower() for k in ("diffuse", "albedo", "basecolor", "base_color")):
+            return t["name"]
+    for tid, t in texs:
+        n = t["name"].lower()
+        if not any(k in n for k in _NOT_DIFFUSE) and not slot.get((mat_id, tid), "").lower().startswith(
+                ("normal", "bump", "specular", "reflection", "emissive", "transparent")):
+            return t["name"]
+    return texs[0][1]["name"]
+
+
 def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
-                   alpha_uvs=None):
+                   alpha_uvs=None, known=None, fallback=None):
     """Locate each texture image on disk and copy it into ``out_dir/textures/``.
 
     Returns ``(out_names, stats)``:
@@ -1423,7 +1508,12 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
                    os.path.join(fbx_dir, "tex"),
                    parent]
     found = {}
+    for bn, p in (known or {}).items():
+        if bn in tex_list and os.path.isfile(p):
+            found[bn] = p
     for bn in tex_list:
+        if bn in found:
+            continue
         for d in search_dirs:
             if not d:
                 continue
@@ -1440,14 +1530,40 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
             if hit:
                 found[bn] = hit
                 break
+    # 还没找到：同名换扩展名（FBX 里写的是 face_00.psd，手上的是 face_00.tga），再查 Unity 材质
+    for bn in tex_list:
+        if bn in found:
+            continue
+        stem = os.path.splitext(bn)[0]
+        for ext in (".png", ".tga", ".jpg", ".jpeg", ".bmp", ".dds"):
+            alt = stem + ext
+            if alt.lower() == bn.lower():
+                continue
+            for d in search_dirs:
+                if d and os.path.isfile(os.path.join(d, alt)):
+                    found[bn] = os.path.join(d, alt)
+                    break
+            if bn not in found:
+                for d in (fbx_dir, parent):
+                    hit = _find_file(d, alt) if d else None
+                    if hit:
+                        found[bn] = hit
+                        break
+            if bn in found:
+                break
+        if bn not in found and fallback is not None:
+            p = fallback(bn)
+            if p and os.path.isfile(p):
+                found[bn] = p
     stats["missing"] = len(tex_list) - len(found)
 
     if found:
         tdir = os.path.join(out_dir, "textures")
         os.makedirs(tdir, exist_ok=True)
         for bn, src in found.items():
-            ref = bn
-            out_bn = bn
+            real = os.path.basename(src)        # 换了扩展名 / 来自 Unity 材质时用实际文件名
+            ref = real
+            out_bn = real
             wrote_copy = False          # 副本已经写过盘了，别再被原件覆盖回去
             if alpha_mode != ALPHA_KEEP:
                 # 先看看这张图到底有没有 alpha 可处理
@@ -1465,7 +1581,7 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
                     if verdict != ALPHA_STRIP:
                         stats["kept"] += 1
                     else:
-                        out_bn = _opaque_copy_name(bn)
+                        out_bn = _opaque_copy_name(real)
                         dst = os.path.join(tdir, out_bn)
                         res = _strip_alpha(src, dst)
                         if res == "stripped":
@@ -1474,10 +1590,10 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
                             wrote_copy = True
                         elif res is False:
                             stats["failed"] += 1
-                            out_bn = bn
+                            out_bn = real
                         else:
                             # 写不出副本（格式不支持等）：退回原图
-                            out_bn = bn
+                            out_bn = real
             dst = os.path.join(tdir, out_bn)
             if wrote_copy:
                 stats["copied"] += 1
@@ -1488,8 +1604,6 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
                     shutil.copyfile(src, dst)
                 stats["copied"] += 1
             except OSError:
-                if ref != bn:
-                    ref = bn
                 continue
             stats["out_names"][bn] = ref
 
@@ -1681,6 +1795,7 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
         weights_of_geo[gid] = acc
 
     vbase = 0
+    mesh_records = []         # 每个网格：名字、顶点 / 三角面数、包围盒、PMX 材质段（找替换网格用）
     mat_entries = []          # material node id (or None) for each draw segment
     for md in mesh_data:
         gid = md["geo"].props[0]
@@ -1693,6 +1808,16 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
         nrm = md["nrm"]
         pvi = md["pvi"]
         acc = weights_of_geo[gid]
+        # 没有蒙皮的网格（Unity 酱的眼睛、嘴、眉毛就是挂在头骨下面的普通网格）：
+        # 整个网格跟着它在层级里最近的那根祖先骨走。以前给的是 bone_index 里随便的第一根骨，
+        # 结果脸部零件跟着手臂甩
+        rigid_bone = None
+        if not acc:
+            p = model.parent
+            while p is not None and rigid_bone is None:
+                if p.id in bone_index:
+                    rigid_bone = p.id
+                p = p.parent
         mats = md["mats"]
         poly_mat = md["poly_mat"]
 
@@ -1727,7 +1852,7 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
                         nd = (0.0, 1.0, 0.0)
                     wl = sorted(acc.get(cp, []), key=lambda t: -t[1])[:4]
                     if not wl:
-                        wl = [(next(iter(bone_index)), 1.0)]
+                        wl = [(rigid_bone if rigid_bone is not None else next(iter(bone_index)), 1.0)]
                     tot = sum(x[1] for x in wl) or 1.0
                     wl = [(b, wt / tot) for b, wt in wl]
                     j = len(pmx_verts)
@@ -1752,7 +1877,21 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
                   % (model.name, len(pmx_verts) - vbase,
                      len(pmx_tris) - tri_before, len(mats),
                      "yes" if acc else "no"))
+        if len(pmx_verts) > vbase:
+            ps = [pv[0] for pv in pmx_verts[vbase:]]
+            mesh_records.append({
+                "name": model.name, "nv": len(pmx_verts) - vbase, "nt": len(pmx_tris) - tri_before,
+                "lo": [min(p[k] for p in ps) for k in range(3)], "hi": [max(p[k] for p in ps) for k in range(3)],
+                "segs": [sg[0] for sg in segments if sg[1] >= tri_before]})
         vbase = len(pmx_verts)
+
+    # ---- 互为替换的网格：只显示主网格，其余默认隐藏，各做一个材质表情来切换
+    alt_groups = _alternate_groups(mesh_records)
+    hidden_segs = {s for _, alts in alt_groups for a in alts for s in a["segs"]}
+    if verbose and alt_groups:
+        for prim, alts in alt_groups:
+            print("  alternates: %s 显示；%s 默认隐藏，做成切换表情"
+                  % (prim["name"], "、".join(a["name"] for a in alts)))
 
     # ---- winding check: geometric face normal must agree with the vertex
     # normals we imported, otherwise MMD would render the model inside-out.
@@ -1776,23 +1915,35 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
     tex_list = []                 # ordered unique basenames
     tex_name_to_idx = {}
     tex_index_of_mat = {}         # material node id -> texture index (or None)
+    # Unity 导出的 FBX 常常没有贴图文件名（或指向导出者电脑上的 .psd），贴图是 Unity 材质（.mat）
+    # 按 GUID 指定的：在 Unity 工程 / 解开的 unitypackage 里按材质名找回来（formats/unityasset.py）
+    unity_map = []
+    tex_paths = {}                # basename -> 已知的完整路径（来自 Unity 材质）
+    tex_fallback = {}             # basename -> 材质名（文件找不到时再查 Unity 材质）
+
+    def unity_tex(mat_name):
+        if not unity_map:
+            try:
+                unity_map.append(unityasset.material_textures(
+                    os.path.dirname(os.path.abspath(scene.path))))
+            except Exception:  # noqa: BLE001  找不到就算了
+                unity_map.append({})
+        return unity_map[0].get(mat_name)
     for si, (mi_idx, start, cnt, mname) in enumerate(segments):
         mat_node_id = mat_entries[si] if si < len(mat_entries) else None
         if mat_node_id is None:
             continue
         tids = scene.texture_materials.get(mat_node_id, [])
-        basename = None
-        for tid in tids:
-            t = scene.textures.get(tid)
-            if t and "diffuse" in t["name"].lower():
-                basename = t["name"]
-                break
-        if basename is None:
-            for tid in tids:
-                t = scene.textures.get(tid)
-                if t:
-                    basename = t["name"]
-                    break
+        basename = _pick_diffuse(scene, mat_node_id, tids)
+        mnode = scene.byid.get(mat_node_id)
+        mat_name = _ns_strip(_clean_name(mnode.props[1])) if mnode is not None and len(mnode.props) > 1 else ""
+        if not basename or not basename.lower().endswith(unityasset.IMAGE_EXT):
+            up = unity_tex(mat_name) if mat_name else None
+            if up:
+                basename = os.path.basename(up)
+                tex_paths[basename] = up
+        elif mat_name:
+            tex_fallback.setdefault(basename, mat_name)
         if basename:
             if basename not in tex_name_to_idx:
                 tex_name_to_idx[basename] = len(tex_list)
@@ -1810,7 +1961,8 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
     # copy image files next to the pmx when they can be found locally
     tex_out_names, tex_stats = _copy_textures(
         tex_list, scene.path, _odir, verbose, alpha_mode=alpha_mode,
-        alpha_uvs=alpha_uvs)
+        alpha_uvs=alpha_uvs, known=tex_paths,
+        fallback=lambda bn: unity_tex(tex_fallback[bn]) if bn in tex_fallback else None)
     # 走了 alpha 处理的贴图在 PMX 里要引用 <名>_noalpha.png
     tex_list = [tex_out_names.get(bn, bn) for bn in tex_list]
 
@@ -1906,6 +2058,8 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
             if dc is not None and len(dc.props) >= 3:
                 diffuse = [float(dc.props[0]), float(dc.props[1]),
                            float(dc.props[2]), 1.0]
+        if mi_idx in hidden_segs:
+            diffuse[3] = 0.0                            # 替换网格默认隐藏（切换表情把它显示出来）
         pw.text(mlabel); pw.text(mlabel)
         for v4 in diffuse:
             pw.f32(v4)
@@ -1973,8 +2127,9 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
 
     # ---- morphs: FBX blend shapes -> PMX vertex morphs (表情)
     written_morphs = 0
+    morph_list = []
     if morphs and getattr(scene, "morphs", None):
-        morph_list = []
+        merged = {}
         for m in scene.morphs:
             gid = m["geo_id"]
             w = geo_w.get(gid)
@@ -2023,9 +2178,15 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
             else:
                 panel = 4
             kind = 1                    # 1 = 頂点 (vertex) morph; PMX type, not FACS tab
-            morph_list.append({"name": nm, "name_en": nm,
-                               "panel": panel, "kind": kind,
-                               "offsets": offsets})
+            # 不同网格上的同名 blend shape 是同一个表情的几部分（Unity 酱的眼睛和睫毛各有一个
+            # EYE_DEF_C，Unity 的动画也是按名字一起驱动）：合成一个 PMX 表情。以前各写一个，
+            # VRM 里就成了 EYE_DEF_C 和 EYE_DEF_C_2，眨眼只闭一半
+            same = merged.get(nm)
+            if same is not None:
+                same["offsets"].extend(offsets)
+                continue
+            merged[nm] = {"name": nm, "name_en": nm, "panel": panel, "kind": kind, "offsets": offsets}
+            morph_list.append(merged[nm])
         if max_morphs is not None and len(morph_list) > max_morphs:
             if verbose:
                 print("  morphs: capping %d -> %d (max_morphs)"
@@ -2034,18 +2195,36 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
         if verbose:
             print("  morphs: wrote %d vertex morph(s) from %d blend shape(s)"
                   % (len(morph_list), len(scene.morphs)))
-        written_morphs = len(morph_list)
-        pw.i32(len(morph_list))
-        for mo in morph_list:
-            pw.text(mo["name"]); pw.text(mo["name_en"])
-            pw.buf += bytes([mo["panel"]])
-            pw.buf += bytes([mo["kind"]])
-            pw.i32(len(mo["offsets"]))
-            for vidx, off in mo["offsets"]:
-                pw.uidx(vidx, vi_size)
-                pw.f32(off[0]); pw.f32(off[1]); pw.f32(off[2])
-    else:
-        pw.i32(0)
+    if morphs and alt_groups:
+        # 材质表情（kind 8）：替换网格的 alpha +1（显示），主网格的 alpha ×0（隐藏）
+        show = [0.0] * 3 + [1.0] + [0.0] * 24
+        hide = [1.0] * 3 + [0.0] + [1.0] * 24
+        used_names = {mo["name"] for mo in morph_list}
+        for prim, alts in alt_groups:
+            for a in alts:
+                nm = a["name"]
+                while nm in used_names:
+                    nm += "_"
+                used_names.add(nm)
+                offs = [(s, 1, show) for s in a["segs"]] + [(s, 0, hide) for s in prim["segs"]]
+                morph_list.append({"name": nm, "name_en": nm, "panel": 4, "kind": 8, "offsets": offs})
+    written_morphs = len(morph_list)
+    pw.i32(len(morph_list))
+    for mo in morph_list:
+        pw.text(mo["name"]); pw.text(mo["name_en"])
+        pw.buf += bytes([mo["panel"]])
+        pw.buf += bytes([mo["kind"]])
+        pw.i32(len(mo["offsets"]))
+        if mo["kind"] == 8:
+            for mi, op, vals in mo["offsets"]:
+                pw.idx(mi, mi_size)
+                pw.buf += bytes([op])
+                for x in vals:
+                    pw.f32(x)
+            continue
+        for vidx, off in mo["offsets"]:
+            pw.uidx(vidx, vi_size)
+            pw.f32(off[0]); pw.f32(off[1]); pw.f32(off[2])
 
     # display frames: one, listing every bone
     pw.i32(1)
