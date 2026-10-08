@@ -363,7 +363,7 @@ def render(model, size=560, bg=(250, 250, 250), show_bones=False):
     for i in range(0, len(faces) - 2, 3):
         a, b, c = faces[i], faces[i + 1], faces[i + 2]
         pa, pb, pc = pts[a], pts[b], pts[c]
-        # 不做背面剔除，只靠 z 缓冲 —— 和 gfx/preview.py 一个口径。
+        # 不做背面剔除，只靠 z 缓冲。
         # 屏幕空间绕序在这里不可靠：投影把 X 镜像了一次，绕序会跟着翻，
         # 加上 MMD 模型里大量单面/双面混用的裙摆头发，按绕序剔除很容易把
         # 朝向相机的面剔掉、只剩壳体内部（2026-09-24 之前就是这个症状）。

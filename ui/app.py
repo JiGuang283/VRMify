@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Model-To-VRM 新界面入口。
+"""Model-To-VRM 图形界面入口。
 
     python ui/app.py [文件或文件夹 ...] [--browser] [--port N]
 
@@ -28,6 +28,9 @@ def _dialog(mode):
     root.attributes("-topmost", True)
     if mode == "folder":
         r = filedialog.askdirectory()
+        paths = [r] if r else []
+    elif mode == "uemodel":
+        r = filedialog.askopenfilename(filetypes=[("UEFormat", "*.uemodel"), ("All files", "*.*")])
         paths = [r] if r else []
     else:
         paths = list(filedialog.askopenfilenames(filetypes=[

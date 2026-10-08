@@ -3,7 +3,6 @@
 
 UEFormat 是 FortnitePorting / FModel / CUE4Parse 生态的公开交换格式
 （规范 https://github.com/h4lfheart/UEFormat），.uemodel 就是它的模型容器。
-反向流程见 pmx2uemodel.py，两边互为逆操作。
 
 坐标（实测样本 R2T1XinMd10011.uemodel，别凭"UE 惯例"想当然）
     数据里  +X = 模型左侧、+Y = 前方、+Z = 上方、单位 cm。
@@ -18,7 +17,7 @@ UEFormat 是 FortnitePorting / FModel / CUE4Parse 生态的公开交换格式
 绕序
     不做反射 ⇒ 手性不变，但 UE/D3D 的正面缠绕与 MMD 相反：实测几何法线 · 顶点法线
     反向 23339 面 / 同向 6661 面。所以**必须反转三角形绕序**，由
-    pmxio.detect_winding 在变换后的数据上自动投票决定（与 vrm2pmx 同一套口径）。
+    pmxio.detect_winding 在变换后的数据上自动投票决定（与 pmx2vrm 同一套口径）。
 
 其他
     * WEIGHTS 是**稀疏表**（骨索引 + 顶点索引 + 权重的三元组，一个顶点最多见过 8 条），
@@ -924,8 +923,8 @@ def convert(path, out_path, scale_mode="fixed", lod_index=0, log=None,
         if cover != len(pmx_faces) // 3:
             pmx_materials[0]["faces"] += len(pmx_faces) // 3 - cover
     # PMX 材质的「面数」字段其实是**索引数**（每个三角面占 3 个），不是三角面数！
-    # 上面按三角面记账更直观，写出前统一 ×3。fbx2pmx（`pw.i32(cnt * 3)`）和
-    # vrm2pmx（按索引数累加）都是这个口径；写成三角面数会让 MMD 只画 1/3 的面、
+    # 上面按三角面记账更直观，写出前统一 ×3。fbx2pmx（`pw.i32(cnt * 3)`）也是
+    # 这个口径；写成三角面数会让 MMD 只画 1/3 的面、
     # PMX→VRM 也会把面段整体错位。
     for x in pmx_materials:
         x["faces"] = int(x["faces"]) * 3

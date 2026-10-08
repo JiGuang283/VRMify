@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""新界面的后端：文件列表、选项、转换任务、事件推送，和一个只监听 127.0.0.1 的 HTTP 服务。
+"""图形界面的后端：文件列表、选项、转换任务、事件推送，和一个只监听 127.0.0.1 的 HTTP 服务。
 
 页面（ui/web/）只通过 HTTP 接口和这里打交道，所以 pywebview 窗口和普通浏览器用的是同一套：
 
@@ -8,6 +8,7 @@
   POST /api/add      {paths}          加文件（文件夹会递归展开）
   POST /api/pick     {folder}         弹系统对话框选文件 / 文件夹再加入
   POST /api/pick_output               选输出文件夹，返回路径
+  POST /api/pick_ue_ref               选 uemodel 的整身对齐参考，返回路径（参考像部件时带 warn）
   POST /api/remove   {ids} · /api/clear
   POST /api/options  {opts, lang}     保存选项（写 settings.json）
   POST /api/convert  {ids}            开始转换（ids 为空 = 全部待转的）
@@ -23,7 +24,7 @@
 调整（表情指定、物理、标题、缩略图，见 convert/vrm_edit.py）按源文件路径存在 edits.json，
 缩略图在 edits/ 里；以后再转这个文件会自动套上。
 
-静态文件：/ → ui/web/，/viewer/ → gfx/web/（three-vrm 预览组件和离线库）。
+静态文件：/ → ui/web/，/viewer/ → ui/viewer/（three-vrm 预览组件和离线库）。
 """
 import base64
 import hashlib
@@ -54,12 +55,15 @@ for _p in ("convert", "formats"):
     _d = os.path.join(ROOT, _p)
     if _d not in sys.path:
         sys.path.insert(0, _d)
+# Windows 超长路径（MAX_PATH 260）兼容层：要在其它模块 import 之前装上（导入即生效），
+# Unity 资源包解出的深层目录树超过 260 字符时 open / makedirs 才不会报 FileNotFoundError
+import longpath  # noqa: E402,F401
 import pipeline  # noqa: E402
 import vrm_edit  # noqa: E402
 from vrmconv import textures  # noqa: E402
 
 WEB = os.path.join(ROOT, "ui", "web")
-VIEWER = os.path.join(ROOT, "gfx", "web")
+VIEWER = os.path.join(ROOT, "ui", "viewer")
 SETTINGS = os.path.join(DATA_DIR, "settings.json")
 EDITS = os.path.join(DATA_DIR, "edits.json")
 EDITS_DIR = os.path.join(DATA_DIR, "edits")
@@ -400,19 +404,22 @@ class Backend:
         return r
 
     # ---------------------------------------------------------- dialogs --
-    def pick(self, folder=False, output=False):
+    def pick(self, folder=False, output=False, uemodel=False):
         """系统对话框。pywebview 窗口用它自己的；浏览器模式起一个 tkinter 子进程。"""
         if self.window is not None:
             import webview
             if folder or output:
                 r = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+            elif uemodel:
+                r = self.window.create_file_dialog(
+                    webview.OPEN_DIALOG, file_types=("UEFormat (*.uemodel)", "All files (*.*)"))
             else:
                 r = self.window.create_file_dialog(
                     webview.OPEN_DIALOG, allow_multiple=True,
                     file_types=("Models (*.pmx;*.vrm;*.zip;*.fbx;*.unitypackage;*.uemodel;*.psk;*.pskx;*.xps)",
                                 "All files (*.*)"))
             return list(r or [])
-        mode = "folder" if (folder or output) else "files"
+        mode = "folder" if (folder or output) else ("uemodel" if uemodel else "files")
         cmd = ([sys.executable, "--dialog", mode] if getattr(sys, "frozen", False)
                else [sys.executable, os.path.join(HERE, "app.py"), "--dialog", mode])
         try:
@@ -420,6 +427,26 @@ class Backend:
             return json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else []
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return []
+
+    def pick_ue_ref(self):
+        """uemodel 对齐参考：拆开导出的部件按这个整身模型的骨架对齐。
+
+        对齐是单向的（把部件搬进参考的空间），选反了（拿部件当参考）整个模型会掉下去十几单位，
+        所以先看参考的骨架铺开有多大：整身通常 >120 cm，局部空间的部件只有几十 cm。
+        """
+        r = self.pick(uemodel=True)
+        if not r:
+            return {"path": ""}
+        out = {"path": r[0]}
+        try:
+            import uemodel2pmx
+            import uemodelio
+            spread = uemodel2pmx._bone_spread(uemodelio.read_uemodel(r[0]))
+            if spread and spread < 120.0:
+                out["warn"] = "%.0f" % spread
+        except Exception:  # noqa: BLE001  读不了就交给转换阶段处理
+            pass
+        return out
 
     def reveal(self, path):
         if not path or not os.path.exists(path):
@@ -526,6 +553,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"added": b.add_paths(body.get("paths") or [])})
         if route == "/api/pick":
             return self._json({"added": b.add_paths(b.pick(folder=bool(body.get("folder"))))})
+        if route == "/api/pick_ue_ref":
+            return self._json(b.pick_ue_ref())
         if route == "/api/pick_output":
             r = b.pick(output=True)
             return self._json({"folder": r[0] if r else ""})

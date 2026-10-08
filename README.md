@@ -65,16 +65,16 @@ every save starts from them.
 
 ## 2. Requirements
 
-- **Python 3.10+** with tkinter (included in the official Windows installer)
-- **Optional** (`pip install -r requirements.txt`): `pywebview` (native window with drag & drop for the new UI; otherwise the
-  system browser is used), `Pillow` (texture slimming; also faster texture decoding in the classic preview)
-- Drag & drop into the window uses native Windows APIs; on other systems use the Browse button
+- **Python 3.10+** (the converter itself is standard library only; without pywebview the file dialogs use tkinter,
+  included in the official Windows installer)
+- **Optional** (`pip install -r requirements.txt`): `pywebview` (native window with drag & drop; otherwise the system browser is
+  used), `Pillow` (texture slimming)
 
 ---
 
 ## 3. Usage
 
-### New UI
+### GUI
 
 **Double-click `启动.bat`** ("start"; you can also drop files onto it). It uses the project's `.venv` when present, otherwise
 the Python on PATH. Setting up the environment once is recommended:
@@ -99,19 +99,6 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
 - Chinese / English UI; settings are saved to `settings.json`.
 - In a plain browser dropped files have no path — use "Add files". The app exits a minute after the page is closed.
 
-### Classic GUI
-
-```bash
-python main.py
-```
-
-1. Drop files onto the window (or click the drop area). Dropping only loads and previews — **conversion starts with "Start conversion"**.
-2. The task is picked from the extension by default: `.pmx` → VRM, other formats → PMX.
-3. The VRM tab selects the VRM version (1.0 / 0.x) and whether to export expressions.
-4. After converting, click "3D preview (three-vrm)".
-
-Output goes to a `<name>_<date>_<n>` folder next to the source, so repeated conversions never overwrite each other.
-
 ### Command line
 
 Quote paths that contain spaces or non-ASCII characters.
@@ -124,7 +111,7 @@ python convert/pmx2vrm.py "model.pmx" -o "model.vrm"
 python convert/pmx2vrm.py "model.pmx" --spec 0x --title "Name" --author "Author"
 
 # 3D preview
-python gfx/web_preview.py "model.vrm"
+python ui/app.py "model.vrm"
 ```
 
 Common `pmx2vrm.py` options:
@@ -176,11 +163,9 @@ python tools/regress.py check                        # after code changes: recon
 
 ```
 Model-To-VRM/
-├── 启动.bat                double-click launcher for the new UI
+├── 启动.bat                double-click launcher for the GUI
 ├── requirements.txt        optional packages (pywebview, Pillow)
-├── Model-To-VRM.spec       PyInstaller spec for the new UI
-├── main.py                 classic GUI entry point
-├── main.spec               PyInstaller spec for the classic GUI
+├── Model-To-VRM.spec       PyInstaller spec
 ├── convert/
 │   ├── pmx2vrm.py          PMX → VRM entry (convert() and CLI)
 │   ├── vrmconv/            PMX → VRM stages
@@ -194,22 +179,19 @@ Model-To-VRM/
 │   │   └── vrm_ext.py      VRM extension bodies
 │   ├── fbx2pmx.py  uemodel2pmx.py  psk2pmx.py  xps2pmx.py   other formats → PMX
 │   ├── pmx_check.py        PMX check
-│   ├── pipeline.py         conversion flow: detect format → other formats to PMX → VRM (used by the new UI)
+│   ├── pipeline.py         conversion flow: detect format → other formats to PMX → VRM (used by the GUI)
 │   └── vrm_edit.py         tuning after conversion: expression presets, physics, name, thumbnail
-├── formats/                format I/O (pmxio, vrmio (GLB), fbx_reader, uemodelio, pskio, xpsio …)
-├── ui/                     new UI
+├── formats/                format I/O (pmxio, vrmio (GLB), fbx_reader, uemodelio, pskio, xpsio …), longpath (Windows long paths)
+├── ui/                     GUI
 │   ├── app.py              entry point (pywebview window / browser)
 │   ├── server.py           backend: file list, options, conversion jobs, local HTTP API
-│   └── web/                page (HTML / CSS / JS, Chinese and English)
-├── gfx/
-│   ├── preview.py          classic GUI live preview (pure-Python rasteriser)
-│   ├── web_preview.py      standalone 3D preview (local server + window)
-│   └── web/                three-vrm viewer component viewer-core.js and preview page; vendor/ holds offline three.js and three-vrm
+│   ├── web/                page (HTML / CSS / JS, Chinese and English)
+│   └── viewer/             three-vrm viewer component viewer-core.js; vendor/ holds offline three.js and three-vrm
 ├── tests/                  unit tests (synth.py builds a small test model)
 └── tools/                  batch conversion, QA, regression comparison (not bundled)
 ```
 
-Modules import each other by bare name (`import pmxio`); `main.py` puts `formats/`, `convert/` and `gfx/` on `sys.path` at runtime.
+Modules import each other by bare name (`import pmxio`); `ui/server.py` and the command-line scripts put `formats/` and `convert/` on `sys.path` at runtime.
 
 ---
 
@@ -217,17 +199,13 @@ Modules import each other by bare name (`import pmxio`); `main.py` puts `formats
 
 ```bash
 pip install -r requirements-dev.txt     # pyinstaller + pywebview + Pillow
-pyinstaller Model-To-VRM.spec           # new UI → dist/Model-To-VRM/Model-To-VRM.exe
-pyinstaller main.spec                   # classic GUI
+pyinstaller Model-To-VRM.spec           # → dist/Model-To-VRM/Model-To-VRM.exe
 ```
 
 **Always build with the spec files**: the sub-directory modules are added to `sys.path` only at runtime, which PyInstaller's
-static analysis can't see; the specs set `pathex`, `hiddenimports` and the page assets (`ui/web`, `gfx/web`). Install pywebview
+static analysis can't see; the specs set `pathex`, `hiddenimports` and the page assets (`ui/web`, `ui/viewer`). Install pywebview
 and Pillow in the build environment so the exe gets the native window and texture slimming. `settings.json` and `edits.json`
 are written next to the exe. Rebuild after source changes.
-
-Pushing a `v1.2.3`-style tag triggers [GitHub Actions](.github/workflows/build-app.yml), which builds for Windows / macOS / Linux
-(x64 and ARM) and uploads to a draft release.
 
 ---
 
@@ -287,6 +265,6 @@ rename the PMX or disable `[ファイル] → [アンカーデータの自動読
 ## 8. License and copyright
 
 - Released under **GPL-3.0** ([LICENSE](LICENSE)); original work by SaraKale and contributors.
-- three.js and three-vrm bundled with the 3D preview are MIT-licensed (see `gfx/web/vendor/`).
+- three.js and three-vrm bundled with the 3D preview are MIT-licensed (see `ui/viewer/vendor/`).
 - The VRM meta defaults to the most restrictive terms: credit required, no redistribution, no modification.
 - **Make sure you are allowed to use a model before converting it.** Many MMD models forbid redistribution, and that applies to the converted VRM too.

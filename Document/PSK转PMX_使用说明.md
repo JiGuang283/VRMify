@@ -14,15 +14,15 @@ Unreal（ActorX）导出的 `.psk` / `.pskx` 网格 → MMD 用的 PMX 2.0，纯
 | `formats/pmxio.py` | 完整 PMX 2.0 读写 |
 | `formats/fbxout.py` | ASCII FBX 7.4 写出器（`--fbx` 用） |
 | `convert/pmx_check.py` | 校验 PMX 结构 + 软件渲染预览图（正面视图） |
-| `main.py` | 图形界面入口，把 `.psk` / `.pskx` 拖进去即可 |
+| `ui/app.py` | 图形界面（根目录的 `启动.bat`），把 `.psk` / `.pskx` 加进去即可 |
 
 ## 常用命令
 
 路径带空格或中文，一定要加双引号。
 
 ```powershell
-# 图形界面：把 .psk / .pskx 拖进窗口，任务选「PSK/PSKX → PMX」
-python main.py
+# 图形界面：把 .psk / .pskx 加进去；只要 PMX 时在「输入格式」页选「只转 PMX」
+python ui/app.py
 
 # 命令行
 python convert/psk2pmx.py "model.psk"  -o "model.pmx"

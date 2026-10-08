@@ -7,30 +7,27 @@
 
 | 文件 | 作用 |
 |---|---|
-| `main.py` | **图形界面入口**（根目录），FBX / unitypackage / VRM / PMX / uemodel / PSK / PSKX 都能拖进去转；右上角可切换语言 |
+| `ui/app.py` | **图形界面**（根目录的 `启动.bat`），FBX / unitypackage / zip / uemodel / PSK / XPS 加进去就能转，默认一路转到 VRM，「输入格式」页可以只转 PMX |
 | `formats/unitypackage_unpack.py` | 解包 `.unitypackage`（本质是 gzip tar） |
 | `formats/fbx_reader.py` | 二进制 FBX（7.x）解析库，被下面两个脚本调用 |
 | `convert/fbx2pmx.py` | **FBX → PMX 2.0 转换器** |
 | `formats/fbx_probe.py` | 探查 FBX 结构（网格 / 骨骼 / 蒙皮清单） |
 | `convert/pmx_check.py` | 校验 PMX 结构 + 软件渲染预览图（正面视图） |
-| `formats/pmxio.py` | 完整 PMX 读写库（VRM 互转用） |
+| `formats/pmxio.py` | 完整 PMX 读写库（PMX → VRM 和各格式 → PMX 都用它） |
 | `formats/vrmio.py` | GLB/glTF 容器读写 + 图片编解码 |
 | `formats/uemodelio.py` | UEFormat `.uemodel` 读写（v1–v10） |
 | `formats/pskio.py` | Unreal ActorX `.psk` / `.pskx` 读取 |
 | `convert/pmx2vrm.py` | **PMX → VRM 转换器**，见 `PMX转VRM_使用说明.md` |
 | `convert/uemodel2pmx.py` | **uemodel（UEFormat）→ PMX 转换器** |
 | `convert/psk2pmx.py` | **PSK / PSKX（Unreal ActorX）→ PMX 转换器**，见 `PSK转PMX_使用说明.md` |
-| `gfx/preview.py` | 实时 3D 正面预览控件（GUI 调用） |
-
-> 早期的 `PMX转换器.py` 已改名为 `main.py`，命令行入口统一为 `python main.py`。
 
 ## 常用命令
 
 路径带空格或中文，一定要加双引号。
 
 ```powershell
-# 0. 图形界面（拖进去就能转）
-python main.py
+# 0. 图形界面（或双击 启动.bat）
+python ui/app.py
 
 # 1. 解包 unitypackage（--list 只列内容不解包）
 python formats/unitypackage_unpack.py "Sexy Sailor_Sapphy_v1.00.unitypackage" --list

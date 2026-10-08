@@ -63,16 +63,15 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 
 ## 二、环境要求
 
-- **Python 3.10+**（需自带 tkinter；Windows 官方安装包默认包含）
-- **可选**（`pip install -r requirements.txt`）：`pywebview`（新界面用独立窗口、可以拖放文件，不装就用系统浏览器）、
-  `Pillow`（贴图瘦身；也会加速旧界面里的贴图解码）
-- 拖放文件进窗口依赖 Windows 原生接口；其他系统用「浏览」按钮选择文件
+- **Python 3.10+**（转换本身只用标准库；没装 pywebview 时文件对话框用 tkinter，Windows 官方安装包自带）
+- **可选**（`pip install -r requirements.txt`）：`pywebview`（独立窗口、可以把文件拖进窗口，不装就用系统浏览器）、
+  `Pillow`（贴图瘦身）
 
 ---
 
 ## 三、使用方法
 
-### 新界面
+### 图形界面
 
 **双击 `启动.bat`**（也可以把文件拖到它上面）。它优先用项目里的 `.venv`，没有就用系统的 Python。
 第一次使用建议建好环境：
@@ -95,19 +94,6 @@ uv venv .venv && uv pip install -r requirements.txt     # 或 python -m venv .ve
 - 界面支持中文 / English，设置保存在 `settings.json`。
 - 用系统浏览器时拿不到拖入文件的路径，请用「添加文件」按钮；页面关掉一分钟后程序自动退出。
 
-### 旧界面
-
-```bash
-python main.py
-```
-
-1. 把文件拖进窗口（或点拖放区选择）。拖入只会载入并预览，**点「开始转换」才会转换**。
-2. 「任务」默认按扩展名自动判断：`.pmx` → VRM，其他格式 → PMX。
-3. 「VRM 选项」页可选 VRM 版本（1.0 / 0.x）和是否导出表情。
-4. 转换完点「三维预览（three-vrm）」查看结果。
-
-默认输出到源文件旁的 `<文件名>_<日期>_<序号>` 子文件夹，重复转换不会覆盖。
-
 ### 命令行
 
 路径含空格或中文时加双引号。
@@ -119,8 +105,8 @@ python convert/pmx2vrm.py "model.pmx" -o "model.vrm"
 # VRM 0.x（老软件用；0.x 不输出 SpringBone）
 python convert/pmx2vrm.py "model.pmx" --spec 0x --title "名字" --author "作者"
 
-# 三维预览
-python gfx/web_preview.py "model.vrm"
+# 预览 VRM：用图形界面打开（也能直接加 .vrm 文件）
+python ui/app.py "model.vrm"
 ```
 
 `pmx2vrm.py` 的常用参数：
@@ -172,11 +158,9 @@ python tools/regress.py check                        # 改代码后重转、对�
 
 ```
 Model-To-VRM/
-├── 启动.bat                双击启动新界面
+├── 启动.bat                双击启动图形界面
 ├── requirements.txt        可选依赖（pywebview、Pillow）
-├── Model-To-VRM.spec       新界面的 PyInstaller 打包配置
-├── main.py                 旧界面入口
-├── main.spec               旧界面的 PyInstaller 打包配置
+├── Model-To-VRM.spec       PyInstaller 打包配置
 ├── convert/
 │   ├── pmx2vrm.py          PMX → VRM 入口（convert() 与命令行）
 │   ├── vrmconv/            PMX → VRM 的各个阶段
@@ -190,22 +174,19 @@ Model-To-VRM/
 │   │   └── vrm_ext.py      VRM 扩展本体
 │   ├── fbx2pmx.py  uemodel2pmx.py  psk2pmx.py  xps2pmx.py   其他格式 → PMX
 │   ├── pmx_check.py        PMX 校验
-│   ├── pipeline.py         转换流程：识别格式 → 其他格式先转 PMX → 再转 VRM（新界面用）
+│   ├── pipeline.py         转换流程：识别格式 → 其他格式先转 PMX → 再转 VRM（界面用）
 │   └── vrm_edit.py         转换后调整：表情指定、物理、名称、缩略图
-├── formats/                格式读写（pmxio、vrmio(GLB)、fbx_reader、uemodelio、pskio、xpsio …）
-├── ui/                     新界面
+├── formats/                格式读写（pmxio、vrmio(GLB)、fbx_reader、uemodelio、pskio、xpsio …）、longpath（Windows 长路径）
+├── ui/                     图形界面
 │   ├── app.py              入口（pywebview 窗口 / 浏览器）
 │   ├── server.py           后端：文件列表、选项、转换任务、本地 HTTP 接口
-│   └── web/                页面（HTML / CSS / JS，中英双语）
-├── gfx/
-│   ├── preview.py          旧界面内的实时预览（纯 Python 软光栅）
-│   ├── web_preview.py      独立的三维预览（本地服务器 + 窗口）
-│   └── web/                three-vrm 预览组件 viewer-core.js 与预览页，vendor/ 里是 three.js、three-vrm 离线副本
+│   ├── web/                页面（HTML / CSS / JS，中英双语）
+│   └── viewer/             three-vrm 预览组件 viewer-core.js，vendor/ 里是 three.js、three-vrm 离线副本
 ├── tests/                  单元测试（synth.py 合成测试用的小模型）
 └── tools/                  批量转换、质量检查、回归对比（不随程序打包）
 ```
 
-模块之间用裸名导入（`import pmxio`），`main.py` 运行时会把 `formats/`、`convert/`、`gfx/` 放进 `sys.path`。
+模块之间用裸名导入（`import pmxio`），`ui/server.py` 和各个命令行脚本运行时会把 `formats/`、`convert/` 放进 `sys.path`。
 
 ---
 
@@ -213,16 +194,12 @@ Model-To-VRM/
 
 ```bash
 pip install -r requirements-dev.txt     # pyinstaller + pywebview + Pillow
-pyinstaller Model-To-VRM.spec           # 新界面 → dist/Model-To-VRM/Model-To-VRM.exe
-pyinstaller main.spec                   # 旧界面
+pyinstaller Model-To-VRM.spec           # → dist/Model-To-VRM/Model-To-VRM.exe
 ```
 
 **务必用 spec 文件**：子目录模块是运行时才加进 `sys.path` 的，PyInstaller 的静态分析看不到，
-spec 里配好了 `pathex`、`hiddenimports` 和页面资源（`ui/web`、`gfx/web`）。打包环境里装了 pywebview 和 Pillow，
+spec 里配好了 `pathex`、`hiddenimports` 和页面资源（`ui/web`、`ui/viewer`）。打包环境里装了 pywebview 和 Pillow，
 exe 才有独立窗口和贴图瘦身。`settings.json`、`edits.json` 写在 exe 旁边。改了源码要重新打包。
-
-推送形如 `v1.2.3` 的 tag 会触发 [GitHub Actions](.github/workflows/build-app.yml)，在 Windows / macOS / Linux
-（x64 与 ARM）上自动打包并上传到草稿 Release。
 
 ---
 
@@ -284,6 +261,6 @@ PmxEditor 会自动加载和模型同名的 `.psk` 当锚点数据，而 `.psk` 
 ## 八、许可与版权
 
 - 本项目以 **GPL-3.0** 发布（见 [LICENSE](LICENSE)），原作者 SaraKale 等。
-- 三维预览附带的 three.js、three-vrm 为 MIT 许可（见 `gfx/web/vendor/`）。
+- 三维预览附带的 three.js、three-vrm 为 MIT 许可（见 `ui/viewer/vendor/`）。
 - VRM meta 默认写成最保守的授权：需要署名、禁止再分发、禁止修改。
 - **转换前请自行确认你有权使用该模型**。很多 MMD 模型禁止二次配布，转出的 VRM 同样不能公开分发。

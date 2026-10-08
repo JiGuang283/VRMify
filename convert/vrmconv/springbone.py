@@ -79,7 +79,7 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
 
     目标是「表现和原生 VRM 一致」，参数按 VRoid / VRM 官方示例模型
     （AvatarSample_B、VRM1_Constraint_Twist_Sample、Seed-san、Alicia）
-    在同一套动作下的实测表现校准（2026-10，见 Document/VRM互转_使用说明.md）。
+    在同一套动作下的实测表现校准（2026-10，见 Document/PMX转VRM_使用说明.md）。
 
       * 挂了物理刚体（mode 1/2）的骨 = 要模拟的骨；humanoid 骨和已并入付与親的
         骨不参与。从「自己要动、父骨不动」的骨开始沿子骨走成链；分叉处子树最深的

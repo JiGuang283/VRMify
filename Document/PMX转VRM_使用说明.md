@@ -12,7 +12,7 @@
 | `formats/vrmio.py` | GLB/glTF 容器读写 + PNG 编码 + BMP/TGA 解码 |
 | `convert/pmx2vrm.py` | **PMX → VRM（1.0 / 0.x）** 入口：`convert()` 和命令行 |
 | `convert/vrmconv/` | 各阶段：`humanoid`（骨骼映射、T-pose）、`skeleton`（节点树、占位骨）、`mesh`、`materials`（MToon）、`expressions`、`springbone`、`vrm_ext` |
-| `gfx/web_preview.py` | 三维预览（three-vrm）：MToon、SpringBone、表情和导入软件后一致 |
+| `ui/` | 图形界面（`启动.bat`）：转换、three-vrm 预览（MToon、SpringBone、表情和导入软件后一致）、转换后调整 |
 | `tools/qa/` | VRM 结构 / 官方 Schema 检查、SpringBone 动态测试（见 `tools/README.md`） |
 
 ## 常用命令
@@ -24,8 +24,8 @@ python convert/pmx2vrm.py "model.pmx" -o "model.vrm"
 # PMX → VRM 0.x（老软件/老 SDK 才需要）
 python convert/pmx2vrm.py "model.pmx" --spec 0x --title "名字" --author "作者"
 
-# 三维预览转换结果
-python gfx/web_preview.py "model.vrm"
+# 预览转换结果（图形界面）
+python ui/app.py "model.vrm"
 
 # 检查 VRM（结构 + 官方 Schema）
 python tools/qa/check_vrm.py "model.vrm"

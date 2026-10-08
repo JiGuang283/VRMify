@@ -158,7 +158,14 @@ function syncDependents() {
   document.querySelector('[data-opt="vrm.tex_jpeg"]').closest('.switch').style.opacity = pil ? 1 : 0.45;
   $('texHint').textContent = t(pil ? 'texHint' : 'noPillow');
   $('texHint').classList.toggle('warn', !pil);
+  renderUeRef();
   renderOutFolder();
+}
+function renderUeRef() {
+  const f = getOpt('uemodel.align_ref');
+  $('ueRef').textContent = f ? f.split(/[\\/]/).pop() : t('noRef');
+  $('ueRef').title = f || '';
+  $('ueRefClear').disabled = !f;
 }
 function renderOutFolder() {
   const f = getOpt('output.folder');
@@ -179,6 +186,13 @@ document.querySelectorAll('[data-opt]').forEach((el) => {
     applyOptsToForm(); saveOpts();
   });
 });
+$('ueRefPick').onclick = async () => {
+  const r = await api('/api/pick_ue_ref', {});
+  if (!r.path) return;
+  setOpt('uemodel.align_ref', r.path); renderUeRef(); saveOpts();
+  if (r.warn) toast(t('ueWeakRef', { cm: r.warn }));
+};
+$('ueRefClear').onclick = () => { setOpt('uemodel.align_ref', ''); renderUeRef(); saveOpts(); };
 $('chooseOut').onclick = async () => {
   const r = await api('/api/pick_output', {});
   if (r.folder) { setOpt('output.folder', r.folder); renderOutFolder(); saveOpts(); }

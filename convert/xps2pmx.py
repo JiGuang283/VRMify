@@ -46,7 +46,7 @@ import shutil
 import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _sub in ("formats", "convert", "gfx"):
+for _sub in ("formats", "convert"):
     _p = os.path.join(BASE, _sub)
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)

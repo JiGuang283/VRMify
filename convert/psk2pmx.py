@@ -18,7 +18,7 @@ import shutil
 import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _sub in ("formats", "convert", "gfx"):
+for _sub in ("formats", "convert"):
     _p = os.path.join(BASE, _sub)
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
@@ -291,7 +291,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
         _l("缩放：源高 %.2f 单位 × %.6f → %.2f（MMD 常规 20）"
            % (hi_y, scale, hi_y * scale))
     elif scale_mode in ("raw", "none", 1, 1.0):
-        # 与 fbx2pmx / vrm2pmx 的 --scale raw 对齐：保持源尺寸不动。
+        # 与 fbx2pmx 的 --scale raw 对齐：保持源尺寸不动。
         # （以前这里只认 "mmd" 和数字，写 --scale raw 会直接
         #   ValueError: could not convert string to float: 'raw'。）
         scale = 1.0
