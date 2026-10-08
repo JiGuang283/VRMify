@@ -157,6 +157,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     # ---- 骨骼 → glTF 节点；humanoid 缺的必需骨位补占位
     tree = skeleton.NodeTree(bones, bs, bpos, xf)
     human = tree.humanoid(bs.human_b, bs.required, unit, _log)
+    tree.lower_hips(human, _log)
 
     # ---- PMX 物理 → SpringBone（只写 VRM 1.0 的 VRMC_springBone）
     spring_ext = None
@@ -211,7 +212,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
 
     inv = []
     for i in range(len(bones)):
-        p = xf(bpos[i])
+        p = tree.node_pos(tree.bone_node(i))      # 节点位置（hips 下移过）
         inv.extend([1.0, 0.0, 0.0, 0.0,
                     0.0, 1.0, 0.0, 0.0,
                     0.0, 0.0, 1.0, 0.0,

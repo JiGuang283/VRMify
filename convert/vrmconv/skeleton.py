@@ -87,7 +87,9 @@ def prepare_bones(bones, is1, log):
             % (len(alias), "、".join(bones[i]["name"] for i in
                                     list(alias)[:6]) +
                ("…" if len(alias) > 6 else "")))
-    required = REQUIRED_1_0 if is1 else REQUIRED_0X
+    # 1.0 规范里 chest / neck 可选，但不少程序默认有（Dream Select Studio 的布娃娃缺 chest 就建不出来），
+    # 缺的话和 0.x 一样补占位骨
+    required = REQUIRED_0X
     human_b = _map_humanoid(bones, is1, alias)
     _fix_humanoid_hierarchy(human_b, parents, bones, set(required), log)
     order, remap = _topo_bones(parents)
@@ -238,6 +240,26 @@ class NodeTree:
                 ensure(r)
                 log("提示：模型缺少 %s，已自动生成占位骨骼" % r, "warn")
         return human
+
+    def lower_hips(self, human, log):
+        """hips 放到骨盆（大腿根往上一点），不和 spine 重合。
+
+        MMD 的「下半身」「上半身」从腰部同一点出发，映射成 hips / spine 后两者几乎重合（0~5 mm），
+        hips 也比大腿根高出一截。按 hips → spine 的距离生成躯干碰撞体的程序（游戏布娃娃）会
+        得到长度为 0 的一段。VRoid 的 hips 在大腿根往上约 43%（到 spine 的高度差）处。
+        只改节点位置：子节点的局部偏移、逆绑定矩阵都按世界坐标算，网格和权重不受影响。
+        """
+        if not all(k in human for k in ("hips", "spine", "leftUpperLeg", "rightUpperLeg")):
+            return
+        h, s = human["hips"], human["spine"]
+        leg_y = (self.wpos[human["leftUpperLeg"]][1] + self.wpos[human["rightUpperLeg"]][1]) * 0.5
+        gap = self.wpos[s][1] - leg_y
+        if gap <= 0.02 or self.wpos[s][1] - self.wpos[h][1] >= 0.25 * gap:
+            return
+        old = self.wpos[h]
+        self.wpos[h] = (old[0], leg_y + 0.43 * gap, old[2])
+        log("hips 移到骨盆：下移 %.1f cm（原来和 spine 相距 %.1f mm）"
+            % ((old[1] - self.wpos[h][1]) * 100, abs(self.wpos[s][1] - old[1]) * 1000))
 
     def gltf_nodes(self):
         """→ (glTF nodes 列表, 没有父节点的节点序号)。translation 按父节点换算成局部值。"""

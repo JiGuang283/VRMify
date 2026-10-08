@@ -409,6 +409,65 @@ class ComboTest(Base):
         self.assertIn("怒り+ｷﾘｯ+∧", ex["custom"])
 
 
+class SkeletonTest(Base):
+    """MMD 式的骨架：下半身 / 上半身从同一点出发、缺上半身2。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = pmxio.read_pmx(synth.build(os.path.join(cls.tmp, "mmd"), "MMD骨架"))
+        idx = {b["name"]: i for i, b in enumerate(m["bones"])}
+        m["bones"][idx["下半身"]]["pos"] = m["bones"][idx["上半身"]]["pos"]     # 和上半身同一点
+        for b in m["bones"]:                                                   # 去掉上半身2
+            if b["parent"] == idx["上半身2"]:
+                b["parent"] = idx["上半身"]
+        m["bones"][idx["上半身2"]]["name"] = "未使用"
+        m["bones"][idx["上半身2"]]["parent"] = idx["上半身"]
+        cls.pmx = os.path.join(cls.tmp, "mmd", "MMD骨架.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+
+    def test_material_names_unique(self):
+        """PMX 允许材质重名；按材质名找材质的程序（脸部染色）只会找到第一个。"""
+        m = pmxio.read_pmx(self.pmx)
+        for mat in m["materials"]:
+            mat["name"] = "体"
+        pmx = os.path.join(self.tmp, "mmd", "同名材质.pmx")
+        pmxio.write_pmx(m, pmx)
+        out = os.path.join(self.tmp, "dup.vrm")
+        pmx2vrm.convert(pmx, out)
+        self.assertValid(out)
+        names = [x["name"] for x in vrmio.read_glb(out)[0]["materials"]]
+        self.assertEqual(names, ["体", "体_2"])
+
+    def world(self, g, node):
+        par = {c: i for i, n in enumerate(g["nodes"]) for c in n.get("children", [])}
+        x = [0.0, 0.0, 0.0]
+        while node is not None:
+            x = [a + b for a, b in zip(x, g["nodes"][node].get("translation", [0, 0, 0]))]
+            node = par.get(node)
+        return x
+
+    def test_hips_and_chest(self):
+        out = self.convert("mmd1")
+        self.assertValid(out)
+        g, b = vrmio.read_glb(out)
+        hb = {k: v["node"] for k, v in g["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"].items()}
+        hips, spine, leg = (self.world(g, hb[k]) for k in ("hips", "spine", "leftUpperLeg"))
+        # hips 移到骨盆：在大腿根和 spine 之间，不和 spine 重合
+        self.assertGreater(spine[1] - hips[1], 0.3 * (spine[1] - leg[1]))
+        self.assertGreater(hips[1], leg[1])
+        # 1.0 也补 chest / neck（游戏的布娃娃要）
+        self.assertIn("chest", hb)
+        self.assertIn("neck", hb)
+        # 蒙皮：每根骨的逆绑定矩阵 = 节点世界坐标取反（hips 挪过也一致）
+        skin = g["skins"][0]
+        m = vrmio.read_accessor(g, b, skin["inverseBindMatrices"])
+        for k, j in enumerate(skin["joints"]):
+            w = self.world(g, j)
+            for a in range(3):
+                self.assertAlmostEqual(-m[16 * k + 12 + a], w[a], places=5)
+
+
 class PipelineTest(Base):
     def _pack_files(self):
         src = os.path.dirname(self.pmx)
