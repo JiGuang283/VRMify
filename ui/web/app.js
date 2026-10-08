@@ -51,8 +51,10 @@ function handleEvent(ev) {
     const was = i >= 0 ? S.files[i].status : null;
     if (i >= 0) S.files[i] = ev.file; else S.files.push(ev.file);
     renderFiles();
-    // freshly converted file that is being previewed → show the real output
-    if (ev.file.id === S.current && ev.file.status === 'done' && was !== 'done') previewFile(ev.file.id);
+    // a file just finished converting → open its output in the preview (in a batch: the latest one),
+    // unless the Tune panel has unsaved changes for the model on screen
+    if (ev.file.status === 'done' && was !== 'done' && ev.file.outputs.some((o) => o.url)
+        && !(T.dirty && T.fid === S.current && ev.file.id !== S.current)) previewFile(ev.file.id);
   } else if (ev.type === 'files') loadState();
   else if (ev.type === 'busy') {
     S.busy = ev.busy;
