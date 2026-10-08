@@ -29,11 +29,11 @@ jobs:
         run: |
           $expect = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "" }
           python tools/build_release.py --expect-version "$expect"
-      - uses: actions/upload-artifact@v4
+      # 直接上传 zip 本身（archive: false），下载下来不会是「zip 套 zip」
+      - uses: actions/upload-artifact@v7
         with:
-          name: Model-To-VRM-v${{ steps.build.outputs.version }}-win64
           path: ${{ steps.build.outputs.zip }}
-          compression-level: 0
+          archive: false
       - name: Draft release
         if: github.ref_type == 'tag'
         shell: pwsh
