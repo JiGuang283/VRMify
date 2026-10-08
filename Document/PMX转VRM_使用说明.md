@@ -50,6 +50,7 @@ python tools/qa/check_vrm.py "model.vrm"
 | `--spring-gravity-skirt g` | 裙摆类的 SpringBone 重力，默认 0.1（抬腿时裙片落回腿上） |
 | `--no-spring-center` | 不设 SpringBone center（默认以模型根节点为 center，人物整体移动时头发/裙摆不会被甩） |
 | `--max-morphs N` | 只导出前 N 个表情；`0` = 完全不导出 |
+| `--no-combo-expr` | 情绪预设不组合眉 / 眼 / 嘴 |
 | `--no-gaze` | 不补视线表情 lookUp / lookDown / lookLeft / lookRight |
 | `--title` / `--author` | 写进 VRM meta |
 
@@ -120,7 +121,10 @@ python tools/qa/check_vrm.py "model.vrm"
 | 左右眼骨 | humanoid 的 leftEye / rightEye，lookAt 用骨骼；另外转眼骨（左右 12°、上下 10°）烘焙出 lookLeft / lookRight / lookUp / lookDown 四个预设表情，给直接播这几个表情的程序用（模型自己有同名表情时不补，`--no-gaze` 关掉） |
 | 物理刚体（mode 1/2）+ 关节 | `VRMC_springBone` 的 springs（仅 1.0，见下文） |
 | 跟随骨骼的刚体（mode 0） | SpringBone 碰撞体（球 / 胶囊；盒近似成胶囊） |
-| 表情名 | 自动对应 VRM 预设（まばたき→blink、あ→aa、怒り→angry …）；MMD 的「上」「下」是眉毛表情，不映射成 lookUp / lookDown |
+| 表情名 | 自动对应 VRM 预设（まばたき→blink、あ→aa …）；MMD 的「上」「下」是眉毛表情，不映射成 lookUp / lookDown |
+| 按名字找的自定义表情 | 有的程序按名字找自定义表情（Dream Select Studio）：`hideHighlight`（去掉眼睛高光）复制模型的「ハイライト消」「eye hi off」等，`tongue`（吐舌头）复制「舌出し」「ぺろっ」等；`faceRed` / `faceBlue`（充血变红 / 缺氧发青，仅 1.0）只给脸部皮肤材质的颜色和阴影色乘一个淡淡的色调（游戏只读这两个表情的材质颜色、按乘法自己改材质，形态键不生效）。脸部皮肤材质 = 张嘴和眨眼都会动到、默认不透明的材质里顶点最多的那个 |
+| 单眼眨眼（ウィンク、ウィンク右、ウィンク２ …） | 按动的顶点在哪一边定 blinkLeft / blinkRight，不看名字（MMD 惯例「ウィンク」闭左眼，但不少模型不守，「ウィンク２」也常是另一只眼）；同一边有几个时名字里没有「２」的优先 |
+| 情绪预设（happy / angry / sad / relaxed / surprised） | 像 VRoid 的 `Fcl_ALL_*` 一样组合眉、眼、嘴：按 PMX 表情面板（眉 / 目 / 口）从常见表情名里各挑一个，比如 happy = にこり + 笑い + にやり、angry = 怒り + ｷﾘｯ×0.7 + ∧×0.8、surprised = 上 + びっくり + お×0.4（候选和权重见 `vrmconv/expressions.py` 的 `COMBO`）。至少两个部位找到才组合，原来单个对应的表情留作自定义表情；`--no-combo-expr` 关掉。闭眼类的眼睛表情（なごみ、笑い）只用整权重——很多模型压扁瞳孔来闭眼，半权重时瞳孔缩成小点。和已选部位动同一批顶点的候选会跳过（有的模型「ｷﾘｯ」里自带了「怒り」的眉毛，一起用眉毛会动两遍）。happy / relaxed（眼睛是闭着笑的）设 `overrideBlink: blend`（1.0），笑眼时不会再叠加眨眼；别的预设不设，难过、生气时照样眨眼。sad 不用「じと目」「∧」（半眯眼加撇嘴就成了生气），没有难过眼形的模型用眉毛 +「心配する」。VRM 0.x 没有 surprised 预设，和 VRoid 一样写成名字为 `Surprised` 的自定义表情 |
 
 骨骼名 → VRM humanoid 的对应（下半身→hips、上半身→spine、上半身2→chest、
 首→neck、頭→head、左/右腕→UpperArm、左/右ひじ→LowerArm、左/右手首→Hand、

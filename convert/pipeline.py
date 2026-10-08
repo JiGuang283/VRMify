@@ -14,7 +14,7 @@ opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEF
     target   "vrm"（默认）| "pmx"（非 PMX 输入只转到 PMX 为止）
     output   {"mode": "beside" | "folder", "folder": 路径, "subfolder": 是否建「名字_日期_序号」子文件夹}
     vrm      {"spec": "1.0" | "0.x", "spring", "spring_skirt", "spring_stiffness", "auto_spring",
-              "morphs", "gaze", "outline", "keep_pose", "double_sided",
+              "morphs", "gaze", "combo_expr", "outline", "keep_pose", "double_sided",
               "tex_max": 0 | 4096 | 2048 | 1024, "tex_jpeg"}
     meta     VRM 作者 / 许可信息（键见 vrmconv/vrm_ext.build_vrm1），标题用模型文件名
     fbx      {"alpha": "auto" | "keep" | "strip", "auto_facing", "face_180", "morphs", "center", "flip_z"}
@@ -50,7 +50,7 @@ CONVERTIBLE = {"pmx", "fbx", "unitypackage", "uemodel", "psk", "xps"} | ARCHIVES
 DEFAULTS = {
     "target": "vrm",
     "output": {"mode": "beside", "folder": "", "subfolder": True},
-    "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True,
+    "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True, "combo_expr": True,
             "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
             "tex_max": 0, "tex_jpeg": False},
     "meta": {"author": "", "version": "", "contact": "", "copyright": "", "license_url": "",
@@ -367,7 +367,8 @@ def pmx_to_vrm(pmx, out_dir, opts, log, name=None, edits=None):
                     outline=o["outline"], spring=o["spring"], spring_skirt=o["spring_skirt"],
                     spring_stiffness=float(o["spring_stiffness"]),
                     tex_max=int(o.get("tex_max") or 0), tex_jpeg=bool(o.get("tex_jpeg")),
-                    auto_spring=bool(o.get("auto_spring", True)), gaze=bool(o.get("gaze", True)))
+                    auto_spring=bool(o.get("auto_spring", True)), gaze=bool(o.get("gaze", True)),
+                    combo_expr=bool(o.get("combo_expr", True)))
     if edits:
         import vrm_edit
         if not vrm_edit.is_empty(edits):

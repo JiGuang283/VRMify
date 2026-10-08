@@ -23,7 +23,7 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 | **Pose** | Raises A-pose arms to the T-pose VRM requires (bones and vertices together) |
 | **Coordinates** | PMX (left-handed) → glTF (right-handed) via one mirror, with automatic winding detection — no mirrored or see-through models |
 | **Materials** | MToon. Shade color and shading boundary come from the PMX toon ramp (pink skin shadows, like native VRoid models); colors written in linear space; opaque / cutout / blend chosen from the texture's alpha; additive sphere maps → matcap |
-| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo, emotions); material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
+| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo); emotion presets combine brow, eye and mouth morphs like VRoid (e.g. angry = 怒り + ｷﾘｯ + ∧) so the whole face changes; material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
 | **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies. Models with no physics at all (common for FBX) get it from bone names and skeleton structure: hair, skirts, sleeves, ribbons and tails swing, with body colliders added |
 | **Textures** | Optional max size (4096 / 2048 / 1024) and JPEG for opaque textures — VRM files usually shrink by half or more (needs Pillow); textures with transparency stay PNG |
 | **Metadata** | Author, version, contact and usage license (who may use it, commercial use, modification, redistribution, credit) set in the UI; conservative defaults |
@@ -55,7 +55,8 @@ into the output VRM:
 
 - **Name** and **thumbnail** (a square shot of the current preview, shown as the avatar icon in games / VRM apps)
 - **Preset expressions**: which PMX morph drives each VRM preset (happy, blink, mouth A/I/U/E/O …). Automatic mapping only knows
-  the standard Japanese morph names, so models with other names can be completed here; ▶ tries an expression
+  the standard Japanese morph names, so models with other names can be completed here; ▶ tries an expression.
+  Combined emotion presets show as "怒り+ｷﾘｯ+∧"; switch back to a single morph if you prefer (the combination stays as a custom expression)
 - **Physics**: overall stiffness / drag / gravity plus per-chain stiffness, gravity and on/off, previewed live while dragging
 
 Tuning is stored per source file in `edits.json` (thumbnails in `edits/`) and reapplied on later conversions; "Reset all"
@@ -136,6 +137,7 @@ Common `pmx2vrm.py` options:
 | `--force-double-sided` | Make every material double-sided |
 | `--flip-winding` | Force-reverse triangle winding (detected automatically by default) |
 | `--dense-morphs` / `--max-morphs N` | Dense morph storage / export only the first N morphs |
+| `--no-combo-expr` | Don't combine brow / eye / mouth morphs into emotion presets (one PMX morph per preset) |
 | `--no-gaze` | Don't add gaze expressions (by default lookUp / lookDown / lookLeft / lookRight are made from the eye bones) |
 | `--tex-max N` / `--tex-jpeg` | Texture max size / store opaque textures as JPEG (needs Pillow) |
 | `--title` / `--author` | Written to the VRM meta |
@@ -284,7 +286,8 @@ rename the PMX or disable `[ファイル] → [アンカーデータの自動読
 - **VRM 0.x has no SpringBone output** (physics is written for VRM 1.0 only).
 - **Physics**: PMX joints between chains (common in skirts) can't be expressed in SpringBone and are dropped.
 - **Materials**: multiplicative sphere maps (.sph) and shared toon07–10 have no equivalent; outlines are off by default.
-- **Expression presets**: mapped by standard MMD morph names; brow-only morphs such as `にこり` mapped to happy change little.
+- **Expression presets**: mapped and combined by standard MMD morph names; models with non-standard names can't be combined
+  (assign them in Tune), and the combination weights are fixed, so a few models may look a bit strong or weak.
 - **Other formats**: FBX keeps English bone names (rename before using MMD motions); XPS has no morphs; PMX allows at most 4 bone weights per vertex.
 - **Textures**: KTX2 / WebP are not supported and fall back to a flat color.
 

@@ -44,7 +44,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             tpose=True, outline=False, sparse_morphs=True,
             spring=True, spring_skirt=True, spring_stiffness=1.0,
             spring_gravity=0.0, spring_gravity_skirt=0.1, spring_center=True,
-            spring_opts=None, tex_max=0, tex_jpeg=False, auto_spring=True, gaze=True):
+            spring_opts=None, tex_max=0, tex_jpeg=False, auto_spring=True, gaze=True,
+            combo_expr=True):
     """PMX → VRM，返回统计 dict。log(msg, tag=None) 用于输出进度。
 
     各阶段在 vrmconv/ 里：skeleton（骨骼、T-pose、节点）→ springbone（物理）→
@@ -54,6 +55,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     tex_max / tex_jpeg：贴图最大边长（0 = 原样）/ 不透明贴图改存 JPEG（需要 Pillow，见 vrmconv/textures）。
     gaze：有左右眼骨时补 lookUp / lookDown / lookLeft / lookRight 表情（转眼骨烘焙成顶点偏移，
         见 vrmconv/morphbake；模型自己有对应表情时不补）。
+    combo_expr：情绪预设（happy / angry / sad / relaxed / surprised）组合眉、眼、嘴的表情，
+        像 VRoid 一样整张脸一起变（见 vrmconv/expressions.COMBO）；False 时每个预设只对应一个表情。
     meta：title / author / version / contact / copyright / license_url / avatar_permission /
         commercial_usage / credit_notation / allow_redistribution / modification（见 vrm_ext）。
 
@@ -192,7 +195,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
 
     # ---- 表情 → morph target + VRM expression
     expr = expressions.build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat,
-                                         is1, sparse_morphs, _log)
+                                         is1, sparse_morphs, _log, combo=combo_expr)
     target_names = expr["target_names"]
 
     # ---- 收尾节点
@@ -333,6 +336,8 @@ def main(argv=None):
                     help="下半身（裙摆）SpringBone 重力（默认 0.1，抬腿时裙片落回腿上）")
     ap.add_argument("--no-auto-spring", action="store_true",
                     help="模型没有物理刚体时不自动补（默认按骨骼名给头发、裙摆、袖子等加 SpringBone）")
+    ap.add_argument("--no-combo-expr", action="store_true",
+                    help="情绪预设不组合眉 / 眼 / 嘴（默认组合，像 VRoid；关掉时每个预设只对应一个 PMX 表情）")
     ap.add_argument("--no-gaze", action="store_true",
                     help="不补视线表情（默认有左右眼骨时补 lookUp / lookDown / lookLeft / lookRight）")
     ap.add_argument("--no-spring-center", action="store_true",
@@ -370,7 +375,7 @@ def main(argv=None):
                  spring_gravity_skirt=a.spring_gravity_skirt,
                  spring_center=not a.no_spring_center, auto_spring=not a.no_auto_spring,
                  sparse_morphs=not a.dense_morphs,
-                 tex_max=a.tex_max, tex_jpeg=a.tex_jpeg, gaze=not a.no_gaze,
+                 tex_max=a.tex_max, tex_jpeg=a.tex_jpeg, gaze=not a.no_gaze, combo_expr=not a.no_combo_expr,
                  log=lambda msg, tag=None: print(msg))
     print("完成：%s（%.2f MB）" % (out, st["bytes"] / 1048576.0))
     return 0

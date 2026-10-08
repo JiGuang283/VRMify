@@ -153,9 +153,10 @@ function syncDependents() {
     el.disabled = !is1 || (el.dataset.opt !== 'vrm.spring' && !spring);
     el.closest('.switch, .field').style.opacity = el.disabled ? 0.45 : 1;
   });
-  const gz = document.querySelector('[data-opt="vrm.gaze"]');
-  gz.disabled = !getOpt('vrm.morphs');
-  gz.closest('.switch').style.opacity = gz.disabled ? 0.45 : 1;
+  document.querySelectorAll('[data-opt="vrm.gaze"], [data-opt="vrm.combo_expr"]').forEach((el) => {
+    el.disabled = !getOpt('vrm.morphs');
+    el.closest('.switch').style.opacity = el.disabled ? 0.45 : 1;
+  });
   $('chooseOut').disabled = getOpt('output.mode') !== 'folder';
   // texture slimming needs Pillow on the Python side
   const pil = S.features.pillow !== false;

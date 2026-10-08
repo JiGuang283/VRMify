@@ -23,6 +23,7 @@ for _p in (HERE, os.path.join(ROOT, "convert"), os.path.join(ROOT, "formats"), o
 import archive  # noqa: E402
 import check_vrm  # noqa: E402
 import pipeline  # noqa: E402
+import pmxio  # noqa: E402
 import pmx2vrm  # noqa: E402
 import synth  # noqa: E402
 import vrm_edit  # noqa: E402
@@ -73,6 +74,16 @@ class ConvertTest(Base):
         self.assertEqual(ex["preset"]["happy"]["extras"]["source"], "にこり")
         self.assertIn("笑い", ex["custom"])
         self.assertIn("照れ", ex["custom"])
+        # 脸色（Dream Select Studio 的 faceRed / faceBlue）：只给脸部皮肤材质（口型「あ」动到的）
+        # 的颜色、阴影色乘色调，不带形态键（游戏只读材质颜色绑定）
+        for alias, chan in (("faceRed", 0), ("faceBlue", 2)):
+            obj = ex["custom"][alias]
+            self.assertNotIn("morphTargetBinds", obj)
+            self.assertEqual([b["type"] for b in obj["materialColorBinds"]], ["color", "shadeColor"])
+            for b in obj["materialColorBinds"]:
+                self.assertEqual(b["targetValue"][chan], 1.0)       # 红 / 蓝通道不降
+                self.assertEqual(b["targetValue"][3], 1.0)          # alpha 不动
+                self.assertEqual(g["materials"][b["material"]]["name"], "体")
 
     def test_vrm0_lowercase_presets(self):
         out = self.convert("v0", spec="0.x")
@@ -83,6 +94,7 @@ class ConvertTest(Base):
         self.assertTrue(all(p == p.lower() for p in presets), presets)
         self.assertEqual(presets.count("joy"), 1)          # にこり 和 笑い 只能有一个是 joy
         self.assertIn("blink", presets)
+        self.assertNotIn("faceRed", [gr["name"] for gr in groups])    # 脸色只做 1.0
 
     def test_meta(self):
         meta = {"title": "T", "author": "me", "avatar_permission": "onlyAuthor",
@@ -311,6 +323,90 @@ class MorphBakeTest(Base):
         out = os.path.join(self.tmp, "plain.vrm")
         pmx2vrm.convert(pmx, out)
         self.assertNotIn("lookLeft", vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]["preset"])
+
+
+class ComboTest(Base):
+    """情绪预设组合眉 / 眼 / 嘴：按 PMX 面板挑表情，原来单个对应的回到自定义。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = pmxio.read_pmx(synth.build(os.path.join(cls.tmp, "combo"), "組合モデル"))
+        hv = 5 * 8                                   # 头部方块的顶点
+        # 「怒り目」带着「怒り」的眉毛（同样的顶点、更大的偏移）：和怒り一起用会动两遍，跳过它用ｷﾘｯ
+        for name, panel, vs in (("怒り", 1, (0, 1)), ("怒り目", 2, (0, 1, 2)), ("ｷﾘｯ", 2, (2, 3)),
+                                ("∧", 3, (4, 5)), ("喜び", 2, (2, 3)), ("上", 1, (6,)), ("びっくり", 2, (7,)),
+                                ("ぺろっ", 3, (5,))):
+            m["morphs"].append({"name": name, "name_en": name, "panel": panel, "kind": 1,
+                                "offsets": [(hv + k, (0.0, 0.05 * panel, 0.0)) for k in vs]})
+        # 单眼眨眼按顶点在哪边定（角色的左边是 +X），不按名字：这里故意和 MMD 惯例反着来
+        left = [hv + k for k in range(8) if m["vertices"][hv + k]["pos"][0] > 0]
+        right = [hv + k for k in range(8) if m["vertices"][hv + k]["pos"][0] < 0]
+        for name, vs in (("ウィンク２", left), ("ウィンク", right), ("ウィンク右", left)):
+            m["morphs"].append({"name": name, "name_en": name, "panel": 2, "kind": 1,
+                                "offsets": [(v, (0.0, -0.01, 0.0)) for v in vs]})
+        cls.pmx = os.path.join(cls.tmp, "combo", "組合モデル.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+
+    def binds(self, g, obj):
+        names = g["meshes"][0]["extras"]["targetNames"]
+        return [(names[b["index"]], b["weight"]) for b in obj["morphTargetBinds"]]
+
+    def test_vrm1(self):
+        out = self.convert("combo1")
+        self.assertValid(out)
+        g = vrmio.read_glb(out)[0]
+        ex = g["extensions"]["VRMC_vrm"]["expressions"]
+        self.assertEqual(self.binds(g, ex["preset"]["angry"]), [("怒り", 1.0), ("ｷﾘｯ", 0.7), ("∧", 0.8)])
+        self.assertEqual(ex["preset"]["angry"]["extras"]["source"], "怒り+ｷﾘｯ+∧")
+        self.assertIn("怒り", ex["custom"])                        # 原来单个对应的还在
+        self.assertNotIn("overrideBlink", ex["preset"]["angry"])    # 生气时照样眨眼
+        self.assertEqual(ex["preset"]["happy"]["overrideBlink"], "blend")   # 笑眼不再叠加眨眼
+        # synth 的「にこり」「笑い」在口面板，不当眉毛 / 眼睛：眉毛用「上」、眼睛用「喜び」
+        self.assertEqual(self.binds(g, ex["preset"]["happy"]), [("上", 0.3), ("喜び", 1.0)])
+        self.assertIn("にこり", ex["custom"])
+        self.assertEqual(ex["custom"]["tongue"], ex["custom"]["ぺろっ"])     # 按名字找的别名
+        # 只找到一个部位（嘴）→ 不组合，没有 sad
+        self.assertNotIn("sad", ex["preset"])
+
+    def test_wink_by_side(self):
+        out = self.convert("wink1")
+        g = vrmio.read_glb(out)[0]
+        ex = g["extensions"]["VRMC_vrm"]["expressions"]
+        self.assertEqual(self.binds(g, ex["preset"]["blinkRight"]), [("ウィンク", 1.0)])
+        # 左边有「ウィンク２」「ウィンク右」两个：名字里没有「２」的优先
+        self.assertEqual(self.binds(g, ex["preset"]["blinkLeft"]), [("ウィンク右", 1.0)])
+        self.assertIn("ウィンク２", ex["custom"])
+
+    def test_vrm0(self):
+        out = self.convert("combo0", spec="0.x")
+        self.assertValid(out)
+        groups = vrmio.read_glb(out)[0]["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"]
+        by = {x["name"]: x for x in groups}
+        self.assertEqual(by["怒り+ｷﾘｯ+∧"]["presetName"], "angry")
+        self.assertEqual([b["weight"] for b in by["怒り+ｷﾘｯ+∧"]["binds"]], [100, 70, 80])
+        self.assertEqual(by["怒り"]["presetName"], "unknown")
+        # 0.x 没有 surprised 预设：和 VRoid 一样是 unknown + 名字 Surprised
+        self.assertEqual(by["Surprised"]["presetName"], "unknown")
+        self.assertEqual([b["weight"] for b in by["Surprised"]["binds"]], [100, 100])
+        self.assertNotIn("surprised", {x["presetName"] for x in groups})
+
+    def test_off(self):
+        out = self.convert("combo_off", combo_expr=False)
+        g = vrmio.read_glb(out)[0]
+        self.assertEqual(self.binds(g, g["extensions"]["VRMC_vrm"]["expressions"]["preset"]["angry"]),
+                         [("怒り", 1.0)])
+
+    def test_tune_back_to_single(self):
+        out = self.convert("combo_edit")
+        info = vrm_edit.describe(out)
+        self.assertEqual(info["assign"]["angry"], "怒り+ｷﾘｯ+∧")
+        vrm_edit.apply(out, {"expressions": {"angry": "怒り"}})
+        self.assertValid(out)
+        g = vrmio.read_glb(out)[0]
+        ex = g["extensions"]["VRMC_vrm"]["expressions"]
+        self.assertEqual(self.binds(g, ex["preset"]["angry"]), [("怒り", 1.0)])
+        self.assertIn("怒り+ｷﾘｯ+∧", ex["custom"])
 
 
 class PipelineTest(Base):
