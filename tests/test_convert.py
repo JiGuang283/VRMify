@@ -347,7 +347,7 @@ class ComboTest(Base):
         self.assertValid(out)
         g = vrmio.read_glb(out)[0]
         ex = g["extensions"]["VRMC_vrm"]["expressions"]
-        self.assertEqual(self.binds(g, ex["preset"]["angry"]), [("怒り", 1.0), ("ｷﾘｯ", 0.7), ("∧", 0.8)])
+        self.assertEqual(self.binds(g, ex["preset"]["angry"]), [("怒り", 0.6), ("ｷﾘｯ", 0.4), ("∧", 0.4)])
         self.assertEqual(ex["preset"]["angry"]["extras"]["source"], "怒り+ｷﾘｯ+∧")
         self.assertIn("怒り", ex["custom"])                        # 原来单个对应的还在
         self.assertNotIn("overrideBlink", ex["preset"]["angry"])    # 生气时照样眨眼
@@ -373,11 +373,11 @@ class ComboTest(Base):
         groups = vrmio.read_glb(out)[0]["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"]
         by = {x["name"]: x for x in groups}
         self.assertEqual(by["怒り+ｷﾘｯ+∧"]["presetName"], "angry")
-        self.assertEqual([b["weight"] for b in by["怒り+ｷﾘｯ+∧"]["binds"]], [100, 70, 80])
+        self.assertEqual([b["weight"] for b in by["怒り+ｷﾘｯ+∧"]["binds"]], [60, 40, 40])
         self.assertEqual(by["怒り"]["presetName"], "unknown")
         # 0.x 没有 surprised 预设：和 VRoid 一样是 unknown + 名字 Surprised
         self.assertEqual(by["Surprised"]["presetName"], "unknown")
-        self.assertEqual([b["weight"] for b in by["Surprised"]["binds"]], [100, 100])
+        self.assertEqual([b["weight"] for b in by["Surprised"]["binds"]], [70, 100])
         self.assertNotIn("surprised", {x["presetName"] for x in groups})
 
     def test_off(self):

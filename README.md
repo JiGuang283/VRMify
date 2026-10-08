@@ -23,7 +23,7 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 | **Pose** | Raises A-pose arms to the T-pose VRM requires (bones and vertices together) |
 | **Coordinates** | PMX (left-handed) → glTF (right-handed) via one mirror, with automatic winding detection — no mirrored or see-through models |
 | **Materials** | MToon. Shade color and shading boundary come from the PMX toon ramp (pink skin shadows, like native VRoid models); colors written in linear space; opaque / cutout / blend chosen from the texture's alpha; additive sphere maps → matcap |
-| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo); emotion presets combine brow, eye and mouth morphs like VRoid (e.g. angry = 怒り + ｷﾘｯ + ∧) so the whole face changes; material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
+| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo); emotion presets combine brow, eye and mouth morphs like VRoid (e.g. angry = 怒り + ｷﾘｯ + 口角下げ) so the whole face changes; material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
 | **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies. Models with no physics at all (common for FBX) get it from bone names and skeleton structure: hair, skirts, sleeves, ribbons and tails swing, with body colliders added |
 | **Textures** | Optional max size (4096 / 2048 / 1024) and JPEG for opaque textures — VRM files usually shrink by half or more (needs Pillow); textures with transparency stay PNG |
 | **Metadata** | Author, version, contact and usage license (who may use it, commercial use, modification, redistribution, credit) set in the UI; conservative defaults |
@@ -56,7 +56,7 @@ into the output VRM:
 - **Name** and **thumbnail** (a square shot of the current preview, shown as the avatar icon in games / VRM apps)
 - **Preset expressions**: which PMX morph drives each VRM preset (happy, blink, mouth A/I/U/E/O …). Automatic mapping only knows
   the standard Japanese morph names, so models with other names can be completed here; ▶ tries an expression.
-  Combined emotion presets show as "怒り+ｷﾘｯ+∧"; switch back to a single morph if you prefer (the combination stays as a custom expression)
+  Combined emotion presets show as "怒り+ｷﾘｯ+口角下げ"; switch back to a single morph if you prefer (the combination stays as a custom expression)
 - **Physics**: overall stiffness / drag / gravity plus per-chain stiffness, gravity and on/off, previewed live while dragging
 
 Tuning is stored per source file in `edits.json` (thumbnails in `edits/`) and reapplied on later conversions; "Reset all"
