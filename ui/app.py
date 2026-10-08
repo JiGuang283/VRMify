@@ -34,7 +34,7 @@ def _dialog(mode):
         paths = [r] if r else []
     else:
         paths = list(filedialog.askopenfilenames(filetypes=[
-            ("Models", "*.pmx *.vrm *.zip *.fbx *.unitypackage *.uemodel *.psk *.pskx *.xps"),
+            ("Models", "*.pmx *.vrm *.zip *.7z *.rar *.tar *.tgz *.gz *.bz2 *.xz *.fbx *.unitypackage *.uemodel *.psk *.pskx *.xps"),
             ("All files", "*.*")]))
     root.destroy()
     print(json.dumps(paths, ensure_ascii=False))

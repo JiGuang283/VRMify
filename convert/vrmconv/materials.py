@@ -142,7 +142,8 @@ class MaterialBuilder:
         self.sph_skipped = 0
         self.morph_min_alpha = {}        # PMX 材质 → 材质表情能把 alpha 压到多低
         self.morph_max_alpha = {}        # PMX 材质 → 材质表情能把 alpha 抬到多高
-        for _, _, ops in flat:
+        for f in flat:
+            ops = f[2]
             for mi_, mat in enumerate(model["materials"]):
                 r = _morph_material(mat, ops, mi_)
                 if r is not None:

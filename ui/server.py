@@ -488,7 +488,7 @@ class Backend:
             else:
                 r = self.window.create_file_dialog(
                     webview.OPEN_DIALOG, allow_multiple=True,
-                    file_types=("Models (*.pmx;*.vrm;*.zip;*.fbx;*.unitypackage;*.uemodel;*.psk;*.pskx;*.xps)",
+                    file_types=("Models (*.pmx;*.vrm;*.zip;*.7z;*.rar;*.tar;*.tgz;*.gz;*.bz2;*.xz;*.fbx;*.unitypackage;*.uemodel;*.psk;*.pskx;*.xps)",
                                 "All files (*.*)"))
             return list(r or [])
         mode = "folder" if (folder or output) else ("uemodel" if uemodel else "files")

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""不依赖真实模型的测试：用 tests/synth.py 合成的 PMX 跑转换、后调整（vrm_edit）、zip 输入。
+"""不依赖真实模型的测试：用 tests/synth.py 合成的 PMX 跑转换、后调整（vrm_edit）、压缩包输入。
 
     python -m unittest discover -s tests -v
 
@@ -8,7 +8,9 @@ Schema 校验需要 jsonschema（requirements-dev.txt），贴图瘦身需要 Pi
 import copy
 import os
 import shutil
+import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -18,6 +20,7 @@ ROOT = os.path.dirname(HERE)
 for _p in (HERE, os.path.join(ROOT, "convert"), os.path.join(ROOT, "formats"), os.path.join(ROOT, "tools", "qa")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+import archive  # noqa: E402
 import check_vrm  # noqa: E402
 import pipeline  # noqa: E402
 import pmx2vrm  # noqa: E402
@@ -238,7 +241,141 @@ class EditTest(Base):
         self.assertFalse(vrm_edit.is_empty({"spring": {"chains": {"a": {"off": True}}}}))
 
 
+def morph_deltas(g, b, name):
+    """VRM 里某个 morph target 的 [(顶点位置, 偏移)]（只要有偏移的顶点）。"""
+    names = g["meshes"][0]["extras"]["targetNames"]
+    t = names.index(name)
+    out = []
+    for pr in g["meshes"][0]["primitives"]:
+        pos = vrmio.read_accessor(g, b, pr["attributes"]["POSITION"])
+        d = vrmio.read_accessor(g, b, pr["targets"][t]["POSITION"])
+        for i in range(0, len(d), 3):
+            if abs(d[i]) + abs(d[i + 1]) + abs(d[i + 2]) > 1e-7:
+                out.append((pos[i:i + 3], d[i:i + 3]))
+    return out
+
+
+class MorphBakeTest(Base):
+    """骨骼表情 / 视线表情烘焙成顶点偏移，UV 表情换成贴图偏移。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.pmx = synth.build(os.path.join(cls.tmp, "eyes"), "眼モデル", eyes=True)
+
+    def test_vrm1(self):
+        out = self.convert("eyes1")
+        self.assertValid(out)
+        g, b = vrmio.read_glb(out)
+        ex = g["extensions"]["VRMC_vrm"]["expressions"]
+        for k in ("lookUp", "lookDown", "lookLeft", "lookRight"):
+            self.assertIn(k, ex["preset"])
+        # VRM 1.0：角色的左边是 +X、上是 +Y
+        left = morph_deltas(g, b, "lookLeft")
+        self.assertEqual(len(left), 16)                          # 两个眼珠方块
+        self.assertTrue(all(d[0] > 0 for _, d in left))
+        self.assertTrue(all(d[1] > 0 for _, d in morph_deltas(g, b, "lookUp")))
+        # 寄り目：两眼往中间（左眼 x>0 往 -X，右眼往 +X）
+        cross = morph_deltas(g, b, "寄り目")
+        self.assertEqual(len(cross), 16)
+        self.assertTrue(all((p[0] > 0) == (d[0] < 0) for p, d in cross))
+        # グループ里的骨骼表情也在
+        self.assertEqual(len(morph_deltas(g, b, "見開く")), 16 + 4)
+        # UV 表情 → textureTransformBinds：整块往右下移 (0.5, 0.25)
+        tt = ex["custom"]["怒マーク"]["textureTransformBinds"]
+        self.assertEqual(len(tt), 1)
+        self.assertEqual(g["materials"][tt[0]["material"]]["name"], "漫符")
+        self.assertEqual([round(x, 4) for x in tt[0]["scale"] + tt[0]["offset"]], [1, 1, 0.5, 0.25])
+        self.assertNotIn("morphTargetBinds", ex["custom"]["怒マーク"])
+
+    def test_vrm0(self):
+        out = self.convert("eyes0", spec="0.x")
+        self.assertValid(out)
+        groups = vrmio.read_glb(out)[0]["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"]
+        by = {x["name"]: x for x in groups}
+        self.assertEqual(by["lookLeft"]["presetName"], "lookleft")
+        mv = by["怒マーク"]["materialValues"]
+        self.assertEqual(mv[0]["propertyName"], "_MainTex_ST")
+        # Unity 的 v 从下往上：(sx, sy, ox, 1 - sy - oy)
+        self.assertEqual([round(x, 4) for x in mv[0]["targetValue"]], [1, 1, 0.5, -0.25])
+
+    def test_no_gaze(self):
+        out = self.convert("eyes_nogaze", gaze=False)
+        ex = vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]
+        self.assertNotIn("lookLeft", ex["preset"])
+        self.assertIn("寄り目", ex["custom"])
+
+    def test_plain_model_has_no_gaze(self):
+        """眼骨上没有网格（synth 默认）：转眼骨动不了任何顶点，不补。"""
+        pmx = synth.build(os.path.join(self.tmp, "plain"))
+        out = os.path.join(self.tmp, "plain.vrm")
+        pmx2vrm.convert(pmx, out)
+        self.assertNotIn("lookLeft", vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]["preset"])
+
+
 class PipelineTest(Base):
+    def _pack_files(self):
+        src = os.path.dirname(self.pmx)
+        return [(os.path.join(d, fn), os.path.join("包", os.path.relpath(os.path.join(d, fn), src)))
+                for d, _, fs in os.walk(src) for fn in fs]
+
+    def test_archive_kinds(self):
+        for name, kind in (("a.zip", "zip"), ("a.7z", "7z"), ("a.7z.001", "7z"), ("a.7z.002", None),
+                           ("a.rar", "rar"), ("a.part1.rar", "rar"), ("a.part02.rar", None),
+                           ("a.tar.gz", "tar"), ("a.TGZ", "tar"), ("a.tar.xz", "tar"), ("a.gz", None)):
+            self.assertEqual(pipeline.classify(name), kind, name)
+
+    def test_tar_gz(self):
+        t = os.path.join(self.tmp, "pack.tar.gz")
+        with tarfile.open(t, "w:gz") as tf:
+            for p, arc in self._pack_files():
+                tf.add(p, arc)
+            info = tarfile.TarInfo("../evil.txt")           # 跑到外面的路径：只能落在解压目录里
+            tf.addfile(info, None)
+        outs = pipeline.convert_file(t, {}, out_dir=os.path.join(self.tmp, "tar_out"))
+        self.assertEqual(len(outs), 1)
+        self.assertValid(outs[0])
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.txt")))
+
+    def test_nested_archive(self):
+        """zip 里只有一个 tar.gz：再解一层。"""
+        inner = os.path.join(self.tmp, "inner.tar.gz")
+        with tarfile.open(inner, "w:gz") as tf:
+            for p, arc in self._pack_files():
+                tf.add(p, arc)
+        z = os.path.join(self.tmp, "outer.zip")
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.write(inner, "model.tar.gz")
+        outs = pipeline.convert_file(z, {}, out_dir=os.path.join(self.tmp, "nested_out"))
+        self.assertEqual([os.path.splitext(os.path.basename(o))[0] for o in outs], ["合成モデル"])
+
+    def test_7z_via_bsdtar(self):
+        tar = archive.tools()["bsdtar"]
+        if not tar:
+            self.skipTest("没有 bsdtar")
+        src = os.path.dirname(self.pmx)
+        s = os.path.join(self.tmp, "pack.7z")
+        r = subprocess.run([tar, "-c", "-f", s, "--format", "7zip", "-C", os.path.dirname(src),
+                            os.path.basename(src)], capture_output=True)
+        if r.returncode:
+            self.skipTest("bsdtar 写不了 7z：%s" % r.stderr[-200:])
+        outs = pipeline.convert_file(s, {}, out_dir=os.path.join(self.tmp, "7z_out"))
+        self.assertEqual(len(outs), 1)
+        self.assertValid(outs[0])
+
+    def test_no_tool_message(self):
+        saved = archive._TOOLS
+        archive._TOOLS = {"7z": None, "unrar": None, "bandizip": None, "bsdtar": None, "py7zr": False}
+        try:
+            p = os.path.join(self.tmp, "x.rar")
+            with open(p, "wb") as f:
+                f.write(b"Rar!" + bytes([0x1A, 0x07, 0x00]))
+            with self.assertRaises(RuntimeError) as cm:
+                pipeline.convert_file(p, {}, out_dir=os.path.join(self.tmp, "rar_out"))
+            self.assertIn("7-Zip", str(cm.exception))
+        finally:
+            archive._TOOLS = saved
+
     def test_zip_with_edits(self):
         z = os.path.join(self.tmp, "pack.zip")
         src = os.path.dirname(self.pmx)

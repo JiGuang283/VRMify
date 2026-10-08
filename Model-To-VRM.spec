@@ -53,9 +53,9 @@ a = Analysis(
         'server', 'version', 'pipeline', 'pmx2vrm', 'vrm_edit',
         'vrmconv', 'vrmconv.humanoid', 'vrmconv.skeleton', 'vrmconv.mesh', 'vrmconv.materials',
         'vrmconv.expressions', 'vrmconv.springbone', 'vrmconv.vrm_ext', 'vrmconv.mathutil',
-        'vrmconv.textures', 'vrmconv.autophys',
+        'vrmconv.textures', 'vrmconv.autophys', 'vrmconv.morphbake',
         # 其它输入格式（pipeline 里按需 import）
-        'fbx2pmx', 'fbx_reader', 'unitypackage_unpack', 'uemodel2pmx', 'uemodelio',
+        'fbx2pmx', 'fbx_reader', 'unitypackage_unpack', 'archive', 'uemodel2pmx', 'uemodelio',
         'psk2pmx', 'pskio', 'xps2pmx', 'xpsio', 'fbxout', 'pmxio', 'vrmio', 'longpath', 'unityasset',
         'zstandard',
         # 浏览器模式下的文件对话框（子进程 --dialog）

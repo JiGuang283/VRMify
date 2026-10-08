@@ -2,7 +2,7 @@
 export const STRINGS = {
   zh_CN: {
     files: '文件', addFiles: '添加文件', addFolder: '添加文件夹', clear: '清空',
-    dropHint: '把 PMX / VRM / zip 压缩包 / FBX / unitypackage / uemodel / psk / xps 拖到这里',
+    dropHint: '把 PMX / VRM / 压缩包（zip / 7z / rar）/ FBX / unitypackage / uemodel / psk / xps 拖到这里',
     dropHintShort: '拖入更多文件', dropBrowser: '浏览器模式拿不到拖入文件的路径，请用「添加文件」',
     empty: '还没有文件',
     st_pending: '待转换', st_running: '转换中', st_done: '完成', st_error: '失败', st_preview: '仅预览',
@@ -10,7 +10,7 @@ export const STRINGS = {
     settings: '转换设置', tabVrm: 'VRM', tabInput: '输入格式', tabOutput: '输出',
     spec: 'VRM 版本', spec0x: '0.x（不含物理）',
     spring: '物理（SpringBone）', springHint: '头发、裙摆、饰品的摆动（仅 VRM 1.0）',
-    springSkirt: '裙摆物理', autoSpring: '没有物理的模型按骨骼名自动加（FBX 等）', stiffness: '物理硬度', morphs: '导出表情',
+    springSkirt: '裙摆物理', autoSpring: '没有物理的模型按骨骼名自动加（FBX 等）', stiffness: '物理硬度', morphs: '导出表情', gaze: '补视线表情（转眼骨生成 lookUp / lookDown / lookLeft / lookRight）',
     outline: '描边（按 PMX 轮廓线）', keepPose: '保持原姿势（不转 T 姿势）', doubleSided: '所有材质双面',
     target: '其他格式转换到', targetVrm: 'VRM（先转 PMX）', targetPmx: '只转 PMX',
     fbx: 'FBX / unitypackage', fbxAlpha: '贴图透明通道', alphaAuto: '自动判定', alphaKeep: '保留', alphaStrip: '全部去除',
@@ -55,7 +55,7 @@ export const STRINGS = {
   },
   en: {
     files: 'Files', addFiles: 'Add files', addFolder: 'Add folder', clear: 'Clear',
-    dropHint: 'Drop PMX / VRM / zip archives / FBX / unitypackage / uemodel / psk / xps here',
+    dropHint: 'Drop PMX / VRM / archives (zip / 7z / rar) / FBX / unitypackage / uemodel / psk / xps here',
     dropHintShort: 'Drop more files', dropBrowser: 'The browser cannot see dropped file paths — use "Add files"',
     empty: 'No files yet',
     st_pending: 'Pending', st_running: 'Converting', st_done: 'Done', st_error: 'Failed', st_preview: 'Preview only',
@@ -63,7 +63,7 @@ export const STRINGS = {
     settings: 'Settings', tabVrm: 'VRM', tabInput: 'Inputs', tabOutput: 'Output',
     spec: 'VRM version', spec0x: '0.x (no physics)',
     spring: 'Physics (SpringBone)', springHint: 'Hair, skirts and accessories sway (VRM 1.0 only)',
-    springSkirt: 'Skirt physics', autoSpring: 'Add physics by bone names when the model has none (FBX etc.)', stiffness: 'Stiffness', morphs: 'Export expressions',
+    springSkirt: 'Skirt physics', autoSpring: 'Add physics by bone names when the model has none (FBX etc.)', stiffness: 'Stiffness', morphs: 'Export expressions', gaze: 'Add gaze expressions (lookUp / lookDown / lookLeft / lookRight from the eye bones)',
     outline: 'Outline (from PMX edges)', keepPose: 'Keep original pose (no T-pose)', doubleSided: 'All materials double-sided',
     target: 'Other formats convert to', targetVrm: 'VRM (via PMX)', targetPmx: 'PMX only',
     fbx: 'FBX / unitypackage', fbxAlpha: 'Texture alpha', alphaAuto: 'Auto', alphaKeep: 'Keep', alphaStrip: 'Strip',

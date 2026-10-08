@@ -23,7 +23,7 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 | **姿势** | A-pose 手臂自动抬成 VRM 要求的 T-pose（骨骼和顶点一起转） |
 | **坐标** | PMX（左手系）→ glTF（右手系）做一次镜面反射，绕序自动判定，模型不会左右翻转或镂空 |
 | **材质** | MToon。阴影色、明暗交界按 PMX 的 toon 贴图换算（皮肤是粉色阴影，和原生 VRoid 一致）；颜色写线性值；按贴图 alpha 分布自动选不透明 / 裁剪 / 半透明；加算球面贴图 → matcap |
-| **表情** | 顶点表情 → morph target（稀疏存储，文件小）；常用表情自动对应 VRM 预设（眨眼、あいうえお、喜怒哀乐）；材质表情 → 材质颜色绑定（显示 / 隐藏部件） |
+| **表情** | 顶点表情 → morph target（稀疏存储，文件小）；常用表情自动对应 VRM 预设（眨眼、あいうえお、喜怒哀乐）；材质表情 → 材质颜色绑定（显示 / 隐藏部件）；骨骼表情（寄り目 等）烘焙成顶点表情；UV 表情（漫符切换）→ 贴图偏移；有眼骨时补视线表情 lookUp / lookDown / lookLeft / lookRight |
 | **物理** | PMX 刚体 / 关节 → VRM 1.0 SpringBone：头发、裙摆、飘带、袖子按原生 VRM 的手感换算，碰撞体来自 PMX 的跟随骨骼刚体。模型完全没有物理时（FBX 等常见）按骨骼名和骨架结构自动补：头发、裙摆、袖子、飘带、尾巴会摆动，身体自动加碰撞体 |
 | **贴图** | 可选限制最大边长（4096 / 2048 / 1024）、不透明贴图存成 JPEG，VRM 文件通常能小一半以上（需要 Pillow）；带透明的贴图保持 PNG |
 | **VRM 信息** | 作者、版本、联系方式、使用许可（谁可以使用、商用、修改、再分发、署名）在界面里填；默认取保守值 |
@@ -82,7 +82,7 @@ uv venv .venv && uv pip install -r requirements.txt     # 或 python -m venv .ve
 
 命令行启动：`python ui/app.py [文件或文件夹 ...]`（`--browser` 强制用系统浏览器）。
 
-- 左侧：添加文件 / 文件夹（PMX、VRM、zip 压缩包、FBX、unitypackage、uemodel、psk、xps），点「开始转换」。设置分四页：
+- 左侧：添加文件 / 文件夹（PMX、VRM、压缩包、FBX、unitypackage、uemodel、psk、xps），点「开始转换」。设置分四页：
   - **VRM**：版本、物理、表情、描边、贴图最大边长和 JPEG
   - **输入格式**：非 PMX 的格式默认先转 PMX 再转 VRM，也可以只转 PMX
   - **VRM 信息**：作者和使用许可（名称默认用模型文件名）
@@ -91,8 +91,11 @@ uv venv .venv && uv pip install -r requirements.txt     # 或 python -m venv .ve
   PMX（加进来的 PMX 文件、输出里的 PMX、「只转 PMX」的结果）直接原生预览：MMD 的卡通着色、球面贴图、表情，
   MMD 物理（ammo.js）实时模拟，标准骨名（日文 MMD 名或常见英文名）的模型也能做待机 / 走路等动作。
   「调整」面板见上面的[转换后调整](#转换后调整)。
-- **模型网站下载的 zip 整包可以直接加**：在临时目录解压，转换里面的 PMX（没有 PMX 时转其它格式），输出放在压缩包旁边。
-  文件名是 GBK / Shift-JIS（甚至混用）的老压缩包也能正确还原，贴图不会丢。
+- **模型网站下载的压缩包可以直接加**（zip / 7z / rar / tar.gz 等，分卷包加第一卷）：在临时目录解压，转换里面的 PMX
+  （没有 PMX 时转其它格式；包里套包时再解一层），输出放在压缩包旁边。zip 用内置的解压，文件名是 GBK / Shift-JIS
+  （甚至混用）的老压缩包也能正确还原；7z / rar 借用电脑上的 7-Zip / WinRAR / Bandizip，都没有时用 Windows 自带的
+  tar（Windows 11 可以解 7z 和 rar；Windows 10 的版本解不了 LZMA 压缩的 7z，文件名有系统编码以外的字也会失败——这时装 7-Zip）。
+  有密码的压缩包不支持。
 - 界面支持中文 / English，设置保存在 `settings.json`。
 - 用系统浏览器时拿不到拖入文件的路径，请用「添加文件」按钮；页面关掉一分钟后程序自动退出。
 
@@ -127,6 +130,7 @@ python ui/app.py "model.vrm"
 | `--force-double-sided` | 所有材质双面 |
 | `--flip-winding` | 强制反转三角绕序（默认自动判定） |
 | `--dense-morphs` / `--max-morphs N` | 表情用密集存储 / 只导出前 N 个 |
+| `--no-gaze` | 不补视线表情（默认有左右眼骨时转眼骨生成 lookUp / lookDown / lookLeft / lookRight） |
 | `--tex-max N` / `--tex-jpeg` | 贴图最大边长 / 不透明贴图存 JPEG（需要 Pillow） |
 | `--title` / `--author` | 写进 VRM meta |
 
@@ -172,6 +176,7 @@ Model-To-VRM/
 │   │   ├── mesh.py         顶点权重、按材质切网格
 │   │   ├── materials.py    MToon 材质（toon 换算、透明判定）
 │   │   ├── expressions.py  表情
+│   │   ├── morphbake.py    骨骼表情 / 视线表情烘焙成顶点表情，UV 表情 → 贴图偏移
 │   │   ├── springbone.py   物理 → SpringBone
 │   │   ├── textures.py     贴图瘦身（缩小、JPEG）
 │   │   └── vrm_ext.py      VRM 扩展本体
@@ -179,7 +184,7 @@ Model-To-VRM/
 │   ├── pmx_check.py        PMX 校验
 │   ├── pipeline.py         转换流程：识别格式 → 其他格式先转 PMX → 再转 VRM（界面用）
 │   └── vrm_edit.py         转换后调整：表情指定、物理、名称、缩略图
-├── formats/                格式读写（pmxio、vrmio(GLB)、fbx_reader、uemodelio、pskio、xpsio …）、longpath（Windows 长路径）
+├── formats/                格式读写（pmxio、vrmio(GLB)、fbx_reader、uemodelio、pskio、xpsio …）、archive（7z / rar / tar 解压）、longpath（Windows 长路径）
 ├── ui/                     图形界面
 │   ├── app.py              入口（pywebview 窗口 / 浏览器）
 │   ├── server.py           后端：文件列表、选项、转换任务、本地 HTTP 接口

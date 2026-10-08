@@ -23,7 +23,7 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 | **Pose** | Raises A-pose arms to the T-pose VRM requires (bones and vertices together) |
 | **Coordinates** | PMX (left-handed) → glTF (right-handed) via one mirror, with automatic winding detection — no mirrored or see-through models |
 | **Materials** | MToon. Shade color and shading boundary come from the PMX toon ramp (pink skin shadows, like native VRoid models); colors written in linear space; opaque / cutout / blend chosen from the texture's alpha; additive sphere maps → matcap |
-| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo, emotions); material morphs → material color binds (show / hide parts) |
+| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo, emotions); material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
 | **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies. Models with no physics at all (common for FBX) get it from bone names and skeleton structure: hair, skirts, sleeves, ribbons and tails swing, with body colliders added |
 | **Textures** | Optional max size (4096 / 2048 / 1024) and JPEG for opaque textures — VRM files usually shrink by half or more (needs Pillow); textures with transparency stay PNG |
 | **Metadata** | Author, version, contact and usage license (who may use it, commercial use, modification, redistribution, credit) set in the UI; conservative defaults |
@@ -86,7 +86,7 @@ uv venv .venv && uv pip install -r requirements.txt     # or python -m venv .ven
 
 From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces the system browser).
 
-- Left: add files / folders (PMX, VRM, zip archives, FBX, unitypackage, uemodel, psk, xps) and click "Start conversion".
+- Left: add files / folders (PMX, VRM, archives, FBX, unitypackage, uemodel, psk, xps) and click "Start conversion".
   Settings have four tabs:
   - **VRM**: version, physics, expressions, outline, texture max size and JPEG
   - **Inputs**: non-PMX formats go through PMX to VRM by default, or stop at PMX
@@ -96,9 +96,12 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names
   (Japanese MMD or common English names) also play the idle / walk motions. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
-- **Zip packages from model sites can be added directly**: they are extracted to a temp folder, the PMX inside is converted
-  (other formats if there is no PMX) and the output goes next to the archive. Legacy GBK / Shift-JIS (even mixed) file names
-  are restored, so textures resolve.
+- **Archives from model sites can be added directly** (zip / 7z / rar / tar.gz …; add the first part of a split archive):
+  they are extracted to a temp folder, the PMX inside is converted (other formats if there is no PMX; one nested archive level
+  is unpacked too) and the output goes next to the archive. Zip uses the built-in extractor and restores legacy GBK / Shift-JIS
+  (even mixed) file names, so textures resolve; 7z / rar use 7-Zip / WinRAR / Bandizip if installed, otherwise Windows' own tar
+  (Windows 11 handles 7z and rar; the Windows 10 version can't read LZMA 7z and fails on file names outside the system code
+  page — install 7-Zip then). Password-protected archives are not supported.
 - Chinese / English UI; settings are saved to `settings.json`.
 - In a plain browser dropped files have no path — use "Add files". The app exits a minute after the page is closed.
 
@@ -133,6 +136,7 @@ Common `pmx2vrm.py` options:
 | `--force-double-sided` | Make every material double-sided |
 | `--flip-winding` | Force-reverse triangle winding (detected automatically by default) |
 | `--dense-morphs` / `--max-morphs N` | Dense morph storage / export only the first N morphs |
+| `--no-gaze` | Don't add gaze expressions (by default lookUp / lookDown / lookLeft / lookRight are made from the eye bones) |
 | `--tex-max N` / `--tex-jpeg` | Texture max size / store opaque textures as JPEG (needs Pillow) |
 | `--title` / `--author` | Written to the VRM meta |
 
@@ -178,6 +182,7 @@ Model-To-VRM/
 │   │   ├── mesh.py         vertex weights, per-material primitives
 │   │   ├── materials.py    MToon materials (toon ramps, alpha modes)
 │   │   ├── expressions.py  expressions
+│   │   ├── morphbake.py    bone / gaze morphs baked into vertex morphs, UV morphs → texture offsets
 │   │   ├── springbone.py   physics → SpringBone
 │   │   ├── textures.py     texture slimming (resize, JPEG)
 │   │   └── vrm_ext.py      VRM extension bodies
@@ -185,7 +190,7 @@ Model-To-VRM/
 │   ├── pmx_check.py        PMX check
 │   ├── pipeline.py         conversion flow: detect format → other formats to PMX → VRM (used by the GUI)
 │   └── vrm_edit.py         tuning after conversion: expression presets, physics, name, thumbnail
-├── formats/                format I/O (pmxio, vrmio (GLB), fbx_reader, uemodelio, pskio, xpsio …), longpath (Windows long paths)
+├── formats/                format I/O (pmxio, vrmio (GLB), fbx_reader, uemodelio, pskio, xpsio …), archive (7z / rar / tar), longpath (Windows long paths)
 ├── ui/                     GUI
 │   ├── app.py              entry point (pywebview window / browser)
 │   ├── server.py           backend: file list, options, conversion jobs, local HTTP API

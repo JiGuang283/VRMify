@@ -50,6 +50,7 @@ python tools/qa/check_vrm.py "model.vrm"
 | `--spring-gravity-skirt g` | 裙摆类的 SpringBone 重力，默认 0.1（抬腿时裙片落回腿上） |
 | `--no-spring-center` | 不设 SpringBone center（默认以模型根节点为 center，人物整体移动时头发/裙摆不会被甩） |
 | `--max-morphs N` | 只导出前 N 个表情；`0` = 完全不导出 |
+| `--no-gaze` | 不补视线表情 lookUp / lookDown / lookLeft / lookRight |
 | `--title` / `--author` | 写进 VRM meta |
 
 ## 坐标系（这部分决定了模型朝向对不对）
@@ -114,6 +115,9 @@ python tools/qa/check_vrm.py "model.vrm"
 | 贴图 | 嵌入 GLB。PNG/JPEG 直接透传，BMP/TGA 现转成 PNG；不支持的（DDS 等）跳过 |
 | 顶点表情（含グループ展开） | morph target（默认稀疏存储）+ VRM expression |
 | 材质表情 | expression 的 `materialColorBinds`（0.x：`materialValues`），用于显示/隐藏部件 |
+| 骨骼表情（寄り目、+目上、齿轮旋转 …） | 静止姿势下按表情摆骨（付与骨跟着付与親、子骨跟着父骨），线性蒙皮算出顶点位移 → morph target；グループ里的骨骼表情同样算进去 |
+| UV 表情（漫符、表情贴图切换） | 整个材质的 UV 按同一个缩放 + 平移变化时 → `textureTransformBinds`（0.x：`_MainTex_ST`）；不是的话跳过并提示 |
+| 左右眼骨 | humanoid 的 leftEye / rightEye，lookAt 用骨骼；另外转眼骨（左右 12°、上下 10°）烘焙出 lookLeft / lookRight / lookUp / lookDown 四个预设表情，给直接播这几个表情的程序用（模型自己有同名表情时不补，`--no-gaze` 关掉） |
 | 物理刚体（mode 1/2）+ 关节 | `VRMC_springBone` 的 springs（仅 1.0，见下文） |
 | 跟随骨骼的刚体（mode 0） | SpringBone 碰撞体（球 / 胶囊；盒近似成胶囊） |
 | 表情名 | 自动对应 VRM 预设（まばたき→blink、あ→aa、怒り→angry …）；MMD 的「上」「下」是眉毛表情，不映射成 lookUp / lookDown |
@@ -260,7 +264,8 @@ python tools/qa/check_vrm.py "model.vrm"
 
    「编号 0 = `toon00.bmp` = 不使用」是误解 —— MMD 的 `Data/` 目录里没有 `toon00.bmp`，
    mmd_tools 源码里写死了 `toon%02d.bmp % (shared + 1)`。本工具 2026-09-24 之前就是错的那个写法。
-4. **骨骼表情**：PMX 的骨骼表情（kind 2）在 VRM 里没有对应物，会被忽略。
+4. **骨骼表情**：VRM 表情不能动骨骼，PMX 的骨骼表情（kind 2）烘焙成顶点表情。烘焙用静止姿势和线性蒙皮，
+   不经过 IK；权重在 0 和 1 之间时，表情做到一半的效果和 MMD 里略有差别（MMD 是旋转插值，这里是位移插值）。
 5. **T-pose 重摆**：用的是线性蒙皮（LBS），肩部权重混合区在大角度重摆时会有轻微收缩。
 6. 表情默认用 glTF 稀疏 accessor 存储，只存实际动到的顶点（实测 62.7 MB → 20.1 MB）。
    个别老软件不支持稀疏 accessor 时可以加 `--dense-morphs`。

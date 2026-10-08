@@ -4,6 +4,7 @@ import re
 
 import vrmio
 
+from . import morphbake
 from .materials import _lin_rgb, _mmd_color, _morph_material
 from .mathutil import _m3vec
 
@@ -39,7 +40,8 @@ _EN_EMO = {"joy": "happy", "happy": "happy", "smile": "happy", "angry": "angry",
            "sorrow": "sad", "sad": "sad", "fun": "relaxed", "relaxed": "relaxed",
            "surprised": "surprised", "surprise": "surprised", "neutral": "neutral"}
 _TO_0X = {"happy": "joy", "aa": "a", "ih": "i", "ou": "u", "ee": "e", "oh": "o", "sad": "sorrow",
-          "relaxed": "fun", "blinkLeft": "blink_l", "blinkRight": "blink_r"}
+          "relaxed": "fun", "blinkLeft": "blink_l", "blinkRight": "blink_r", "lookUp": "lookup",
+          "lookDown": "lookdown", "lookLeft": "lookleft", "lookRight": "lookright"}
 
 
 def _preset_en(name, is1):
@@ -52,6 +54,8 @@ def _preset_en(name, is1):
         p = _EN_VOWEL[m.group(1)]
     elif re.search(r"mouth_?open$", s):
         p = "aa"
+    elif re.fullmatch(r"(?:.*[._])?look_?(up|down|left|right)", s):
+        p = "look" + re.fullmatch(r"(?:.*[._])?look_?(up|down|left|right)", s).group(1).capitalize()
     elif re.search(r"(blink|eye_?close[d]?|eye_def_c)[._]?(l|left)$", s):
         p = "blinkLeft"
     elif re.search(r"(blink|eye_?close[d]?|eye_def_c)[._]?(r|right)$", s):
@@ -67,47 +71,71 @@ def _preset_en(name, is1):
     return p
 
 
-def _flatten_morphs(morphs):
-    """把顶点表情和材质表情（含グループ展开）整理成
-    [(名字, {顶点: (dx,dy,dz)}, [(材质, 运算, 28 个值, 比率)])]。
+def _flatten_morphs(morphs, model=None, extra_bone=None):
+    """把顶点 / 骨骼 / UV / 材质表情（含グループ展开）整理成
+    [(名字, {顶点: (dx,dy,dz)}, [(材质, 运算, 28 个值, 比率)], {顶点: (du,dv)})]。
 
     材质表情（kind 8）在 MMD 里常用来显示/隐藏部件（脸红、换道具），
     VRM 对应 expression 的 materialColorBinds。材质号 -1 表示所有材质。
+    骨骼表情（kind 2）给了 model 时烘焙成顶点偏移（morphbake.BoneBaker）；
+    UV 表情（kind 3）留给 build_expressions 换成贴图偏移。
+    extra_bone：[(名字, 骨骼表情 offsets)]，追加的合成表情（视线），同样烘焙。
     """
+    baker = morphbake.BoneBaker(model) if model is not None else None
+    cache = {}
+
     def resolve(i, seen):
         if i in seen:
-            return {}, []
+            return {}, [], {}
+        if i in cache:
+            return cache[i]
         seen = seen | {i}
         mo = morphs[i]
-        if mo["kind"] == 1:
+        k = mo["kind"]
+        if k == 1:
             d = {}
             for vi, off in mo["offsets"]:
                 if abs(off[0]) + abs(off[1]) + abs(off[2]) > 1e-9:
                     d[vi] = (off[0], off[1], off[2])
-            return d, []
-        if mo["kind"] == 8:
-            return {}, [(mi, op, vals, 1.0) for mi, op, vals in mo["offsets"]]
-        if mo["kind"] == 0:
-            out, mats = {}, []
+            res = d, [], {}
+        elif k == 2:
+            res = (baker.deltas(mo["offsets"]) if baker else {}), [], {}
+        elif k == 3:
+            res = {}, [], {vi: (off[0], off[1]) for vi, off in mo["offsets"]
+                           if abs(off[0]) + abs(off[1]) > 1e-9}
+        elif k == 8:
+            res = {}, [(mi, op, vals, 1.0) for mi, op, vals in mo["offsets"]], {}
+        elif k == 0:
+            out, mats, uvs = {}, [], {}
             for sub, rate in mo["offsets"]:
                 if not (0 <= sub < len(morphs)) or abs(rate) < 1e-9:
                     continue
-                sd, sm = resolve(sub, seen)
+                sd, sm, su = resolve(sub, seen)
                 for vi, d in sd.items():
                     ox, oy, oz = out.get(vi, (0.0, 0.0, 0.0))
                     out[vi] = (ox + d[0] * rate, oy + d[1] * rate,
                                oz + d[2] * rate)
+                for vi, d in su.items():
+                    ox, oy = uvs.get(vi, (0.0, 0.0))
+                    uvs[vi] = (ox + d[0] * rate, oy + d[1] * rate)
                 mats.extend((mi, op, vals, r * rate) for mi, op, vals, r in sm)
-            return out, mats
-        return {}, []
+            res = out, mats, uvs
+        else:
+            res = {}, [], {}
+        cache[i] = res
+        return res
 
     out = []
     for i, mo in enumerate(morphs):
-        if mo["kind"] not in (0, 1, 8):
+        if mo["kind"] not in (0, 1, 2, 3, 8):
             continue
-        d, m = resolve(i, frozenset())
-        if d or m:
-            out.append((mo["name"], d, m))
+        d, m, u = resolve(i, frozenset())
+        if d or m or u:
+            out.append((mo["name"], d, m, u))
+    for name, offsets in extra_bone or ():
+        d = baker.deltas(offsets) if baker else {}
+        if d:
+            out.append((name, d, [], {}))
     return out
 
 
@@ -125,6 +153,7 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     """表情 → 各 primitive 的 morph target + VRM 表情。
 
     flat：_flatten_morphs 的结果；prims：mesh.build_primitives 的结果（会往 pr["targets"] 里追加）；
+    UV 表情能表示成整个材质的缩放 + 偏移时写 textureTransformBinds（0.x：_MainTex_ST）；
     mats：materials.MaterialBuilder；vmat：T-pose 后每个顶点的混合旋转（表情偏移要跟着转）。
     返回 dict：target_names、preset / custom（1.0）、blend_groups（0.x）。
     morphTargetBinds 的 node 先写 0，写出前由调用方改成网格节点。
@@ -137,10 +166,12 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     blend_groups = []
     table = EXPR_1_0 if is1 else EXPR_0X
     n_mat_expr = 0
-    jp_presets = {table[n] for n, _, _ in flat if n in table}    # 日文名占用的预设，英文名不抢
+    jp_presets = {table[n] for n, *_ in flat if n in table}    # 日文名占用的预设，英文名不抢
     used_0x = set()
+    mat_verts = None
+    n_uv_expr = n_uv_bad = 0
 
-    for mname, deltas, ops in flat:
+    for mname, deltas, ops, uvs in flat:
         slot = None
         if deltas:
             slot = len(target_names)
@@ -190,7 +221,17 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
             lit_c, shade_c, _, _ = mats.lit_shade(mat, c)
             colors.append((mi_, lit_c, shade_c, max(abs(c[k] - base[k])
                                                     for k in range(3)) > 1e-6))
-        if slot is None and not colors:
+        # UV 表情 → 贴图缩放 + 偏移（只用于出现在网格里的材质）
+        tex = []
+        if uvs:
+            if mat_verts is None:
+                mat_verts = morphbake.material_vertices(mats.model)
+            binds, bad = morphbake.uv_binds(mats.model, uvs, mat_verts)
+            tex = [(mi_, sc, off) for mi_, sc, off in binds if mi_ in mat_gidx]
+            n_uv_bad += bad
+            if tex:
+                n_uv_expr += 1
+        if slot is None and not colors and not tex:
             continue
         if colors:
             n_mat_expr += 1
@@ -213,9 +254,12 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
                            ([{"material": mat_gidx[mi_], "type": "shadeColor",
                               "targetValue": _lin_rgb(sc) + [1.0]}]
                             if rgb else []))],
+                   "textureTransformBinds": [
+                       {"material": mat_gidx[mi_], "scale": [sc[0], sc[1]], "offset": [off[0], off[1]]}
+                       for mi_, sc, off in tex],
                    "isBinary": False}
             # 规范要求这些数组非空（minItems 1）：没有就不写
-            for k_ in ("morphTargetBinds", "materialColorBinds"):
+            for k_ in ("morphTargetBinds", "materialColorBinds", "textureTransformBinds"):
                 if not obj[k_]:
                     del obj[k_]
             if preset and preset not in expr_preset:
@@ -243,12 +287,21 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
                            mats.materials[mat_gidx[mi_]]["name"],
                            "propertyName": "_ShadeColor",
                            "targetValue": sc + [1.0]}]
-                         if rgb else []))],
+                         if rgb else []))] + [
+                    # Unity 的 UV 原点在左下：v' = sv·v + ov 换成 ST 是 (sv, 1 - sv - ov)
+                    {"materialName": mats.materials[mat_gidx[mi_]]["name"],
+                     "propertyName": "_MainTex_ST",
+                     "targetValue": [s_[0], s_[1], o_[0], 1.0 - s_[1] - o_[1]]}
+                    for mi_, s_, o_ in tex],
                 "isBinary": False})
     if target_names:
         log("表情：导出 %d 个 morph target（%s存储）"
             % (len(target_names), "稀疏" if sparse_morphs else "密集"))
     if n_mat_expr:
         log("表情：%d 个含材质变化（材质表情 → materialColorBinds）" % n_mat_expr)
+    if n_uv_expr:
+        log("表情：%d 个 UV 表情 → 贴图偏移（textureTransformBinds）" % n_uv_expr)
+    if n_uv_bad:
+        log("表情：%d 处 UV 表情不是整个材质一起平移 / 缩放，VRM 表示不了，已跳过" % n_uv_bad, "warn")
     return {"target_names": target_names, "preset": expr_preset, "custom": expr_custom,
             "blend_groups": blend_groups}

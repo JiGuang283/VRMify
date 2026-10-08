@@ -4,15 +4,17 @@
     import pipeline
     outs = pipeline.convert_file(path, opts, log)    # → [输出文件路径, ...]
 
-.zip 压缩包（模型网站下载的整包）会先解压到临时目录，再转换里面的模型：有 PMX 就转 PMX，
-没有再转其它能识别的格式；输出放在压缩包旁边（或指定的输出文件夹），临时目录随后删除。
+压缩包（模型网站下载的整包：zip / 7z / rar / tar.gz 等）会先解压到临时目录，再转换里面的模型：
+有 PMX 就转 PMX，没有再转其它能识别的格式；包里只有另一个压缩包时再解一层。输出放在压缩包
+旁边（或指定的输出文件夹），临时目录随后删除。zip 用 Python 自带的 zipfile（处理 GBK / cp932
+文件名），其它格式见 formats/archive.py（7-Zip / WinRAR / Bandizip / Windows 自带的 tar）。
 
 opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEFAULTS 补齐：
 
     target   "vrm"（默认）| "pmx"（非 PMX 输入只转到 PMX 为止）
     output   {"mode": "beside" | "folder", "folder": 路径, "subfolder": 是否建「名字_日期_序号」子文件夹}
     vrm      {"spec": "1.0" | "0.x", "spring", "spring_skirt", "spring_stiffness", "auto_spring",
-              "morphs", "outline", "keep_pose", "double_sided",
+              "morphs", "gaze", "outline", "keep_pose", "double_sided",
               "tex_max": 0 | 4096 | 2048 | 1024, "tex_jpeg"}
     meta     VRM 作者 / 许可信息（键见 vrmconv/vrm_ext.build_vrm1），标题用模型文件名
     fbx      {"alpha": "auto" | "keep" | "strip", "auto_facing", "face_180", "morphs", "center", "flip_z"}
@@ -38,14 +40,17 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import archive  # noqa: E402
+
 KINDS = {".pmx": "pmx", ".vrm": "vrm", ".fbx": "fbx", ".unitypackage": "unitypackage",
          ".uemodel": "uemodel", ".psk": "psk", ".pskx": "psk", ".xps": "xps", ".zip": "zip"}
-CONVERTIBLE = {"pmx", "fbx", "unitypackage", "uemodel", "psk", "xps", "zip"}
+ARCHIVES = {"zip", "7z", "rar", "tar"}
+CONVERTIBLE = {"pmx", "fbx", "unitypackage", "uemodel", "psk", "xps"} | ARCHIVES
 
 DEFAULTS = {
     "target": "vrm",
     "output": {"mode": "beside", "folder": "", "subfolder": True},
-    "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True,
+    "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True,
             "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
             "tex_max": 0, "tex_jpeg": False},
     "meta": {"author": "", "version": "", "contact": "", "copyright": "", "license_url": "",
@@ -61,8 +66,9 @@ DEFAULTS = {
 
 
 def classify(path):
-    """→ "pmx" / "vrm" / "fbx" / "unitypackage" / "uemodel" / "psk" / "xps" / "zip"，不支持的为 None。"""
-    return KINDS.get(os.path.splitext(path)[1].lower())
+    """→ "pmx" / "vrm" / "fbx" / "unitypackage" / "uemodel" / "psk" / "xps" /
+    "zip" / "7z" / "rar" / "tar"，不支持的为 None（分卷压缩包只认第一卷）。"""
+    return KINDS.get(os.path.splitext(path)[1].lower()) or archive.kind(path)
 
 
 def merged(opts):
@@ -361,7 +367,7 @@ def pmx_to_vrm(pmx, out_dir, opts, log, name=None, edits=None):
                     outline=o["outline"], spring=o["spring"], spring_skirt=o["spring_skirt"],
                     spring_stiffness=float(o["spring_stiffness"]),
                     tex_max=int(o.get("tex_max") or 0), tex_jpeg=bool(o.get("tex_jpeg")),
-                    auto_spring=bool(o.get("auto_spring", True)))
+                    auto_spring=bool(o.get("auto_spring", True)), gaze=bool(o.get("gaze", True)))
     if edits:
         import vrm_edit
         if not vrm_edit.is_empty(edits):
@@ -381,16 +387,30 @@ def convert_file(path, opts=None, log=None, out_dir=None, edits=None):
     out_dir = out_dir or output_dir(path, opts)
     log("→ %s" % os.path.basename(path), "head")
     log("输出目录：%s" % out_dir, "info")
-    if kind == "zip":
-        return _convert_zip(path, out_dir, opts, log, edits)
+    if kind in ARCHIVES:
+        return _convert_archive(path, kind, out_dir, opts, log, edits)
     return _convert_model(path, kind, out_dir, opts, log, edits)
 
 
-def _convert_zip(path, out_dir, opts, log, edits=None):
-    tmp = tempfile.mkdtemp(prefix="model2vrm_zip_")
+def extract_archive(path, kind, dest, log=None):
+    """解压任意支持的压缩包，返回文件数。"""
+    if kind == "zip":
+        return extract_zip(path, dest)
+    return archive.extract(path, dest, log)
+
+
+def _convert_archive(path, kind, out_dir, opts, log, edits=None):
+    tmp = tempfile.mkdtemp(prefix="model2vrm_%s_" % kind)
     try:
-        n = extract_zip(path, tmp)
-        inner = [p for p in find_inputs(tmp) if classify(p) in CONVERTIBLE - {"zip"}]
+        n = extract_archive(path, kind, tmp, log)
+        found = find_inputs(tmp)
+        inner = [p for p in found if classify(p) in CONVERTIBLE - ARCHIVES]
+        if not inner:                # 包里套包（zip 里放 7z 之类）：再解一层
+            for i, p in enumerate(x for x in found if classify(x) in ARCHIVES):
+                sub = os.path.join(tmp, "__inner%d" % i)
+                log("解压内层压缩包 %s" % os.path.relpath(p, tmp), "info")
+                n += extract_archive(p, classify(p), sub, log)
+                inner += [q for q in find_inputs(sub) if classify(q) in CONVERTIBLE - ARCHIVES]
         pmx = [p for p in inner if classify(p) == "pmx"]
         todo = pmx or inner          # 有 PMX 就只转 PMX（同包里的 FBX 等通常是同一个模型）
         log("解压 %d 个文件，找到 %d 个模型：%s" % (n, len(todo), "、".join(

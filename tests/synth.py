@@ -4,6 +4,8 @@
 骨架用 MMD 标准日文骨名（A 姿势的手臂、双眼），每根骨挂一个小方块网格；
 头上一条三节的头发链挂物理刚体（→ SpringBone）；两张贴图：一张不透明、一张带透明；
 几个标准表情（まばたき / あ / にこり / 笑い）和一个材质表情。
+eyes=True 时再加：眼珠（挂在左右眼骨上）、骨骼表情「寄り目」、含骨骼表情的グループ「見開く」、
+一块漫符面片（独立材质）和移动它 UV 的 UV 表情「怒マーク」。
 """
 import math
 import os
@@ -85,7 +87,7 @@ def _material(name, tex, faces, toon=-1):
             "toon_flag": 1 if toon >= 0 else 0, "toon": toon, "memo": "", "faces": faces}
 
 
-def build(folder, name="合成モデル", tex_size=256):
+def build(folder, name="合成モデル", tex_size=256, eyes=False):
     """在 folder 里写出 <name>.pmx 和贴图，返回 PMX 路径。"""
     os.makedirs(os.path.join(folder, "tex"), exist_ok=True)
     with open(os.path.join(folder, "tex", "body.png"), "wb") as f:
@@ -115,6 +117,19 @@ def build(folder, name="合成モデル", tex_size=256):
             body += _box(m, pos, 0.5 if n != "頭" else 1.0, index[n])
     m["faces"] = body + hair
     m["materials"] = [_material("体", 0, len(body), toon=1), _material("髪", 1, len(hair))]
+    if eyes:
+        eye = []
+        for n in ("左目", "右目"):
+            x, y, z = _BONES[index[n]][2]
+            eye += _box(m, (x, y, z - 0.25), 0.12, index[n])      # 眼骨在眼珠后面
+        v0 = len(m["vertices"])
+        for k, (dx, dy) in enumerate(((0, 0), (1, 0), (1, 1), (0, 1))):
+            m["vertices"].append({"pos": (0.6 + dx * 0.4, 18 + dy * 0.4, -1.05), "normal": (0, 0, -1),
+                                  "uv": (dx * 0.25, dy * 0.25), "wtype": 0, "wbones": [index["頭"]],
+                                  "wweights": [1.0], "edge": 0.0})
+        emo = [v0, v0 + 1, v0 + 2, v0, v0 + 2, v0 + 3]
+        m["faces"] += eye + emo
+        m["materials"] += [_material("目", 0, len(eye)), _material("漫符", 1, len(emo))]
 
     # 表情：动头部方块（「頭」是第 6 根有网格的骨 → 第 6 个方块）
     hv = 5 * 8
@@ -130,6 +145,19 @@ def build(folder, name="合成モデル", tex_size=256):
         {"name": "照れ", "name_en": "blush", "panel": 4, "kind": 8,
          "offsets": [(0, 0, (1, 0.8, 0.8, 1) + (1,) * 24)]},
     ]
+    if eyes:
+        s = math.sin(math.radians(5))
+        c = math.cos(math.radians(5))
+        m["morphs"] += [
+            # 两眼往中间转 10°（PMX 四元数 x, y, z, w；左眼在 +X，绕 Y 转正角朝 -X）
+            {"name": "寄り目", "name_en": "cross", "panel": 2, "kind": 2,
+             "offsets": [(index["左目"], (0, 0, 0), (0, s, 0, c)), (index["右目"], (0, 0, 0), (0, -s, 0, c))]},
+            {"name": "見開く", "name_en": "wide", "panel": 2, "kind": 0,
+             "offsets": [(0, -0.5), (5, 1.0)]},                  # まばたき × -0.5 + 寄り目
+            # 漫符面片的 UV 整体移到贴图右边一格
+            {"name": "怒マーク", "name_en": "anger", "panel": 4, "kind": 3,
+             "offsets": [(v0 + k, (0.5, 0.25, 0, 0)) for k in range(4)]},
+        ]
 
     # 物理：頭（跟随骨骼）+ 头发三节（物理）
     def rb(nm, bone, pos, mode, r=0.6):
