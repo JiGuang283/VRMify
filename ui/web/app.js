@@ -54,7 +54,7 @@ function handleEvent(ev) {
     renderFiles();
     // a file just finished converting → open it in the preview: the first one of each run (unless the Tune
     // panel has unsaved changes for the model on screen), and the one already on screen (show the real output)
-    if (ev.file.status === 'done' && was !== 'done' && ev.file.outputs.some((o) => o.url)) {
+    if (ev.file.status === 'done' && was !== 'done' && ev.file.outputs.some((o) => o.url || o.previewable)) {
       const first = !S.autoOpened && !(T.dirty && T.fid === S.current && ev.file.id !== S.current);
       if (first) S.autoOpened = true;
       if (first || ev.file.id === S.current) previewFile(ev.file.id);
@@ -98,7 +98,9 @@ function renderFiles() {
       else if (act === 'reveal') api('/api/open', { path: f.outputs.length ? f.outputs[f.outputs.length - 1].path : f.path });
       else if (out !== undefined) {
         const o = f.outputs[+out];
-        if (o.url) { S.current = f.id; renderFiles(); loadModel(o.url, o.name); loadTune(); } else api('/api/open', { path: o.path });
+        if (o.url) { S.current = f.id; renderFiles(); loadModel(o.url, o.name); loadTune(); }
+        else if (o.previewable) previewFile(f.id, +out);
+        else api('/api/open', { path: o.path });
       } else previewFile(f.id);
     });
     ul.append(li);
@@ -249,9 +251,9 @@ viewer.onLoad = (info) => {
 let modelUrl = null;
 
 function showBusy(text) { $('pvBusy').hidden = !text; $('pvBusyText').textContent = text || ''; }
-async function previewFile(id) {
+async function previewFile(id, output) {
   S.current = id; renderFiles(); loadTune();
-  const r = await api('/api/preview', { id });
+  const r = await api('/api/preview', output === undefined ? { id } : { id, output });
   if (r.url) loadModel(r.url, r.name);
   else if (r.pending) showBusy(t('pvMaking'));
   else if (r.error) toast(r.error);

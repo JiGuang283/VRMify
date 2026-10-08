@@ -92,7 +92,8 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   - **Metadata**: author and usage license (the name defaults to the model file name)
   - **Output**: next to the source / a chosen folder, optional per-run subfolder
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
-  after conversion the real output is shown. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
+  after conversion the real output is shown. PMX outputs (including "PMX only" results) can be previewed by clicking their
+  name, also through a quick temporary VRM. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
 - **Zip packages from model sites can be added directly**: they are extracted to a temp folder, the PMX inside is converted
   (other formats if there is no PMX) and the output goes next to the archive. Legacy GBK / Shift-JIS (even mixed) file names
   are restored, so textures resolve.

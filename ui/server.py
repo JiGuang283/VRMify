@@ -13,7 +13,8 @@
   POST /api/options  {opts, lang}     保存选项（写 settings.json）
   POST /api/convert  {ids}            开始转换（ids 为空 = 全部待转的）
   POST /api/stop                      当前文件转完后停止
-  POST /api/preview  {id}             给某个文件准备预览（PMX 等会先快速转一份临时 VRM）
+  POST /api/preview  {id, output}     给某个文件准备预览（PMX 等会先快速转一份临时 VRM）；
+                                      output = 输出列表里的序号时预览那个输出（PMX 输出同样先转临时 VRM）
   POST /api/open     {path}           在资源管理器里显示文件
   POST /api/snapshot {name, data}     把预览截图存到模型旁边
   POST /api/tune     {id}             调整面板要的信息（可选表情、物理链、当前调整）
@@ -258,7 +259,8 @@ class Backend:
     def _outputs(self, paths):
         return [{"path": p, "name": os.path.basename(p), "kind": pipeline.classify(p),
                  "url": "/file/%s/%s" % (self.token_for(p), urllib.parse.quote(os.path.basename(p)))
-                 if p.lower().endswith(".vrm") else None} for p in paths]
+                 if p.lower().endswith(".vrm") else None,
+                 "previewable": p.lower().endswith((".vrm", ".pmx"))} for p in paths]
 
     # ------------------------------------------------------- conversion --
     def convert(self, ids=None):
@@ -313,36 +315,61 @@ class Backend:
             self.stop_flag = True
 
     # ---------------------------------------------------------- preview --
-    def preview(self, fid):
-        """→ {"url": …} 立即可看；或 {"pending": True}（后台快速转换完发 preview 事件）。"""
+    def preview(self, fid, output=None):
+        """→ {"url": …} 立即可看；或 {"pending": True}（后台快速转换完发 preview 事件）。
+
+        预览的对象：指定了 output（输出列表里的序号）就是那个输出；否则依次是输出的 VRM、
+        输出的 PMX（「只转 PMX」时）、源文件本身。PMX 和源文件都先快速转一份临时 VRM，
+        按「文件 + 修改时间」缓存，重新转换后会重新生成。
+        """
         with self.lock:
             f = self.files.get(fid)
             if not f:
                 return {"error": "no such file"}
             if f["kind"] == "vrm":
                 return {"url": self._outputs([f["path"]])[0]["url"], "name": f["name"]}
-            vrms = [o for o in f["outputs"] if o.get("url")]
-            if vrms:
-                return {"url": vrms[-1]["url"], "name": vrms[-1]["name"]}
-            if f.get("preview"):
-                return {"url": f["preview"], "name": f["name"]}
+            outs = f["outputs"]
+            if output is not None:
+                if not (0 <= int(output) < len(outs)) or not outs[int(output)].get("previewable"):
+                    return {"error": "not previewable"}
+                o = outs[int(output)]
+                if o.get("url"):
+                    return {"url": o["url"], "name": o["name"]}
+                src = o["path"]
+            else:
+                vrms = [o for o in outs if o.get("url")]
+                if vrms:
+                    return {"url": vrms[-1]["url"], "name": vrms[-1]["name"]}
+                pmxs = [o for o in outs if o.get("previewable") and os.path.isfile(o["path"])]
+                src = pmxs[-1]["path"] if pmxs else f["path"]
+            try:
+                key = "%s|%s" % (os.path.normcase(src), os.path.getmtime(src))
+            except OSError:
+                return {"error": "file not found"}
+            cache = f.setdefault("previews", {})
+            if key in cache and os.path.isfile(cache[key][1]):
+                url, vrm = cache[key]
+                f["preview"], f["preview_path"] = url, vrm
+                return {"url": url, "name": os.path.basename(src)}
             opts = json.loads(json.dumps(self.opts))
         opts["target"] = "vrm"
-        out_dir = os.path.join(self.tmp, fid)
+        out_dir = os.path.join(self.tmp, fid, hashlib.md5(key.encode("utf-8")).hexdigest()[:10])
+        name = os.path.basename(src)
 
         def work():
             self.emit(type="preview_busy", file=fid)
             try:
                 os.makedirs(out_dir, exist_ok=True)
-                outs = pipeline.convert_file(f["path"], opts, log=lambda m, t=None: self.log(m, t, fid),
-                                             out_dir=out_dir, edits=self.edits_for(f))
-                vrm = [p for p in outs if p.lower().endswith(".vrm")][-1]
+                res = pipeline.convert_file(src, opts, log=lambda m, t=None: self.log(m, t, fid),
+                                            out_dir=out_dir, edits=self.edits_for(f))
+                vrm = [p for p in res if p.lower().endswith(".vrm")][-1]
                 url = self._outputs([vrm])[0]["url"]
                 with self.lock:
                     if fid in self.files:
-                        self.files[fid]["preview"] = url
-                        self.files[fid]["preview_path"] = vrm
-                self.emit(type="preview", file=fid, url=url, name=os.path.basename(vrm))
+                        ff = self.files[fid]
+                        ff.setdefault("previews", {})[key] = (url, vrm)
+                        ff["preview"], ff["preview_path"] = url, vrm
+                self.emit(type="preview", file=fid, url=url, name=name)
             except Exception as e:  # noqa: BLE001
                 self.log(traceback.format_exc(), "err", fid)
                 self.emit(type="preview", file=fid, error="%s: %s" % (type(e).__name__, e))
@@ -601,7 +628,7 @@ class Handler(SimpleHTTPRequestHandler):
             b.stop()
             return self._json({})
         if route == "/api/preview":
-            return self._json(b.preview(body.get("id")))
+            return self._json(b.preview(body.get("id"), body.get("output")))
         if route == "/api/open":
             return self._json({"ok": b.reveal(body.get("path"))})
         if route == "/api/tune":
