@@ -45,7 +45,7 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 ### 三维预览
 
 用 three-vrm（和 UniVRM 同一套 MToon / SpringBone 规则）查看转换结果：待机 / 走路 / 跑步 / 抬腿动作、
-可调的灯光和投影、表情滑块、截图。离线可用。
+可调的灯光和投影、表情滑块、截图。PMX 用 three.js 的 MMD 组件原生显示（MMD 着色 + MMD 物理），不经过 VRM。离线可用。
 
 ### 转换后调整
 
@@ -88,7 +88,8 @@ uv venv .venv && uv pip install -r requirements.txt     # 或 python -m venv .ve
   - **VRM 信息**：作者和使用许可（名称默认用模型文件名）
   - **输出**：源文件旁 / 指定文件夹，是否每次建子文件夹
 - 右侧：three-vrm 预览。还没转换的文件点「预览」会先在后台快速转一份临时 VRM；转换完成后显示实际输出。
-  输出里的 PMX（包括「只转 PMX」的结果）点文件名也能预览，同样是先快速转一份临时 VRM。
+  PMX（加进来的 PMX 文件、输出里的 PMX、「只转 PMX」的结果）直接原生预览：MMD 的卡通着色、球面贴图、表情，
+  MMD 物理（ammo.js）实时模拟，标准骨名（日文 MMD 名或常见英文名）的模型也能做待机 / 走路等动作。
   「调整」面板见上面的[转换后调整](#转换后调整)。
 - **模型网站下载的 zip 整包可以直接加**：在临时目录解压，转换里面的 PMX（没有 PMX 时转其它格式），输出放在压缩包旁边。
   文件名是 GBK / Shift-JIS（甚至混用）的老压缩包也能正确还原，贴图不会丢。

@@ -260,7 +260,7 @@ async function previewFile(id, output) {
 }
 async function loadModel(url, name, keepView) {
   showBusy(t('pvLoading'));
-  S.keepView = keepView && viewer.vrm ? { pos: viewer.camera.position.clone(), tgt: viewer.controls.target.clone() } : null;
+  S.keepView = keepView && viewer.loaded ? { pos: viewer.camera.position.clone(), tgt: viewer.controls.target.clone() } : null;
   try {
     await viewer.loadUrl(url, name);
     modelUrl = url;
@@ -270,13 +270,20 @@ async function loadModel(url, name, keepView) {
   showBusy(null);
 }
 function fillPreviewPanels(info) {
-  const rows = S.lang === 'en'
-    ? [['VRM', info.spec], ['Height', info.height.toFixed(2) + ' m'], ['Humanoid bones', info.humanBones], ['Triangles', info.triangles.toLocaleString()],
-      ['Materials', info.materials], ['Textures', info.textures], ['Expressions', info.expressions.length],
-      ['SpringBone', info.springs ? `${info.springs} chains / ${info.joints} joints` : '—'], ['Colliders', info.colliders]]
-    : [['VRM', info.spec], ['身高', info.height.toFixed(2) + ' m'], ['humanoid 骨', info.humanBones], ['三角面', info.triangles.toLocaleString()],
-      ['材质', info.materials], ['贴图', info.textures], ['表情', info.expressions.length],
-      ['SpringBone', info.springs ? `${info.springs} 条 / ${info.joints} 关节` : '—'], ['碰撞体', info.colliders]];
+  const en = S.lang === 'en', pmx = info.spec === 'PMX';
+  const rows = pmx
+    ? [[en ? 'Format' : '格式', 'PMX'], [en ? 'Height' : '身高', info.height.toFixed(1) + (en ? ' MMD units' : ' MMD 单位')],
+      [en ? 'Triangles' : '三角面', info.triangles.toLocaleString()], [en ? 'Materials' : '材质', info.materials],
+      [en ? 'Textures' : '贴图', info.textures], [en ? 'Morphs' : '表情', info.expressions.length],
+      [en ? 'Physics' : '物理', info.rigidBodies ? (en ? `${info.rigidBodies} rigid bodies / ${info.constraints} joints` : `${info.rigidBodies} 刚体 / ${info.constraints} 关节`)
+        + (info.physics ? '' : (en ? ' (off)' : '（未启用）')) : '—']]
+    : en
+      ? [['VRM', info.spec], ['Height', info.height.toFixed(2) + ' m'], ['Humanoid bones', info.humanBones], ['Triangles', info.triangles.toLocaleString()],
+        ['Materials', info.materials], ['Textures', info.textures], ['Expressions', info.expressions.length],
+        ['SpringBone', info.springs ? `${info.springs} chains / ${info.joints} joints` : '—'], ['Colliders', info.colliders]]
+      : [['VRM', info.spec], ['身高', info.height.toFixed(2) + ' m'], ['humanoid 骨', info.humanBones], ['三角面', info.triangles.toLocaleString()],
+        ['材质', info.materials], ['贴图', info.textures], ['表情', info.expressions.length],
+        ['SpringBone', info.springs ? `${info.springs} 条 / ${info.joints} 关节` : '—'], ['碰撞体', info.colliders]];
   $('infoList').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   const box = $('exprList'); box.innerHTML = '';
   for (const e of info.expressions) {
@@ -320,7 +327,7 @@ function updateLight() {
 ['lAz', 'lEl', 'lI', 'lAmb', 'lShadow'].forEach((id) => $(id).addEventListener('input', updateLight));
 updateLight();
 $('shotBtn').onclick = async () => {
-  if (!viewer.vrm) return;
+  if (!viewer.loaded) return;
   const r = await api('/api/snapshot', { name: (viewer.name || 'vrm').replace(/\.[^.]+$/, ''), data: viewer.snapshot(), model: modelUrl });
   if (r.path) toast(t('saved', { path: r.path }));
 };
@@ -417,7 +424,7 @@ function renderTune() {
     `</div><div class="hint flush">${t('thumbHint')}</div></div>`;
   tr.addEventListener('click', async (e) => {
     const a = e.target.dataset.a;
-    if (!a || !viewer.vrm) return;
+    if (!a || !viewer.loaded) return;
     const r = await api('/api/tune/thumb', { id: T.fid, data: a === 'shot' ? viewer.snapshotSquare(1024) : '' });
     if (r.error) return toast(r.error);
     T.info.thumbnail = r.thumbnail || null;

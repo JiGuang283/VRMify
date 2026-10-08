@@ -45,7 +45,8 @@ The resulting PMX can then be converted to VRM.
 ### 3D preview
 
 View results with three-vrm (the same MToon / SpringBone rules as UniVRM): idle / walk / run / leg-raise motions,
-adjustable lighting and shadows, expression sliders, snapshots. Works offline.
+adjustable lighting and shadows, expression sliders, snapshots. PMX files are shown natively with three.js's MMD
+components (MMD shading + MMD physics), not through VRM. Works offline.
 
 ### Tuning after conversion
 
@@ -92,8 +93,9 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   - **Metadata**: author and usage license (the name defaults to the model file name)
   - **Output**: next to the source / a chosen folder, optional per-run subfolder
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
-  after conversion the real output is shown. PMX outputs (including "PMX only" results) can be previewed by clicking their
-  name, also through a quick temporary VRM. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
+  after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
+  natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names
+  (Japanese MMD or common English names) also play the idle / walk motions. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
 - **Zip packages from model sites can be added directly**: they are extracted to a temp folder, the PMX inside is converted
   (other formats if there is no PMX) and the output goes next to the archive. Legacy GBK / Shift-JIS (even mixed) file names
   are restored, so textures resolve.

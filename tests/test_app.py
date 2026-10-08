@@ -78,5 +78,66 @@ class WindowFallbackTest(unittest.TestCase):
         self.assertIsInstance(app._webview2_ok(), bool)
 
 
+class ModelRouteTest(unittest.TestCase):
+    """/model/<token>/<相对路径>：PMX 原生预览读模型和贴图的接口。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.backend, cls.srv, cls.url = server.serve(0)
+        cls.tmp = tempfile.mkdtemp(prefix="m2v_route_")
+        cls.folder = os.path.join(cls.tmp, "模型")
+        os.makedirs(os.path.join(cls.folder, "tex"))
+        with open(os.path.join(cls.folder, "a.pmx"), "wb") as f:
+            f.write(b"PMX " + bytes([0, 0, 0, 64]))
+        with open(os.path.join(cls.folder, "tex", "s.spa"), "wb") as f:
+            f.write(b"BM" + bytes(60))
+        with open(os.path.join(cls.tmp, "secret.txt"), "w") as f:
+            f.write("outside")
+        try:
+            from PIL import Image
+            Image.new("RGB", (4, 4), (255, 0, 0)).save(os.path.join(cls.folder, "tex", "c.dds"))
+            cls.dds = True
+        except Exception:  # noqa: BLE001
+            cls.dds = False
+        cls.base = cls.url.rstrip("/") + cls.backend.dir_url(os.path.join(cls.folder, "a.pmx")).rsplit("/", 1)[0]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+        cls.backend.close()
+
+    def get(self, path):
+        import urllib.error
+        import urllib.request
+        try:
+            with urllib.request.urlopen(self.base + "/" + path) as r:
+                return r.status, r.headers.get("Content-Type"), r.read()
+        except urllib.error.HTTPError as e:
+            e.close()
+            return e.code, None, b""
+
+    def test_files(self):
+        st, ct, data = self.get("a.pmx")
+        self.assertEqual((st, data[:4]), (200, b"PMX "))
+        st, ct, _ = self.get("tex/s.spa")
+        self.assertEqual((st, ct), (200, "image/bmp"))           # 球面贴图其实是 BMP
+        st, ct, _ = self.get("tex%5Cs.spa")                       # PMX 里写的是反斜杠路径
+        self.assertEqual(st, 200)
+        if self.dds:
+            st, ct, data = self.get("tex/c.dds")
+            self.assertEqual((st, ct, data[:4]), (200, "image/png", bytes([0x89]) + b"PNG"))
+
+    def test_outside_refused(self):
+        self.assertEqual(self.get("../secret.txt")[0], 404)
+        self.assertEqual(self.get("%2E%2E/secret.txt")[0], 404)
+        self.assertEqual(self.get("missing.png")[0], 404)
+        import urllib.error
+        import urllib.request
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(self.url + "model/nosuchtoken/a.pmx")
+        cm.exception.close()
+
+
 if __name__ == "__main__":
     unittest.main()

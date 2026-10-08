@@ -21,6 +21,8 @@
   POST /api/tune/save  {id, edits}    保存某个文件的调整，并套到它已有的输出 / 预览 VRM 上
   POST /api/tune/thumb {id, data}     把预览截图存成这个文件的 VRM 缩略图（data 为空 = 去掉）
   GET  /file/<token>                  预览要读的 VRM / 缩略图（只提供登记过的文件）
+  GET  /model/<token>/<相对路径>       PMX 原生预览：PMX 和它旁边的贴图（只限登记过的模型文件夹；
+                                      浏览器显示不了的 DDS 等现转 PNG）
 
 调整（表情指定、物理、标题、缩略图，见 convert/vrm_edit.py）按源文件路径存在 edits.json，
 缩略图在 edits/ 里；以后再转这个文件会自动套上。
@@ -107,6 +109,7 @@ class Backend:
         self.events = []                # [(seq, event)]
         self.seq = itertools.count(1)
         self.tokens = {}                # token → 路径（预览可读的文件）
+        self.dirs = {}                  # token → 文件夹（PMX 原生预览：模型和贴图都从这里读）
         self.busy = False
         self.stop_flag = False
         self.window = None              # pywebview 窗口（有的话用它的原生对话框）
@@ -256,6 +259,16 @@ class Backend:
             self.tokens[t] = path
             return t
 
+    def dir_url(self, path):
+        """PMX 的原生预览地址：/model/<文件夹 token>/<文件名>，贴图按 PMX 里的相对路径从同一文件夹读。"""
+        folder = os.path.dirname(os.path.abspath(path))
+        with self.lock:
+            tok = next((t for t, d in self.dirs.items() if d == folder), None)
+            if tok is None:
+                tok = uuid.uuid4().hex
+                self.dirs[tok] = folder
+        return "/model/%s/%s" % (tok, urllib.parse.quote(os.path.basename(path)))
+
     def _outputs(self, paths):
         return [{"path": p, "name": os.path.basename(p), "kind": pipeline.classify(p),
                  "url": "/file/%s/%s" % (self.token_for(p), urllib.parse.quote(os.path.basename(p)))
@@ -319,8 +332,8 @@ class Backend:
         """→ {"url": …} 立即可看；或 {"pending": True}（后台快速转换完发 preview 事件）。
 
         预览的对象：指定了 output（输出列表里的序号）就是那个输出；否则依次是输出的 VRM、
-        输出的 PMX（「只转 PMX」时）、源文件本身。PMX 和源文件都先快速转一份临时 VRM，
-        按「文件 + 修改时间」缓存，重新转换后会重新生成。
+        输出的 PMX（「只转 PMX」时）、源文件本身。PMX 直接原生预览（three.js 的 MMDLoader，
+        MMD 的着色、IK、物理）；FBX 等其它格式先快速转一份临时 VRM，按「文件 + 修改时间」缓存。
         """
         with self.lock:
             f = self.files.get(fid)
@@ -342,6 +355,10 @@ class Backend:
                     return {"url": vrms[-1]["url"], "name": vrms[-1]["name"]}
                 pmxs = [o for o in outs if o.get("previewable") and os.path.isfile(o["path"])]
                 src = pmxs[-1]["path"] if pmxs else f["path"]
+            if src.lower().endswith(".pmx"):
+                if not os.path.isfile(src):
+                    return {"error": "file not found"}
+                return {"url": self.dir_url(src), "name": os.path.basename(src)}
             try:
                 key = "%s|%s" % (os.path.normcase(src), os.path.getmtime(src))
             except OSError:
@@ -553,7 +570,54 @@ class Handler(SimpleHTTPRequestHandler):
     def guess_type(self, path):
         if path.endswith((".js", ".mjs")):
             return "text/javascript"
+        if path.endswith(".wasm"):              # ammo.js 用 instantiateStreaming，类型不对会退回慢路径
+            return "application/wasm"
         return super().guess_type(path)
+
+    def _send_bytes(self, data, ctype):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _model_file(self, tok, rel):
+        """/model/<token>/<rel>：只给登记过的模型文件夹里的文件；图片按内容给类型，DDS 等现转 PNG。"""
+        folder = self.backend.dirs.get(tok)
+        if not folder:
+            return self.send_error(404)
+        rel = urllib.parse.unquote(rel).replace("\\", "/")
+        p = os.path.normpath(os.path.join(folder, *[x for x in rel.split("/") if x not in ("", ".")]))
+        try:
+            inside = os.path.commonpath([folder, p]) == folder
+        except ValueError:
+            inside = False
+        if not inside or not os.path.isfile(p):
+            return self.send_error(404)
+        with open(p, "rb") as f:
+            data = f.read()
+        low = p.lower()
+        if low.endswith(".pmx"):
+            return self._send_bytes(data, "application/octet-stream")
+        if low.endswith(".tga"):                # MMDLoader 自己用 TGALoader 解
+            return self._send_bytes(data, "image/x-tga")
+        head = data[:8]
+        if head.startswith(b"\x89PNG"):
+            return self._send_bytes(data, "image/png")
+        if head.startswith(b"\xff\xd8\xff"):
+            return self._send_bytes(data, "image/jpeg")
+        if head.startswith(b"BM"):              # .bmp / .spa / .sph（球面贴图其实是 BMP）
+            return self._send_bytes(data, "image/bmp")
+        if head.startswith((b"GIF8", b"RIFF")):
+            return self._send_bytes(data, "image/gif" if head.startswith(b"GIF8") else "image/webp")
+        try:                                    # DDS 等浏览器不认的：现转 PNG
+            import vrmio
+            png = vrmio.decode_image(data)
+        except Exception:  # noqa: BLE001
+            png = None
+        if png:
+            return self._send_bytes(png, "image/png" if png[:4] == b"\x89PNG" else "image/jpeg")
+        return self._send_bytes(data, "application/octet-stream")
 
     def translate_path(self, path):
         p = urllib.parse.unquote(urllib.parse.urlsplit(path).path)
@@ -580,6 +644,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"events": b.wait_events(after)})
         if u.path == "/api/ping":
             return self._json({})
+        if u.path.startswith("/model/"):
+            parts = u.path.split("/", 3)
+            return self._model_file(parts[2], parts[3] if len(parts) > 3 else "")
         if u.path.startswith("/file/"):
             tok = u.path.split("/")[2]
             p = b.tokens.get(tok)
