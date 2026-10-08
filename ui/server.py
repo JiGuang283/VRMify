@@ -45,12 +45,39 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):                  # PyInstaller：资源在 _MEIPASS 下
     ROOT = sys._MEIPASS
-    DATA_DIR = os.path.dirname(sys.executable)
 else:
     ROOT = os.path.dirname(HERE)
-    DATA_DIR = ROOT
-# 测试 / 调试时可以把 settings.json、edits.json 放到别处，不动用户自己的设置
-DATA_DIR = os.environ.get("MODEL2VRM_DATA") or DATA_DIR
+
+
+def _writable(folder):
+    try:
+        os.makedirs(folder, exist_ok=True)
+        probe = os.path.join(folder, ".write_test_%d" % os.getpid())
+        with open(probe, "w") as f:
+            f.write("")
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+
+
+def _data_dir():
+    """settings.json / edits.json 放哪：
+
+    * 环境变量 MODEL2VRM_DATA（测试 / 调试用，不动用户自己的设置）；
+    * 否则放程序旁边（exe 所在文件夹 / 源码根目录）——绿色版解压到哪都能带着设置走；
+    * 程序旁边写不了（比如放进了 C:\\Program Files）时改放 %APPDATA%\\Model-To-VRM。
+    """
+    env = os.environ.get("MODEL2VRM_DATA")
+    if env:
+        return env
+    beside = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ROOT
+    if _writable(beside):
+        return beside
+    return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Model-To-VRM")
+
+
+DATA_DIR = _data_dir()
 for _p in ("convert", "formats"):
     _d = os.path.join(ROOT, _p)
     if _d not in sys.path:
@@ -60,6 +87,7 @@ for _p in ("convert", "formats"):
 import longpath  # noqa: E402,F401
 import pipeline  # noqa: E402
 import vrm_edit  # noqa: E402
+from version import __version__  # noqa: E402
 from vrmconv import textures  # noqa: E402
 
 WEB = os.path.join(ROOT, "ui", "web")
@@ -159,7 +187,7 @@ class Backend:
             return {"files": [self._entry(f) for f in self.files.values()], "opts": self.opts,
                     "lang": self.lang, "busy": self.busy,
                     "seq": self.events[-1][0] if self.events else 0,
-                    "native": self.window is not None,
+                    "native": self.window is not None, "version": __version__,
                     "features": {"pillow": textures.available()}}
 
     def add_paths(self, paths):

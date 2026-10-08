@@ -188,6 +188,7 @@ Model-To-VRM/
 │   ├── web/                page (HTML / CSS / JS, Chinese and English)
 │   └── viewer/             three-vrm viewer component viewer-core.js; vendor/ holds offline three.js and three-vrm
 ├── tests/                  unit tests (synth.py builds a small test model)
+├── .github/workflows/      GitHub Actions: tests on push, release build on tags
 └── tools/                  batch conversion, QA, regression comparison (not bundled)
 ```
 
@@ -195,17 +196,35 @@ Modules import each other by bare name (`import pmxio`); `ui/server.py` and the 
 
 ---
 
-## 5. Building
+## 5. Building and releases
+
+Releases are a **portable zip**: unzip and double-click `Model-To-VRM.exe`, nothing to install; delete the folder to uninstall.
 
 ```bash
 pip install -r requirements-dev.txt     # pyinstaller + pywebview + Pillow
-pyinstaller Model-To-VRM.spec           # → dist/Model-To-VRM/Model-To-VRM.exe
+python tools/build_release.py           # → dist/Model-To-VRM-v<version>-win64.zip (folder only: pyinstaller Model-To-VRM.spec)
 ```
 
-**Always build with the spec files**: the sub-directory modules are added to `sys.path` only at runtime, which PyInstaller's
-static analysis can't see; the specs set `pathex`, `hiddenimports` and the page assets (`ui/web`, `ui/viewer`). Install pywebview
-and Pillow in the build environment so the exe gets the native window and texture slimming. `settings.json` and `edits.json`
-are written next to the exe. Rebuild after source changes.
+- The **version** lives only in `ui/version.py`; the UI header, the exe's Properties → Details and the zip name all read it.
+- **Always build with the spec**: the sub-directory modules are added to `sys.path` only at runtime, which PyInstaller's static
+  analysis can't see; the spec sets `pathex`, `hiddenimports` and the page assets (`ui/web`, `ui/viewer`). Install pywebview and
+  Pillow in the build environment so the exe gets the native window and texture slimming.
+- **Settings** (`settings.json`, `edits.json`) are written next to the exe, or to `%APPDATA%\Model-To-VRM` when that folder isn't
+  writable (e.g. under `C:\Program Files`).
+- The **native window** uses the system WebView2 (built into Windows 11, nearly always present on Windows 10); without it, or if the
+  window fails to open, the UI opens in the browser instead.
+- The exe is not code-signed, so Windows SmartScreen warns on first run: "More info → Run anyway".
+- The zip includes `LICENSE` (GPL-3.0) and the READMEs.
+
+**GitHub Actions** (`.github/workflows/`):
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `test.yml` | pushes to main that touch code; manual | unit tests on Linux (incl. official VRM schema checks), about a minute |
+| `release.yml` | `v*` tags; manual | tests on Windows → `build_release.py` → for tags a **draft** release with the zip; manual runs only upload the zip as an artifact |
+
+To release: bump `ui/version.py` → commit → `git tag v0.1.0` → `git push origin main v0.1.0` → review the draft under Releases
+and publish. The build fails if the tag and `ui/version.py` disagree.
 
 ---
 

@@ -1,0 +1,44 @@
+# 打 v* tag 时：测试 → 打包 Windows 绿色版 zip → 建一个草稿 Release（确认后在网页上点发布）。
+# 手动运行（workflow_dispatch）只打包，zip 在这次运行的 Artifacts 里，不建 Release。
+#
+#   改 ui/version.py → 提交 → git tag v0.1.0 → git push origin v0.1.0
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m unittest discover -s tests
+      - name: Build
+        id: build
+        shell: pwsh
+        run: |
+          $expect = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "" }
+          python tools/build_release.py --expect-version "$expect"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Model-To-VRM-v${{ steps.build.outputs.version }}-win64
+          path: ${{ steps.build.outputs.zip }}
+          compression-level: 0
+      - name: Draft release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" "${{ steps.build.outputs.zip }}" --draft `
+            --title "Model-To-VRM ${{ github.ref_name }}" --generate-notes

@@ -183,6 +183,7 @@ Model-To-VRM/
 │   ├── web/                页面（HTML / CSS / JS，中英双语）
 │   └── viewer/             three-vrm 预览组件 viewer-core.js，vendor/ 里是 three.js、three-vrm 离线副本
 ├── tests/                  单元测试（synth.py 合成测试用的小模型）
+├── .github/workflows/      GitHub Actions：推送时测试、打 tag 时打包发布
 └── tools/                  批量转换、质量检查、回归对比（不随程序打包）
 ```
 
@@ -190,16 +191,33 @@ Model-To-VRM/
 
 ---
 
-## 五、打包
+## 五、打包和发布
+
+发布形式是**绿色版 zip**：解压后双击 `Model-To-VRM.exe`，不用安装；删掉文件夹就是卸载。
 
 ```bash
 pip install -r requirements-dev.txt     # pyinstaller + pywebview + Pillow
-pyinstaller Model-To-VRM.spec           # → dist/Model-To-VRM/Model-To-VRM.exe
+python tools/build_release.py           # → dist/Model-To-VRM-v<版本>-win64.zip（只要文件夹：pyinstaller Model-To-VRM.spec）
 ```
 
-**务必用 spec 文件**：子目录模块是运行时才加进 `sys.path` 的，PyInstaller 的静态分析看不到，
-spec 里配好了 `pathex`、`hiddenimports` 和页面资源（`ui/web`、`ui/viewer`）。打包环境里装了 pywebview 和 Pillow，
-exe 才有独立窗口和贴图瘦身。`settings.json`、`edits.json` 写在 exe 旁边。改了源码要重新打包。
+- **版本号**只在 `ui/version.py` 里改；界面顶栏、exe 的「属性 → 详细信息」、zip 文件名都从这里取。
+- **务必用 spec 文件**：子目录模块是运行时才加进 `sys.path` 的，PyInstaller 的静态分析看不到，spec 里配好了
+  `pathex`、`hiddenimports` 和页面资源（`ui/web`、`ui/viewer`）。打包环境里装了 pywebview 和 Pillow，exe 才有独立窗口和贴图瘦身。
+- **设置文件**（`settings.json`、`edits.json`）写在 exe 旁边；那里写不了（比如放进了 `C:\Program Files`）时改放
+  `%APPDATA%\Model-To-VRM`。
+- **独立窗口**用系统的 WebView2（Win11 自带，Win10 基本都有）；没有 WebView2 或窗口打不开时自动改用浏览器。
+- exe 没有代码签名，第一次运行时 Windows 会提示「已保护你的电脑」：点「更多信息 → 仍要运行」。
+- zip 里附带 `LICENSE`（GPL-3.0）和 README。
+
+**GitHub Actions**（`.github/workflows/`）：
+
+| 工作流 | 什么时候跑 | 做什么 |
+|---|---|---|
+| `test.yml` | 推送到 main 且改了代码；也可手动运行 | Linux 上跑单元测试（含官方 VRM Schema 校验），约 1 分钟 |
+| `release.yml` | 推送 `v*` tag；也可手动运行 | Windows 上测试 → `build_release.py` 打包 → tag 触发时建**草稿** Release 并附上 zip；手动运行只把 zip 放进 Artifacts |
+
+发版：改 `ui/version.py` → 提交 → `git tag v0.1.0` → `git push origin main v0.1.0` → 到 GitHub 的 Releases 里检查草稿、点发布。
+tag 和 `ui/version.py` 不一致时打包会直接失败。
 
 ---
 

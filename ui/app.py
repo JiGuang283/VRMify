@@ -4,7 +4,7 @@
     python ui/app.py [文件或文件夹 ...] [--browser] [--port N]
 
 装了 pywebview 时开一个原生窗口（Windows 用系统自带的 WebView2，支持把文件直接拖进窗口）；
-没装或加 --browser 时用系统浏览器打开，页面关掉一分钟后自动退出。
+没装、加 --browser、或者系统缺 WebView2 / 窗口打不开时用系统浏览器打开，页面关掉一分钟后自动退出。
 界面本身在 ui/web/，后端和接口在 ui/server.py。
 """
 import argparse
@@ -40,6 +40,43 @@ def _dialog(mode):
     print(json.dumps(paths, ensure_ascii=False))
 
 
+def _webview2_ok():
+    """Windows 上有没有 WebView2 运行时（和 pywebview 的判断一致：看 EdgeUpdate 的注册表）。
+
+    没有的话 pywebview 会退回 IE 内核（MSHTML），界面用的 ES 模块 / WebGL 在 IE 里跑不起来，
+    窗口一片空白——不如直接用浏览器打开。
+    """
+    if os.name != "nt":
+        return True
+    import platform
+    import winreg
+    keys = ("{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}", "{2CD8A007-E189-409D-A2C8-9AF4EF3C72AA}",
+            "{0D50BFEC-CD6A-4F9A-964C-C7416E3ACB10}", "{65C35B14-6C1D-4122-AC46-7148CC9D6497}")
+    for key in keys:
+        for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            wow = "" if (platform.machine() == "x86" or root == winreg.HKEY_CURRENT_USER) else "WOW6432Node\\"
+            try:
+                with winreg.OpenKey(root, "SOFTWARE\\%sMicrosoft\\EdgeUpdate\\Clients\\%s" % (wow, key)) as k:
+                    pv = str(winreg.QueryValueEx(k, "pv")[0])
+            except OSError:
+                continue
+            try:
+                if tuple(int(x) for x in pv.split(".")[:3]) >= (86, 0, 622):
+                    return True
+            except ValueError:
+                pass
+    return False
+
+
+def _browser_loop(backend, url, open_page, keep):
+    print("Model-To-VRM：%s（关闭页面一分钟后自动退出，Ctrl+C 立即退出）" % url, flush=True)
+    if open_page:
+        webbrowser.open(url)
+    backend.last_seen = time.time()
+    while keep or time.time() - backend.last_seen < 60 or backend.busy:
+        time.sleep(1)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) >= 2 and argv[0] == "--dialog":
@@ -66,6 +103,10 @@ def main(argv=None):
             import webview
         except ImportError:
             webview = None
+        if webview is not None and not _webview2_ok():
+            webview = None
+            backend.log("系统里没有 WebView2 运行时，改用浏览器打开（装上 WebView2 后就会用独立窗口："
+                        "https://developer.microsoft.com/microsoft-edge/webview2/）", "warn")
     try:
         if webview is not None:
             win = webview.create_window("Model-To-VRM", url, width=1440, height=900, min_size=(1000, 640))
@@ -83,13 +124,14 @@ def main(argv=None):
                 except Exception as ex:  # noqa: BLE001  旧版 pywebview：只能用按钮添加
                     backend.log("拖放不可用（%s），请用「添加文件」" % ex, "warn")
 
-            webview.start(on_start)
+            try:
+                webview.start(on_start)
+            except Exception as ex:  # noqa: BLE001  窗口起不来：退回浏览器
+                backend.window = None
+                backend.log("独立窗口打不开（%s: %s），改用浏览器" % (type(ex).__name__, ex), "warn")
+                _browser_loop(backend, url, True, False)
         else:
-            print("Model-To-VRM：%s（关闭页面一分钟后自动退出，Ctrl+C 立即退出）" % url, flush=True)
-            if not a.no_open:
-                webbrowser.open(url)
-            while a.no_open or time.time() - backend.last_seen < 60 or backend.busy:
-                time.sleep(1)
+            _browser_loop(backend, url, not a.no_open, a.no_open)
     except KeyboardInterrupt:
         pass
     finally:

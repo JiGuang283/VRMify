@@ -31,6 +31,7 @@ function toast(s) { const e = $('toast'); e.textContent = s; e.classList.add('sh
 async function loadState() {
   const st = await api('/api/state');
   Object.assign(S, { files: st.files, opts: st.opts, lang: st.lang, busy: st.busy, seq: st.seq, native: st.native, features: st.features || {} });
+  $('ver').textContent = st.version ? 'v' + st.version : '';
   applyOptsToForm();
   applyLang();
 }

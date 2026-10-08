@@ -71,3 +71,13 @@ python -m unittest discover -s tests -v
 不需要真实模型：`tests/synth.py` 合成一个小的 MMD 人形 PMX（标准骨名、头发物理、几个表情、两张贴图），
 测转换（1.0 / 0.x、元信息、结果确定性、贴图瘦身）、转换后调整（`vrm_edit` 的套用 / 还原 / 幂等）和 zip 输入。
 装了 jsonschema 时顺带做官方 Schema 校验；没装 Pillow 时跳过贴图瘦身的测试。
+
+## 打包发布 `build_release.py`
+
+```bash
+python tools/build_release.py                          # → dist/Model-To-VRM-v<版本>-win64.zip
+python tools/build_release.py --expect-version v0.1.0  # tag 和 ui/version.py 不一致时报错（Actions 里这么调用）
+```
+
+按 `Model-To-VRM.spec` 打包，把 `LICENSE`、README 放进程序文件夹，再压成绿色版 zip。GitHub Actions 的
+`release.yml` 用的也是它，流程见 README 的「打包和发布」。

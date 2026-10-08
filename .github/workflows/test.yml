@@ -1,0 +1,45 @@
+# 推送到 main（改了代码时）跑单元测试。用 tests/synth.py 合成的小模型，不需要真实模型；
+# 真实模型的回归对比（tools/regress.py）只能在本机跑。
+name: Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "convert/**"
+      - "formats/**"
+      - "ui/**"
+      - "tests/**"
+      - "tools/**"
+      - "requirements*.txt"
+      - ".github/workflows/test.yml"
+  pull_request:
+    paths:
+      - "convert/**"
+      - "formats/**"
+      - "ui/**"
+      - "tests/**"
+      - "tools/**"
+      - "requirements*.txt"
+      - ".github/workflows/test.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      # 官方 VRM Schema 校验 + 贴图瘦身；pywebview 只有界面窗口要用，这里不装
+      - run: pip install "jsonschema>=4.18" "Pillow>=10"
+      - run: python -m unittest discover -s tests -v
