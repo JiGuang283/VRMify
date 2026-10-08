@@ -2,6 +2,11 @@
 """VRM 扩展本体：VRM 1.0 的 VRMC_vrm、VRM 0.x 的 VRM（meta / humanoid / firstPerson / lookAt / 表情）。"""
 
 
+def _look_deg(look):
+    """视线最大转角（morphbake.eye_look_range 的结果；没有时左右上下都 10°）。"""
+    return look or {"lookLeft": 10.0, "lookRight": 10.0, "lookDown": 10.0, "lookUp": 10.0}
+
+
 def _degmap(xr, yr):
     return {"curve": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0],
             "xRange": xr, "yRange": yr}
@@ -12,7 +17,7 @@ def _pick(meta, key, allowed, default):
     return v if v in allowed else default
 
 
-def build_vrm1(meta, title, human, mesh_node, expr):
+def build_vrm1(meta, title, human, mesh_node, expr, look=None):
     """VRMC_vrm。meta：用户给的作者 / 许可等；expr：expressions.build_expressions 的结果。
 
     默认值和以前一致：谁都可以「扮演」（avatarPermission=everyone，不然有的应用拒绝加载），
@@ -60,22 +65,19 @@ def build_vrm1(meta, title, human, mesh_node, expr):
         if expr["custom"]:
             vrm_ext["expressions"]["custom"] = expr["custom"]
     if "leftEye" in human or "rightEye" in human:
+        d = _look_deg(look)
         vrm_ext["lookAt"] = {
             "type": "bone",
             "offsetFromHeadBone": [0.0, 0.06, 0.0],
-            "rangeMapHorizontalInner": {"inputMaxValue": 90.0,
-                                        "outputScale": 10.0},
-            "rangeMapHorizontalOuter": {"inputMaxValue": 90.0,
-                                        "outputScale": 10.0},
-            "rangeMapVerticalDown": {"inputMaxValue": 90.0,
-                                     "outputScale": 10.0},
-            "rangeMapVerticalUp": {"inputMaxValue": 90.0,
-                                   "outputScale": 10.0},
+            "rangeMapHorizontalInner": {"inputMaxValue": 90.0, "outputScale": d["lookLeft"]},
+            "rangeMapHorizontalOuter": {"inputMaxValue": 90.0, "outputScale": d["lookLeft"]},
+            "rangeMapVerticalDown": {"inputMaxValue": 90.0, "outputScale": d["lookDown"]},
+            "rangeMapVerticalUp": {"inputMaxValue": 90.0, "outputScale": d["lookUp"]},
         }
     return vrm_ext
 
 
-def build_vrm0(meta, title, human, expr, material_props):
+def build_vrm0(meta, title, human, expr, material_props, look=None):
     """VRM 0.x 的 VRM 扩展。material_props：materials.MaterialBuilder.props_0x。"""
     return {
         "exporterVersion": "pmx2vrm.py",
@@ -113,10 +115,10 @@ def build_vrm0(meta, title, human, expr, material_props):
             "lookAtTypeName": ("Bone" if ("leftEye" in human or
                                           "rightEye" in human)
                                else "BlendShape"),
-            "lookAtHorizontalInner": _degmap(90, 10),
-            "lookAtHorizontalOuter": _degmap(90, 10),
-            "lookAtVerticalDown": _degmap(90, 10),
-            "lookAtVerticalUp": _degmap(90, 10),
+            "lookAtHorizontalInner": _degmap(90, _look_deg(look)["lookLeft"]),
+            "lookAtHorizontalOuter": _degmap(90, _look_deg(look)["lookLeft"]),
+            "lookAtVerticalDown": _degmap(90, _look_deg(look)["lookDown"]),
+            "lookAtVerticalUp": _degmap(90, _look_deg(look)["lookUp"]),
         },
         "blendShapeMaster": {"blendShapeGroups": expr["blend_groups"]},
         "secondaryAnimation": {"boneGroups": []},

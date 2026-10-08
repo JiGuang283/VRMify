@@ -28,7 +28,7 @@ import pmx2vrm  # noqa: E402
 import synth  # noqa: E402
 import vrm_edit  # noqa: E402
 import vrmio  # noqa: E402
-from vrmconv import textures  # noqa: E402
+from vrmconv import morphbake, textures  # noqa: E402
 
 _VALIDATORS = None
 
@@ -302,6 +302,22 @@ class MorphBakeTest(Base):
         # Unity 的 v 从下往上：(sx, sy, ox, 1 - sy - oy)
         self.assertEqual([round(x, 4) for x in mv[0]["targetValue"]], [1, 1, 0.5, -0.25])
 
+    def test_look_range_from_eye_geometry(self):
+        """lookAt 的最大转角按眼球几何算：瞳孔走到 LOOK_TRAVEL × 瞳孔宽度；上下按比例缩小。"""
+        out = self.convert("eyes_look")
+        g, _ = vrmio.read_glb(out)
+        la = g["extensions"]["VRMC_vrm"]["lookAt"]
+        h = la["rangeMapHorizontalOuter"]["outputScale"]
+        self.assertTrue(8.0 <= h <= 20.0, h)
+        self.assertNotEqual(h, 10.0)                       # 不是以前的固定值
+        self.assertEqual(la["rangeMapHorizontalInner"]["outputScale"], h)
+        self.assertAlmostEqual(la["rangeMapVerticalDown"]["outputScale"], h * 0.7, places=1)
+        self.assertAlmostEqual(la["rangeMapVerticalUp"]["outputScale"], h * 0.5, places=1)
+        # 没有眼骨下的顶点时退回 10°
+        m = pmxio.read_pmx(self.pmx)
+        self.assertIsNone(morphbake.eye_look_range(m, [[] for _ in m["vertices"]],
+                                                   [b["parent"] for b in m["bones"]], [0]))
+
     def test_no_gaze(self):
         out = self.convert("eyes_nogaze", gaze=False)
         ex = vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]
@@ -347,7 +363,7 @@ class ComboTest(Base):
         self.assertValid(out)
         g = vrmio.read_glb(out)[0]
         ex = g["extensions"]["VRMC_vrm"]["expressions"]
-        self.assertEqual(self.binds(g, ex["preset"]["angry"]), [("怒り", 0.6), ("ｷﾘｯ", 0.4), ("∧", 0.4)])
+        self.assertEqual(self.binds(g, ex["preset"]["angry"]), [("怒り", 0.5), ("ｷﾘｯ", 0.3), ("∧", 0.3)])
         self.assertEqual(ex["preset"]["angry"]["extras"]["source"], "怒り+ｷﾘｯ+∧")
         self.assertIn("怒り", ex["custom"])                        # 原来单个对应的还在
         self.assertNotIn("overrideBlink", ex["preset"]["angry"])    # 生气时照样眨眼
@@ -373,7 +389,7 @@ class ComboTest(Base):
         groups = vrmio.read_glb(out)[0]["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"]
         by = {x["name"]: x for x in groups}
         self.assertEqual(by["怒り+ｷﾘｯ+∧"]["presetName"], "angry")
-        self.assertEqual([b["weight"] for b in by["怒り+ｷﾘｯ+∧"]["binds"]], [60, 40, 40])
+        self.assertEqual([b["weight"] for b in by["怒り+ｷﾘｯ+∧"]["binds"]], [50, 30, 30])
         self.assertEqual(by["怒り"]["presetName"], "unknown")
         # 0.x 没有 surprised 预设：和 VRoid 一样是 unknown + 名字 Surprised
         self.assertEqual(by["Surprised"]["presetName"], "unknown")

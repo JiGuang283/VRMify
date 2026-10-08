@@ -157,10 +157,50 @@ class BoneBaker:
 # 视线表情的角度：VRoid 的 lookAt 量程（水平 / 垂直）同量级；眼骨在眼球中心附近，
 # 转 12° 眼珠大约移动眼宽的 1/4
 GAZE_DEG = {"lookLeft": 12.0, "lookRight": 12.0, "lookUp": 10.0, "lookDown": 10.0}
+LOOK_TRAVEL = 0.28          # 看到最边上时瞳孔走多远（瞳孔宽度的比例；VRoid 向内看约 29%）
 
 
-def gaze_offsets(left_eye, right_eye):
-    """→ [(表情名, 骨骼表情 offsets)]：两只眼骨一起转。
+def eye_look_range(model, vweights, parents, eyes):
+    """按眼球几何算视线最大转角 → {"lookLeft", "lookRight", "lookUp", "lookDown"}（度），算不出时 None。
+
+    瞳孔看起来移动多少 = 转角 × 支点到瞳孔的距离。VRoid 的眼骨支点很深（约 6 cm），转 8° 就走
+    瞳孔宽度的 29%；MMD 模型的支点常常贴着眼球（2~4 cm），固定 10° 只走 15~25%，转眼不明显。
+    所以按「瞳孔走 LOOK_TRAVEL × 瞳孔宽度」反推左右的角度（8°~20°）。上下按左右的比例：
+    向下 0.7（动画眼睛竖向本来就扁，再多会钻到下眼皮里），向上 0.5（上眼皮挡着；VRoid 是 0°）。
+    瞳孔 = 跟着眼骨及其子骨（左目先 等）走的顶点（权重 > 0.5）。
+    """
+    bones, verts = model["bones"], model["vertices"]
+    angles = []
+    for eye in eyes:
+        if eye is None:
+            continue
+        sub = {eye}
+        grew = True
+        while grew:
+            grew = False
+            for i, p in enumerate(parents):
+                if p in sub and i not in sub:
+                    sub.add(i)
+                    grew = True
+        pts = [verts[v]["pos"] for v in range(len(verts))
+               if sum(w for b, w in vweights[v] if b in sub) > 0.5]
+        if len(pts) < 8:
+            continue
+        px, _, pz = bones[eye]["pos"]
+        dist = sorted(math.hypot(q[0] - px, q[2] - pz) for q in pts)
+        far = dist[len(dist) // 2:]                  # 眼球前面（瞳孔表面）那一半
+        r = sum(far) / len(far)
+        width = max(q[0] for q in pts) - min(q[0] for q in pts)
+        if r > 1e-6 and width > 1e-6:
+            angles.append(math.degrees(math.atan(LOOK_TRAVEL * width / r)))
+    if not angles:
+        return None
+    h = min(20.0, max(8.0, sum(angles) / len(angles)))
+    return {"lookLeft": h, "lookRight": h, "lookDown": round(h * 0.7, 2), "lookUp": round(h * 0.5, 2)}
+
+
+def gaze_offsets(left_eye, right_eye, deg=None):
+    """→ [(表情名, 骨骼表情 offsets)]：两只眼骨一起转（角度 deg，默认 GAZE_DEG）。
 
     PMX 坐标里脸朝 -Z、角色的左边是 +X、上是 +Y：
       向左看（角色自己的左边，VRM 规范的 lookLeft）= 绕 Y 轴转负角，(0,0,-1) → +X
@@ -169,7 +209,7 @@ def gaze_offsets(left_eye, right_eye):
     out = []
     for name, axis, sign in (("lookLeft", (0.0, 1.0, 0.0), -1.0), ("lookRight", (0.0, 1.0, 0.0), 1.0),
                              ("lookUp", (1.0, 0.0, 0.0), 1.0), ("lookDown", (1.0, 0.0, 0.0), -1.0)):
-        half = math.radians(GAZE_DEG[name]) * sign * 0.5
+        half = math.radians((deg or GAZE_DEG)[name]) * sign * 0.5
         q = (axis[0] * math.sin(half), axis[1] * math.sin(half), axis[2] * math.sin(half), math.cos(half))
         out.append((name, [(b, (0.0, 0.0, 0.0), q) for b in (left_eye, right_eye) if b is not None]))
     return out

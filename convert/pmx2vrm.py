@@ -175,11 +175,18 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         _log("提示：VRM 0.x 暂不转换 SpringBone（物理），头发/裙摆不会摆动", "warn")
     nodes, top_nodes = tree.gltf_nodes()
 
+    # ---- 视线转角：按眼球几何算（lookAt 和补的视线表情都用它）
+    look = morphbake.eye_look_range(model, vweights, bs.parents,
+                                    [bs.human_b.get("leftEye"), bs.human_b.get("rightEye")])
+    if look:
+        _log("视线：左右 %.1f° · 下 %.1f° · 上 %.1f°（按眼球几何，瞳孔走到约 %d%% 瞳孔宽度）"
+             % (look["lookLeft"], look["lookDown"], look["lookUp"], morphbake.LOOK_TRAVEL * 100))
+
     # ---- 逐材质构建网格（材质表情会影响材质的 alphaMode，表情要先整理）
     gb = vrmio.GLBBuilder()
     gb.samplers.append(vrmio.default_sampler())
     flat = expressions._flatten_morphs(model["morphs"], model,
-                                       _gaze(model, bs.human_b, is1, gaze, _log))
+                                       _gaze(model, bs.human_b, is1, gaze, _log, look))
     # max_morphs: None = 全部；0 = 不导出；n = 只取前 n 个
     if max_morphs is not None and max_morphs >= 0:
         flat = flat[:int(max_morphs)]
@@ -266,7 +273,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     if is1:
         gltf["extensionsUsed"] = ["VRMC_vrm", "VRMC_materials_mtoon"]
         gltf["extensions"] = {"VRMC_vrm": vrm_ext.build_vrm1(meta, title, human,
-                                                             mesh_node_index, expr)}
+                                                             mesh_node_index, expr, look)}
         if spring_ext:
             if spring_center:
                 # center = 根节点：在模型自身的空间里模拟。应用里人物整体移动（走路的
@@ -280,7 +287,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     else:
         gltf["extensionsUsed"] = ["VRM"]
         gltf["extensions"] = {"VRM": vrm_ext.build_vrm0(meta, title, human, expr,
-                                                        mats.props_0x)}
+                                                        mats.props_0x, look)}
 
     size = vrmio.write_glb(gltf, bytes(gb.bin), vrm_path)
     n_expr = (len(expr["preset"]) + len(expr["custom"])) if is1 else len(expr["blend_groups"])
@@ -293,7 +300,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
 
 
 # -------------------------------------------------------------------- cli --
-def _gaze(model, human_b, is1, enabled, log):
+def _gaze(model, human_b, is1, enabled, log, look=None):
     """要补的视线表情 → [(名字, 骨骼表情 offsets)]（交给 _flatten_morphs 烘焙）。"""
     if not enabled or "leftEye" not in human_b or "rightEye" not in human_b:
         return []
@@ -303,7 +310,7 @@ def _gaze(model, human_b, is1, enabled, log):
         p = table.get(mo["name"]) or expressions._preset_en(mo["name"], True)
         if p:
             have.add(p)
-    out = [(n, offs) for n, offs in morphbake.gaze_offsets(human_b["leftEye"], human_b["rightEye"])
+    out = [(n, offs) for n, offs in morphbake.gaze_offsets(human_b["leftEye"], human_b["rightEye"], look)
            if n not in have]
     if out:
         log("表情：补视线表情 %s（转眼骨烘焙；lookAt 仍用骨骼）" % " / ".join(n for n, _ in out))

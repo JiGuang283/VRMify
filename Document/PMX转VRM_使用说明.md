@@ -118,12 +118,12 @@ python tools/qa/check_vrm.py "model.vrm"
 | 材质表情 | expression 的 `materialColorBinds`（0.x：`materialValues`），用于显示/隐藏部件 |
 | 骨骼表情（寄り目、+目上、齿轮旋转 …） | 静止姿势下按表情摆骨（付与骨跟着付与親、子骨跟着父骨），线性蒙皮算出顶点位移 → morph target；グループ里的骨骼表情同样算进去 |
 | UV 表情（漫符、表情贴图切换） | 整个材质的 UV 按同一个缩放 + 平移变化时 → `textureTransformBinds`（0.x：`_MainTex_ST`）；不是的话跳过并提示 |
-| 左右眼骨 | humanoid 的 leftEye / rightEye，lookAt 用骨骼；另外转眼骨（左右 12°、上下 10°）烘焙出 lookLeft / lookRight / lookUp / lookDown 四个预设表情，给直接播这几个表情的程序用（模型自己有同名表情时不补，`--no-gaze` 关掉） |
+| 左右眼骨 | humanoid 的 leftEye / rightEye，lookAt 用骨骼。最大转角按眼球几何算：瞳孔看起来走多远 = 转角 × 眼骨支点到瞳孔的距离，MMD 模型的支点常贴着眼球（VRoid 深得多），固定角度转眼不明显，所以反推「瞳孔走到约 28% 瞳孔宽度」的左右角度（8°～20°），向下取它的 0.7、向上 0.5（日志：`视线：左右 x° · 下 x° · 上 x°`）；算不出时 10°。另外按同样的角度转眼骨烘焙出 lookLeft / lookRight / lookUp / lookDown 四个预设表情，给直接播这几个表情的程序用（模型自己有同名表情时不补，`--no-gaze` 关掉） |
 | 物理刚体（mode 1/2）+ 关节 | `VRMC_springBone` 的 springs（仅 1.0，见下文） |
 | 跟随骨骼的刚体（mode 0） | SpringBone 碰撞体（球 / 胶囊；盒近似成胶囊） |
 | 表情名 | 自动对应 VRM 预设（まばたき→blink、あ→aa …）；MMD 的「上」「下」是眉毛表情，不映射成 lookUp / lookDown |
 | 单眼眨眼（ウィンク、ウィンク右、ウィンク２ …） | 按动的顶点在哪一边定 blinkLeft / blinkRight，不看名字（MMD 惯例「ウィンク」闭左眼，但不少模型不守，「ウィンク２」也常是另一只眼）；同一边有几个时名字里没有「２」的优先 |
-| 情绪预设（happy / angry / sad / relaxed / surprised） | 像 VRoid 的 `Fcl_ALL_*` 一样组合眉、眼、嘴：按 PMX 表情面板（眉 / 目 / 口）从常见表情名里各挑一个，比如 happy = にこり + 笑い + にやり、angry = 怒り×0.6 + ｷﾘｯ×0.4 + 口角下げ×0.5、surprised = 上×0.7 + びっくり（候选和权重见 `vrmconv/expressions.py` 的 `COMBO`）。强度按 VRoid 的预设来，比 MMD 原表情含蓄：VRM 预设通常和眨眼、口型、别的预设叠着用，满值的 MMD 表情一叠就变形（「∧」拱起的嘴叠上张嘴像龇牙，所以生气的嘴优先用嘴角下撇；惊讶不带张嘴）。至少两个部位找到才组合，原来单个对应的表情留作自定义表情；`--no-combo-expr` 关掉。闭眼类的眼睛表情（なごみ、笑い）只用整权重——很多模型压扁瞳孔来闭眼，半权重时瞳孔缩成小点。和已选部位动同一批顶点的候选会跳过（有的模型「ｷﾘｯ」里自带了「怒り」的眉毛，一起用眉毛会动两遍）。happy / relaxed（眼睛是闭着笑的）设 `overrideBlink: blend`（1.0），笑眼时不会再叠加眨眼；别的预设不设，难过、生气时照样眨眼。sad 不用「じと目」「∧」（半眯眼加撇嘴就成了生气），没有难过眼形的模型用眉毛 +「心配する」。VRM 0.x 没有 surprised 预设，和 VRoid 一样写成名字为 `Surprised` 的自定义表情 |
+| 情绪预设（happy / angry / sad / relaxed / surprised） | 像 VRoid 的 `Fcl_ALL_*` 一样组合眉、眼、嘴：按 PMX 表情面板（眉 / 目 / 口）从常见表情名里各挑一个，比如 happy = にこり + 笑い + にやり、angry = 怒り×0.5 + ｷﾘｯ×0.3 + 口角下げ×0.4、surprised = 上×0.7 + びっくり（候选和权重见 `vrmconv/expressions.py` 的 `COMBO`）。强度按 VRoid 的预设来，比 MMD 原表情含蓄：VRM 预设通常和眨眼、口型、别的预设叠着用，满值的 MMD 表情一叠就变形（「∧」拱起的嘴叠上张嘴像龇牙，所以生气的嘴优先用嘴角下撇；惊讶不带张嘴）。至少两个部位找到才组合，原来单个对应的表情留作自定义表情；`--no-combo-expr` 关掉。闭眼类的眼睛表情（なごみ、笑い）只用整权重——很多模型压扁瞳孔来闭眼，半权重时瞳孔缩成小点。和已选部位动同一批顶点的候选会跳过（有的模型「ｷﾘｯ」里自带了「怒り」的眉毛，一起用眉毛会动两遍）。happy / relaxed（眼睛是闭着笑的）设 `overrideBlink: blend`（1.0），笑眼时不会再叠加眨眼；别的预设不设，难过、生气时照样眨眼。sad 不用「じと目」「∧」（半眯眼加撇嘴就成了生气），没有难过眼形的模型用眉毛 +「心配する」。VRM 0.x 没有 surprised 预设，和 VRoid 一样写成名字为 `Surprised` 的自定义表情 |
 
 骨骼名 → VRM humanoid 的对应（下半身→hips、上半身→spine、上半身2→chest、
 首→neck、頭→head、左/右腕→UpperArm、左/右ひじ→LowerArm、左/右手首→Hand、
