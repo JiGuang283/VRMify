@@ -51,13 +51,17 @@ function handleEvent(ev) {
     const was = i >= 0 ? S.files[i].status : null;
     if (i >= 0) S.files[i] = ev.file; else S.files.push(ev.file);
     renderFiles();
-    // a file just finished converting → open its output in the preview (in a batch: the latest one),
-    // unless the Tune panel has unsaved changes for the model on screen
-    if (ev.file.status === 'done' && was !== 'done' && ev.file.outputs.some((o) => o.url)
-        && !(T.dirty && T.fid === S.current && ev.file.id !== S.current)) previewFile(ev.file.id);
+    // a file just finished converting → open it in the preview: the first one of each run (unless the Tune
+    // panel has unsaved changes for the model on screen), and the one already on screen (show the real output)
+    if (ev.file.status === 'done' && was !== 'done' && ev.file.outputs.some((o) => o.url)) {
+      const first = !S.autoOpened && !(T.dirty && T.fid === S.current && ev.file.id !== S.current);
+      if (first) S.autoOpened = true;
+      if (first || ev.file.id === S.current) previewFile(ev.file.id);
+    }
   } else if (ev.type === 'files') loadState();
   else if (ev.type === 'busy') {
     S.busy = ev.busy;
+    if (ev.busy) S.autoOpened = false;
     if (!ev.busy) { S.progress = null; S.result = { done: ev.done, failed: ev.failed }; }
     renderStatus(); renderFiles();
   } else if (ev.type === 'progress') { S.progress = ev; renderStatus(); }
