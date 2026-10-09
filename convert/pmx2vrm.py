@@ -45,7 +45,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             spring=True, spring_skirt=True, spring_stiffness=1.0,
             spring_gravity=0.0, spring_gravity_skirt=0.1, spring_center=True,
             spring_opts=None, tex_max=0, tex_jpeg=False, auto_spring=True, gaze=True,
-            combo_expr=True, collapse_bones=True, model=None, raw_weights=None, tex_alpha=None,
+            combo_expr=True, extra_expr=True, collapse_bones=True, model=None, raw_weights=None, tex_alpha=None,
             threads=4):
     """PMX → VRM，返回统计 dict。log(msg, tag=None) 用于输出进度。
 
@@ -58,6 +58,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         见 vrmconv/morphbake；模型自己有对应表情时不补）。
     combo_expr：情绪预设（happy / angry / sad / relaxed / surprised）组合眉、眼、嘴的表情，
         像 VRoid 一样整张脸一起变（见 vrmconv/expressions.COMBO）；False 时每个预设只对应一个表情。
+    extra_expr：补充自定义表情 hideHighlight（关掉眼睛高光）和 tongue（吐舌），见 expressions.add_extras。
     collapse_bones：没有权重的中间骨（全ての親 / センター / グルーブ / 腰 / 肩P 之类）也去掉，
         层级像 VRoid（Root > Hips）；False 时留着它们（连接保留骨所需的祖先）。IK、合并掉的付与骨、末端骨这类完全不起作用的骨总会去掉（见 _prune_nodes）。
     meta：title / author / version / contact / copyright / license_url / avatar_permission /
@@ -207,6 +208,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     gb = vrmio.GLBBuilder()
     gb.samplers.append(vrmio.default_sampler())
     gaze_extra = _gaze(model, bs.human_b, is1, gaze, _log, look)
+    if extra_expr and max_morphs != 0:
+        expressions.add_extras(model, _log)
     flat = expressions._flatten_morphs(model["morphs"], model, gaze_extra, weights=raw_weights)
     gaze_split = morphbake.split_gaze(flat, {n for n, _ in gaze_extra})
     # max_morphs: None = 全部；0 = 不导出；n = 只取前 n 个
@@ -422,6 +425,8 @@ def main(argv=None):
                     help="情绪预设不组合眉 / 眼 / 嘴（默认组合，像 VRoid；关掉时每个预设只对应一个 PMX 表情）")
     ap.add_argument("--keep-control-bones", action="store_true",
                     help="保留没有权重的中间骨（全ての親 / センター / グルーブ / 腰 等；默认去掉，层级像 VRoid）")
+    ap.add_argument("--no-extra-expr", action="store_true",
+                    help="不补充 hideHighlight（关掉眼睛高光）、tongue（吐舌）表情")
     ap.add_argument("--no-gaze", action="store_true",
                     help="不补视线表情（默认有左右眼骨时补 lookUp / lookDown / lookLeft / lookRight）")
     ap.add_argument("--no-spring-center", action="store_true",
@@ -459,7 +464,7 @@ def main(argv=None):
                  spring_gravity_skirt=a.spring_gravity_skirt,
                  spring_center=not a.no_spring_center, auto_spring=not a.no_auto_spring,
                  sparse_morphs=not a.dense_morphs,
-                 tex_max=a.tex_max, tex_jpeg=a.tex_jpeg, gaze=not a.no_gaze, combo_expr=not a.no_combo_expr,
+                 tex_max=a.tex_max, tex_jpeg=a.tex_jpeg, gaze=not a.no_gaze, combo_expr=not a.no_combo_expr, extra_expr=not a.no_extra_expr,
                  collapse_bones=not a.keep_control_bones,
                  log=lambda msg, tag=None: print(msg))
     print("完成：%s（%.2f MB）" % (out, st["bytes"] / 1048576.0))

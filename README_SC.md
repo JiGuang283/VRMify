@@ -25,7 +25,7 @@ FBX、unitypackage、uemodel、psk、xps 和模型网站下载的压缩包也能
 - **材质**：MToon 卡通着色。阴影色和明暗交界从 PMX 的 toon 贴图换算，透明 / 裁剪 / 不透明按贴图自动判定。
 - **表情**：常用表情自动对应 VRM 预设（眨眼、口型あいうえお）；喜怒哀乐像 VRoid 一样组合眉、眼、嘴，整张脸一起变。
   除了 MMD 日文名，也认 VRoid、VRChat、ARKit 和常见中文的表情名。材质表情、骨骼表情、UV 表情都会转换；
-  有眼骨时补视线表情。
+  有眼骨时补视线表情，并补充 hideHighlight（关掉眼睛高光）、tongue（吐舌）两个通用名字的表情。
 - **物理**：PMX 的刚体和关节换算成 VRM 1.0 SpringBone，头发、裙摆、飘带的手感接近原生 VRM 模型；
   模型没有物理时按骨骼名自动补。
 - **其它格式**：FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps（XNALara）先转成 PMX

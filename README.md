@@ -29,7 +29,7 @@ unzip it and run `VRMify.exe`. Nothing to install; delete the folder to uninstal
 - **Expressions**: common morphs map to VRM presets (blink, aa/ih/ou/ee/oh); emotion presets combine brow, eye and
   mouth morphs like VRoid so the whole face changes. Besides MMD's Japanese names, VRoid, VRChat, ARKit and common
   Chinese names are recognized. Material, bone and UV morphs are converted too; gaze expressions are added when the
-  model has eye bones.
+  model has eye bones, plus hideHighlight (eye highlights off) and tongue under fixed names.
 - **Physics**: PMX rigid bodies and joints become VRM 1.0 SpringBone, with hair, skirts and ribbons tuned to feel like
   native VRM models; models without physics get chains from their bone names.
 - **Other formats**: FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNALara) go through

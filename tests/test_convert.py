@@ -31,7 +31,7 @@ import pmx2vrm  # noqa: E402
 import synth  # noqa: E402
 import vrm_edit  # noqa: E402
 import vrmio  # noqa: E402
-from vrmconv import mesh, morphbake, textures  # noqa: E402
+from vrmconv import expressions, mesh, morphbake, textures  # noqa: E402
 
 _VALIDATORS = None
 
@@ -77,7 +77,7 @@ class ConvertTest(Base):
         self.assertEqual(ex["preset"]["happy"]["extras"]["source"], "にこり")
         self.assertIn("笑い", ex["custom"])
         self.assertIn("照れ", ex["custom"])
-        # 只输出通用 VRM：不加某个程序私有的自定义表情
+        # 只输出通用 VRM：不加某个程序私有的自定义表情；synth 没有眼睛高光、吐舌，不补
         self.assertFalse({"faceRed", "faceBlue", "hideHighlight", "tongue"} & set(ex["custom"]))
 
     def test_vrm0_lowercase_presets(self):
@@ -630,6 +630,70 @@ class MorphBakeTest(Base):
         out = os.path.join(self.tmp, "plain.vrm")
         pmx2vrm.convert(pmx, out)
         self.assertNotIn("lookLeft", vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]["preset"])
+
+
+class ExtraExprTest(Base):
+    """补充的自定义表情：hideHighlight（关掉眼睛高光）、tongue（吐舌）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = pmxio.read_pmx(synth.build(os.path.join(cls.tmp, "hl"), "高光モデル", eyes=True))
+        for mat in m["materials"]:
+            if mat["name"] == "目":
+                mat["name"] = "目光"                 # 眼珠方块当成高光材质
+        head = next(i for i, b in enumerate(m["bones"]) if b["name"] == "頭")
+        vs = [i for i, v in enumerate(m["vertices"]) if v["wbones"] == [head]][:4]
+        m["morphs"].append({"name": "ぺろっ", "name_en": "tongue", "panel": 3, "kind": 1,
+                            "offsets": [(i, (0.0, -0.1, 0.0)) for i in vs]})
+        cls.pmx = os.path.join(cls.tmp, "hl", "高光モデル.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+
+    def test_generated(self):
+        out = self.convert("hl1")
+        self.assertValid(out)
+        g, b = vrmio.read_glb(out)
+        cu = g["extensions"]["VRMC_vrm"]["expressions"]["custom"]
+        self.assertIn("hideHighlight", cu)
+        self.assertIn("tongue", cu)
+        self.assertEqual(len(morph_deltas(g, b, "tongue")), 4)
+        # 两个眼珠方块各自收成一点
+        hl = morph_deltas(g, b, "hideHighlight")
+        self.assertEqual(len(hl), 16)
+        ends = {tuple(round(p[k] + d[k], 5) for k in range(3)) for p, d in hl}
+        self.assertEqual(len(ends), 2)
+        g0 = vrmio.read_glb(self.convert("hl0", spec="0.x"))[0]
+        names = [gr["name"] for gr in g0["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"]]
+        self.assertIn("hideHighlight", names)
+        self.assertIn("tongue", names)
+        off = vrmio.read_glb(self.convert("hl_off", extra_expr=False))[0]
+        self.assertFalse({"hideHighlight", "tongue"} & set(off["extensions"]["VRMC_vrm"]["expressions"]["custom"]))
+
+    def test_own_morphs_first(self):
+        """模型自带关闭高光的表情（这里两组高光各一个）：合成一组用，不生成；材质名不像高光也行。"""
+        m = pmxio.read_pmx(self.pmx)
+        mi = [i for i, x in enumerate(m["materials"]) if x["name"] == "目光"][0]
+        m["materials"][mi]["name"] = "eye"
+        zero = [0.0] * 28
+        for k, nm in enumerate(("eye hi1 off", "eye hi2 off")):
+            m["morphs"].append({"name": nm, "name_en": nm, "panel": 4, "kind": 8, "offsets": [(mi, 0, zero)]})
+        m["morphs"].append({"name": "eye hi change", "name_en": "", "panel": 4, "kind": 8, "offsets": [(mi, 0, zero)]})
+        logs = []
+        added = expressions.add_extras(m, lambda s, t=None: logs.append(s))
+        self.assertEqual(added, ["hideHighlight", "tongue"])
+        hl = m["morphs"][-2]
+        self.assertEqual(hl["kind"], 0)
+        self.assertEqual([m["morphs"][i]["name"] for i, _ in hl["offsets"]], ["eye hi1 off", "eye hi2 off"])
+        self.assertEqual(expressions._highlight_materials(m), [])
+        # 已经有同名表情：不补
+        self.assertEqual(expressions.add_extras(m, lambda *a: None), [])
+
+    def test_material_names(self):
+        def mats(*names):
+            return {"materials": [{"name": n, "faces": 3} for n in names], "textures": []}
+        hl = expressions._highlight_materials
+        self.assertEqual(hl(mats("目光", "ハイライト", "MI_Eye hi", "eye hi1", "MI_Eye1+hi2", "eye+hi")), [0, 1, 2, 3, 4, 5])
+        self.assertEqual(hl(mats("髪高光", "目", "白目", "hip", "Chihiro", "hi")), [])
 
 
 class SplitMeshTest(Base):

@@ -267,6 +267,120 @@ def _wink_sides(flat, vertices):
     return out
 
 
+# ---- 补充的自定义表情（add_extras）：名字统一，程序按名字就能找到
+# 关掉眼睛高光的表情（模型自带时用它；几组高光各有一个时合起来）
+_HL_OFF = re.compile(r"(ハイライト|ﾊｲﾗｲﾄ|高光|目光|瞳光|eye[ _]?hi\d*|hi[ _]?light|high[ _]?light)"
+                     r"[ _]*(消し?|消失|消去|オフ|ｵﾌ|off|なし|無し|hide|隠し?)", re.I)
+# 眼睛高光材质（模型没有上面的表情时，生成一个把它们收起来的表情）
+_HL_MAT = re.compile(r"目光|瞳光|ハイライト|ﾊｲﾗｲﾄ|高光|high[ _]?light|hi[ _]?light|eye[ _]?hi(?![a-z])", re.I)
+_HL_HI = re.compile(r"(?:^|[^a-z])hi\d*(?:[^a-z]|$)", re.I)       # 「hi」「hi2」「+hi」这样单独的词
+_HL_EYE = re.compile(r"目|瞳|眼|eye", re.I)
+_HL_NOT = re.compile(r"髪|髮|发|hair", re.I)                         # 头发高光不算
+# 吐舌：按顺序取模型里第一个有的（てへぺろ 还带着眨一只眼，放最后）
+TONGUE = ["舌出し", "舌だし", "ぺろっ", "ぺろり", "べー", "吐舌", "吐舌头", "tongueOut", "tongue_out", "てへぺろ"]
+
+
+def _highlight_materials(model):
+    """眼睛高光材质的序号：名字像高光（目光、ハイライト、eye hi …），或名字里有单独的 hi、
+    又像眼睛（eye hi1、MI_Eye+hi）；头发高光除外。"""
+    tex = model.get("textures") or []
+    out = []
+    for mi, mat in enumerate(model["materials"]):
+        name = mat.get("name") or ""
+        t = mat.get("tex", -1)
+        tname = tex[t].replace("\\", "/").rsplit("/", 1)[-1] if 0 <= t < len(tex) else ""
+        if _HL_NOT.search(name) or mat["faces"] < 3:
+            continue
+        if _HL_MAT.search(name) or (_HL_HI.search(name) and _HL_EYE.search(name)) or \
+                (_HL_EYE.search(name) and _HL_MAT.search(tname)):
+            out.append(mi)
+    return out
+
+
+def _collapse_morph(model, mats):
+    """把这些材质的顶点各自收到所在那一块（相连的面）的中心：面积为 0，看不见了。
+    → PMX 顶点表情的 offsets（和别的材质共用的顶点不动）。"""
+    faces = model["faces"]
+    owner = {}                       # 顶点 → 用到它的材质（只记是不是全在 mats 里）
+    ranges, cur = [], 0
+    for mi, mat in enumerate(model["materials"]):
+        ranges.append((cur, cur + mat["faces"]))
+        cur += mat["faces"]
+    want = set(mats)
+    for mi, (a, b) in enumerate(ranges):
+        inside = mi in want
+        for vi in faces[a:b]:
+            owner[vi] = owner.get(vi, True) and inside
+    parent = {}
+
+    def find(x):
+        while parent.setdefault(x, x) != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for mi in mats:
+        a, b = ranges[mi]
+        for k in range(a, b - 2, 3):
+            ra, rb, rc = find(faces[k]), find(faces[k + 1]), find(faces[k + 2])
+            parent[rb] = ra
+            parent[find(rc)] = ra
+    groups = {}
+    for vi in parent:
+        if owner.get(vi):
+            groups.setdefault(find(vi), []).append(vi)
+    verts = model["vertices"]
+    offsets = []
+    for vs in groups.values():
+        c = [sum(verts[v]["pos"][j] for v in vs) / len(vs) for j in range(3)]
+        for v in vs:
+            p = verts[v]["pos"]
+            offsets.append((v, (c[0] - p[0], c[1] - p[1], c[2] - p[2])))
+    return offsets
+
+
+def add_extras(model, log):
+    """补充两个自定义表情，加在 model["morphs"] 末尾（之后和别的表情一样转换）：
+
+    hideHighlight  关掉眼睛高光：模型有对应的表情（「ハイライト消し」「eye hi off」…）就用它（几个合成一组）；
+                   没有就按材质名找眼睛高光，生成一个把这些面收成一点的顶点表情
+    tongue         吐舌：模型里「舌出し」「ぺろっ」等表情的一组副本
+    模型已经有同名表情时不补。返回补上的名字。
+    """
+    morphs = model["morphs"]
+    names = {mo["name"] for mo in morphs}
+    added = []
+
+    def group(name, subs):
+        morphs.append({"name": name, "name_en": name, "panel": 4, "kind": 0, "offsets": [(i, 1.0) for i in subs]})
+        added.append(name)
+
+    if "hideHighlight" not in names:
+        offs = [i for i, mo in enumerate(morphs) if _HL_OFF.search(mo["name"] or "")]
+        if offs:
+            group("hideHighlight", offs)
+            log("表情：补充 hideHighlight（%s）" % " + ".join(morphs[i]["name"] for i in offs))
+        else:
+            mats = _highlight_materials(model)
+            offsets = _collapse_morph(model, mats) if mats else []
+            if offsets:
+                morphs.append({"name": "hideHighlight", "name_en": "hideHighlight", "panel": 4, "kind": 1,
+                               "offsets": offsets})
+                added.append("hideHighlight")
+                log("表情：补充 hideHighlight（隐藏材质 %s）"
+                    % "、".join(model["materials"][mi]["name"] for mi in mats))
+            elif any(mo["kind"] in (1, 0) for mo in morphs):
+                log("表情：未找到眼睛高光材质或关闭高光的表情，未补充 hideHighlight")
+    if "tongue" not in names:
+        low = {}
+        for i, mo in enumerate(morphs):
+            low.setdefault((mo["name"] or "").strip().lower(), i)
+        src = next((low[n.lower()] for n in TONGUE if n.lower() in low), None)
+        if src is not None:
+            group("tongue", [src])
+            log("表情：补充 tongue（%s）" % morphs[src]["name"])
+    return added
+
+
 def wink_presets(flat, vertices, is1):
     """单眼眨眼 → {表情名: blinkLeft / blinkRight}（0.x：blink_l / blink_r）；按 _wink_rank 的优先级。"""
     sides = _wink_sides(flat, vertices)

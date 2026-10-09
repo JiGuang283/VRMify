@@ -32,6 +32,7 @@ python tools/qa/check_vrm.py "model.vrm"
 | `--no-spring-center` | 不以模型根节点为 SpringBone center |
 | `--no-combo-expr` | 情绪预设不组合眉 / 眼 / 嘴，每个预设只对应一个表情 |
 | `--no-gaze` | 不补视线表情 |
+| `--no-extra-expr` | 不补 hideHighlight / tongue 表情 |
 | `--dense-morphs` / `--max-morphs N` | 表情用密集存储 / 只导出前 N 个（0 = 不导出） |
 | `--tex-max N` / `--tex-jpeg` | 贴图最大边长 / 不透明贴图存 JPEG（需要 Pillow） |
 | `--title` / `--author` | 写进 VRM meta |
@@ -135,6 +136,11 @@ MMD 标准骨名对应 VRM humanoid：下半身 → hips、上半身 → spine�
   这几个表情的程序用；模型自己有同名表情时不补。每个方向烘焙成「横向」「深度」两个 morph target
   （`lookLeftRight_depth`、`lookUpDown_depth` 只是 morph target，不是表情），按 sin / (1 − cos) 的权重组合，
   任意角度都和直接转眼骨一致。所以在界面的「调整」里改视线角度时，这几个表情跟着变，不用重新转换。
+- 补两个自定义表情，名字固定，程序按名字就能找到（模型已有同名表情时不补）：
+  - `hideHighlight`：关掉眼睛高光。模型自带关闭高光的表情（「ハイライト消し」「eye hi off」等，几组高光各有一个时
+    合成一个）就用它；没有就按材质名找眼睛高光（「目光」「ハイライト」「eye hi」等，头发高光除外），生成一个把这些
+    面各自收成一点的表情。高光直接画在瞳孔贴图里的模型做不了，日志里会说明。
+  - `tongue`：吐舌，复制模型里的「舌出し」「ぺろっ」「べー」「tongueOut」等表情。
 
 ### 物理 → SpringBone（仅 VRM 1.0）
 
