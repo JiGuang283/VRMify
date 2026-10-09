@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""网格：顶点权重整理、按材质切成 glTF primitive、写 accessor。"""
+"""网格：顶点权重整理、按材质切成 glTF primitive、写 accessor、按表情分成几个网格。"""
+import heapq
 import math
 
 import vrmio
@@ -127,7 +128,7 @@ def build_primitives(model, xf, xf_dir, vpos, vnrm, vweights, reverse_winding, m
         prims.append({"local": local, "vcount": len(local),
                       "idxs": idxs, "pos": positions, "nrm": normals,
                       "uv": uvs, "jn": joints, "wt": weights,
-                      "mat": mat_gidx[mi_], "targets": []})
+                      "mat": mat_gidx[mi_], "mat_name": mat.get("name") or "", "tmap": {}})
     return prims, mat_gidx
 
 
@@ -144,3 +145,119 @@ def write_accessors(gb, prims):
         }
         pr["indices"] = gb.add_accessor(pr["idxs"], vrmio.UNSIGNED_INT,
                                         "SCALAR", 34963, minmax=False)
+
+
+# 多分一个网格折合多少「顶点 × morph target」：省下的不到这么多（密集存储约 1.2 MB）就不分
+MESH_COST = 100000
+MAX_MESHES = 8
+
+
+def group_meshes(prims, n_targets):
+    """按表情把 primitive 分成几个网格 → [(primitive 序号列表, 全局 morph target 序号列表)]，按首个 primitive 排。
+
+    glTF 要求同一个网格里每个 primitive 带同样的 morph target，读取端（three.js、Unity）又多半按
+    「顶点数 × target 数」展开成密集数组：全塞在一个网格里时，身体、衣服也要陪着脸带上全部表情
+    （13 万顶点 × 180 个表情 ≈ 270 MB）。这里像 VRoid 的 Face / Body / Hair 那样分开：从「target 集合
+    相同的放一起」开始，每次合并代价最小的两组（代价 = 网格顶点数 × target 数），直到再合并多出的
+    比 MESH_COST 多、且网格数不超过 MAX_MESHES。哪个 primitive 都没动到的 target 放进 target 最多的网格，
+    让表情还能引用它。
+    """
+    by_set = {}
+    for i, pr in enumerate(prims):
+        by_set.setdefault(frozenset(pr["tmap"]), []).append(i)
+    groups = {}                      # id → [target 集合, 顶点数, primitive 序号]
+    for k, (ts, ids) in enumerate(by_set.items()):
+        groups[k] = [ts, sum(prims[i]["vcount"] for i in ids), ids]
+
+    def extra(a, b):
+        ta, va, _ = groups[a]
+        tb, vb, _ = groups[b]
+        return (va + vb) * len(ta | tb) - va * len(ta) - vb * len(tb)
+
+    heap = [(extra(a, b), a, b) for a in groups for b in groups if a < b]
+    heapq.heapify(heap)
+    nxt = len(groups)
+    while heap and len(groups) > 1:
+        d, a, b = heapq.heappop(heap)
+        if a not in groups or b not in groups:
+            continue
+        if d > MESH_COST and len(groups) <= MAX_MESHES:
+            break
+        ta, va, ia = groups.pop(a)
+        tb, vb, ib = groups.pop(b)
+        groups[nxt] = [ta | tb, va + vb, sorted(ia + ib)]
+        for c in list(groups):
+            if c != nxt:
+                heapq.heappush(heap, (extra(c, nxt), c, nxt))
+        nxt += 1
+    out = sorted(([ids, set(ts)] for ts, _, ids in groups.values()), key=lambda g: g[0][0])
+    used = set().union(*(ts for _, ts in out))
+    orphans = set(range(n_targets)) - used
+    if orphans:
+        max(out, key=lambda g: len(g[1]))[1].update(orphans)
+    return [(ids, sorted(ts)) for ids, ts in out]
+
+
+def _zero_target(gb, pr, sparse):
+    """这个 primitive 上的全零 morph target（同一个 primitive 共用一个）。"""
+    if "zero" not in pr:
+        if sparse:                   # 稀疏 accessor 至少要一项
+            pr["zero"] = gb.add_sparse_accessor(pr["vcount"], [], [], "VEC3")
+        else:
+            pr["zero"] = gb.add_accessor([0.0] * (pr["vcount"] * 3), vrmio.FLOAT, "VEC3", 34962)
+    return pr["zero"]
+
+
+def build_meshes(gb, prims, groups, target_names, name, sparse=True):
+    """group_meshes 的分组 → (glTF meshes, where)。where[全局 target 序号] = [(网格号, 网格内序号)]。"""
+    meshes = []
+    where = [[] for _ in target_names]
+    for mi, (ids, slots) in enumerate(groups):
+        m = {"name": name if len(groups) == 1 else _mesh_name(prims, ids, name), "primitives": []}
+        for i in ids:
+            pr = prims[i]
+            p = {"attributes": pr["acc"], "indices": pr["indices"], "material": pr["mat"]}
+            if slots:
+                p["targets"] = [{"POSITION": pr["tmap"][s] if s in pr["tmap"] else _zero_target(gb, pr, sparse)}
+                                for s in slots]
+            m["primitives"].append(p)
+        if slots:
+            m["extras"] = {"targetNames": [target_names[s] for s in slots]}
+        for j, s in enumerate(slots):
+            where[s].append((mi, j))
+        meshes.append(m)
+    used = set()
+    for m in meshes:                 # 网格名会成为 Unity 里的物体名，别重
+        base, k = m["name"], 2
+        while m["name"] in used:
+            m["name"] = "%s_%d" % (base, k)
+            k += 1
+        used.add(m["name"])
+    return meshes, where
+
+
+def _mesh_name(prims, ids, name):
+    """几个网格时按里面最大的 primitive 的材质起名（在 Unity 的层级里一眼能认出是哪一块）。"""
+    big = max(ids, key=lambda i: prims[i]["vcount"])
+    return prims[big].get("mat_name") or name
+
+
+def remap_binds(expr, where, mesh_nodes, is1):
+    """表情绑定里的全局 morph target 序号 → 各网格里的（一个 target 分在几个网格时拆成几个绑定）。
+
+    1.0 的 node 是网格节点（mesh_nodes[网格号]），0.x 的 mesh 是网格号。哪个网格都没有的 target
+    （group_meshes 已经避免）就丢掉这个绑定。
+    """
+    if is1:
+        for grp in (expr["preset"], expr["custom"]):
+            for obj in grp.values():
+                if "morphTargetBinds" not in obj:
+                    continue
+                obj["morphTargetBinds"] = [{"node": mesh_nodes[m], "index": j, "weight": b["weight"]}
+                                           for b in obj["morphTargetBinds"] for m, j in where[b["index"]]]
+                if not obj["morphTargetBinds"]:
+                    del obj["morphTargetBinds"]
+    else:
+        for g in expr["blend_groups"]:
+            g["binds"] = [{"mesh": m, "index": j, "weight": b["weight"]}
+                          for b in g["binds"] for m, j in where[b["index"]]]

@@ -23,7 +23,7 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 | **Pose** | Raises A-pose arms to the T-pose VRM requires (bones and vertices together) |
 | **Coordinates** | PMX (left-handed) → glTF (right-handed) via one mirror, with automatic winding detection — no mirrored or see-through models |
 | **Materials** | MToon. Shade color and shading boundary come from the PMX toon ramp (pink skin shadows, like native VRoid models); colors written in linear space; opaque / cutout / blend chosen from the texture's alpha; additive sphere maps → matcap |
-| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo); emotion presets combine brow, eye and mouth morphs like VRoid (e.g. angry = 怒り + ｷﾘｯ + 口角下げ) so the whole face changes, also for models that only have ARKit shapes (common on VRChat); material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
+| **Expressions** | Vertex morphs → morph targets (sparse, small files; the model is split into a few meshes by which morphs move them, like VRoid's Face / Body / Hair, so viewers and games don't expand every morph over the whole body); common ones mapped to VRM presets (blink, aiueo); emotion presets combine brow, eye and mouth morphs like VRoid (e.g. angry = 怒り + ｷﾘｯ + 口角下げ) so the whole face changes, also for models that only have ARKit shapes (common on VRChat); material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
 | **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies. Models with no physics at all (common for FBX) get it from bone names and skeleton structure: hair, skirts, sleeves, ribbons and tails swing, with body colliders added |
 | **Textures** | Optional max size (4096 / 2048 / 1024) and JPEG for opaque textures — VRM files usually shrink by half or more (needs Pillow); textures with transparency stay PNG |
 | **Metadata** | Author, version, contact and usage license (who may use it, commercial use, modification, redistribution, credit) set in the UI; conservative defaults |
@@ -103,7 +103,8 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   - **Output**: convert non-PMX formats to VRM (default, via PMX) or stop at PMX; save to the app folder (default: a `vrm`
     folder next to the program) / next to the source / a chosen folder, optional per-run subfolder; how many to convert at
     once (Auto / 1 / 2 / 4: several files, or several models in one package or archive, convert in parallel — about twice
-    as fast or more, ~1.5 GB of memory each)
+    as fast or more; a large model, ~130k vertices, takes about 0.5 GB of memory. Auto estimates each one's
+    memory from its file size)
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names
@@ -194,7 +195,7 @@ Model-To-VRM/
 │   ├── vrmconv/            PMX → VRM stages
 │   │   ├── humanoid.py     bone-name mapping, append-bone merge, hierarchy fixes, T-pose
 │   │   ├── skeleton.py     bone preprocessing, glTF node tree, placeholder bones
-│   │   ├── mesh.py         vertex weights, per-material primitives
+│   │   ├── mesh.py         vertex weights, per-material primitives, meshes split by morphs
 │   │   ├── materials.py    MToon materials (toon ramps, alpha modes)
 │   │   ├── expressions.py  expressions
 │   │   ├── morphbake.py    bone / gaze morphs baked into vertex morphs, UV morphs → texture offsets

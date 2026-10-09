@@ -413,16 +413,29 @@ class EditTest(Base):
 
 
 def morph_deltas(g, b, name):
-    """VRM 里某个 morph target 的 [(顶点位置, 偏移)]（只要有偏移的顶点）。"""
-    names = g["meshes"][0]["extras"]["targetNames"]
-    t = names.index(name)
+    """VRM 里某个 morph target 的 [(顶点位置, 偏移)]（只要有偏移的顶点；按表情分了几个网格时合起来）。"""
     out = []
-    for pr in g["meshes"][0]["primitives"]:
-        pos = vrmio.read_accessor(g, b, pr["attributes"]["POSITION"])
-        d = vrmio.read_accessor(g, b, pr["targets"][t]["POSITION"])
-        for i in range(0, len(d), 3):
-            if abs(d[i]) + abs(d[i + 1]) + abs(d[i + 2]) > 1e-7:
-                out.append((pos[i:i + 3], d[i:i + 3]))
+    for m in g["meshes"]:
+        names = (m.get("extras") or {}).get("targetNames") or []
+        if name not in names:
+            continue
+        t = names.index(name)
+        for pr in m["primitives"]:
+            pos = vrmio.read_accessor(g, b, pr["attributes"]["POSITION"])
+            d = vrmio.read_accessor(g, b, pr["targets"][t]["POSITION"])
+            for i in range(0, len(d), 3):
+                if abs(d[i]) + abs(d[i + 1]) + abs(d[i + 2]) > 1e-7:
+                    out.append((pos[i:i + 3], d[i:i + 3]))
+    return out
+
+
+def bind_names(g, binds, is1=True):
+    """表情绑定 → [(morph target 名, 权重)]（一个 target 分在几个网格里时只列一次）。"""
+    out = []
+    for bd in binds:
+        x = (vrm_edit._target_name(g, bd, is1), bd["weight"])
+        if x not in out:
+            out.append(x)
     return out
 
 
@@ -537,12 +550,11 @@ class MorphBakeTest(Base):
     def test_tune_look_moves_gaze_expressions(self):
         out = self.convert("eyes_gaze_w")
         g = vrmio.read_glb(out)[0]
-        names = g["meshes"][0]["extras"]["targetNames"]
         ex = g["extensions"]["VRMC_vrm"]["expressions"]
         self.assertNotIn("lookLeftRight_depth", ex.get("custom", {}))          # 深度场只是 morph target
         h = vrm_edit.describe(out)["look"]["h"]
         binds = ex["preset"]["lookLeft"]["morphTargetBinds"]
-        self.assertEqual([names[b["index"]] for b in binds], ["lookLeft", "lookLeftRight_depth"])
+        self.assertEqual([n for n, _ in bind_names(g, binds)], ["lookLeft", "lookLeftRight_depth"])
         self.assertEqual([b["weight"] for b in binds], list(morphbake.gaze_weights(h, "h")))
         vrm_edit.apply(out, {"lookAt": {"h": 30, "down": 5}})
         self.assertValid(out)
@@ -565,6 +577,166 @@ class MorphBakeTest(Base):
         out = os.path.join(self.tmp, "plain.vrm")
         pmx2vrm.convert(pmx, out)
         self.assertNotIn("lookLeft", vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]["preset"])
+
+
+class SplitMeshTest(Base):
+    """按表情分网格：和全放在一个网格里比，每个材质上的顶点、每个表情的偏移、表情绑定都一样。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.pmx = synth.build(os.path.join(cls.tmp, "eyes"), "眼モデル", eyes=True)
+
+    def convert_with(self, name, cost, **kw):
+        old = mesh.MESH_COST
+        mesh.MESH_COST = cost
+        try:
+            return self.convert(name, **kw)
+        finally:
+            mesh.MESH_COST = old
+
+    @staticmethod
+    def by_material(g, b):
+        """材质号 → (顶点属性, {morph target 名: 偏移})，偏移全零的不列。"""
+        out = {}
+        for m in g["meshes"]:
+            names = (m.get("extras") or {}).get("targetNames") or []
+            for pr in m["primitives"]:
+                attrs = {k: vrmio.read_accessor(g, b, a) for k, a in pr["attributes"].items()}
+                attrs["indices"] = vrmio.read_accessor(g, b, pr["indices"])
+                self_t = {}
+                for t, n in zip(pr.get("targets", []), names):
+                    d = list(vrmio.read_accessor(g, b, t["POSITION"]))
+                    if any(d):
+                        self_t[n] = d
+                out[pr["material"]] = (attrs, self_t)
+        return out
+
+    def check_same(self, one, split, is1):
+        self.assertValid(split)
+        ga, ba = vrmio.read_glb(one)
+        gb, bb = vrmio.read_glb(split)
+        self.assertEqual(len(ga["meshes"]), 1)
+        self.assertGreater(len(gb["meshes"]), 1)
+        self.assertEqual(self.by_material(ga, ba), self.by_material(gb, bb))
+        for m in gb["meshes"]:                        # 每个网格里的 primitive 带同样多的 target
+            n = len((m.get("extras") or {}).get("targetNames") or [])
+            self.assertEqual({len(pr.get("targets", [])) for pr in m["primitives"]}, {n})
+        if is1:
+            ea, eb = (g["extensions"]["VRMC_vrm"]["expressions"] for g in (ga, gb))
+            for grp in ("preset", "custom"):
+                self.assertEqual(set(ea[grp]), set(eb[grp]))
+                for k, x in ea[grp].items():
+                    y = eb[grp][k]
+                    self.assertEqual(sorted(bind_names(ga, x.get("morphTargetBinds", []))),
+                                     sorted(bind_names(gb, y.get("morphTargetBinds", []))), k)
+            nodes = [n["mesh"] for n in gb["nodes"] if "mesh" in n]
+            self.assertEqual(sorted(nodes), list(range(len(gb["meshes"]))))
+            fp = gb["extensions"]["VRMC_vrm"]["firstPerson"]["meshAnnotations"]
+            self.assertEqual(len(fp), len(gb["meshes"]))
+        else:
+            ea, eb = (g["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"] for g in (ga, gb))
+            self.assertEqual([x["name"] for x in ea], [x["name"] for x in eb])
+            for x, y in zip(ea, eb):
+                self.assertEqual(sorted(bind_names(ga, x["binds"], False)), sorted(bind_names(gb, y["binds"], False)))
+            self.assertEqual(len(gb["extensions"]["VRM"]["firstPerson"]["meshAnnotations"]), len(gb["meshes"]))
+        return gb
+
+    def test_vrm1(self):
+        g = self.check_same(self.convert_with("one1", 10 ** 12), self.convert_with("split1", 0), True)
+        # 没有表情动到的 primitive 不带 morph target
+        self.assertTrue(any("extras" not in m for m in g["meshes"]))
+
+    def test_vrm0(self):
+        self.check_same(self.convert_with("one0", 10 ** 12, spec="0.x"),
+                        self.convert_with("split0", 0, spec="0.x"), False)
+
+    def test_tune_look_split(self):
+        """视线表情的横向场 / 深度场分在几个网格里时，调整视线角度照样按名字改权重。"""
+        out = self.convert_with("split_tune", 0)
+        vrm_edit.apply(out, {"lookAt": {"h": 30}})
+        self.assertValid(out)
+        g = vrmio.read_glb(out)[0]
+        wt, wd = morphbake.gaze_weights(30, "h")
+        binds = g["extensions"]["VRMC_vrm"]["expressions"]["preset"]["lookLeft"]["morphTargetBinds"]
+        self.assertEqual(sorted(bind_names(g, binds)), sorted([("lookLeft", wt), ("lookLeftRight_depth", wd)]))
+
+
+class GroupMeshesTest(unittest.TestCase):
+    def test_group(self):
+        def pr(v, ts):
+            return {"vcount": v, "tmap": dict.fromkeys(ts, 0)}
+        prims = [pr(1000, (0, 1, 2)), pr(1000, (0, 1, 2)), pr(50000, ()), pr(50000, (5,)), pr(10, (3,))]
+        # 同样的 target 放一起；小块并进表情多的；大块之间只差一个 target 也并（多一个网格不划算）；
+        # 哪儿都没动到的 target 4 放进 target 最多的网格
+        self.assertEqual(mesh.group_meshes(prims, 6), [([0, 1, 4], [0, 1, 2, 3, 4]), ([2, 3], [5])])
+        old = mesh.MESH_COST
+        mesh.MESH_COST = 0
+        try:
+            self.assertEqual(mesh.group_meshes(prims, 6),
+                             [([0, 1], [0, 1, 2, 4]), ([2], []), ([3], [5]), ([4], [3])])
+        finally:
+            mesh.MESH_COST = old
+        self.assertEqual(mesh.group_meshes([pr(5, ())], 0), [([0], [])])
+
+
+class GlbWriteTest(unittest.TestCase):
+    def test_roundtrip(self):
+        d = tempfile.mkdtemp(prefix="m2v_glb_")
+        try:
+            for data in (bytearray(b"abcde"), memoryview(b"abcdefgh"), b""):
+                p = os.path.join(d, "x.glb")
+                size = vrmio.write_glb({"asset": {"version": "2.0"}}, data, p)
+                self.assertEqual(size, os.path.getsize(p))
+                g, b = vrmio.read_glb(p)
+                self.assertEqual(g, {"asset": {"version": "2.0"}})
+                self.assertEqual(bytes(b[:len(data)]), bytes(data))
+                self.assertEqual(len(b) % 4, 0)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class JobsBudgetTest(unittest.TestCase):
+    """同时转几个：按每个任务的内存估计，最大的几个加起来不超过可用内存的 MEM_SHARE。"""
+
+    def jobs(self, n, mem=None, free=4.0, cpu=8):
+        from unittest import mock
+        par = pipeline.parallel
+        with mock.patch.object(par, "free_memory_gb", return_value=free),                 mock.patch.object(par.os, "cpu_count", return_value=cpu),                 mock.patch.dict(os.environ, {par.WORKER_ENV: ""}):
+            return par.jobs_for(n, 0, mem)
+
+    def test_jobs(self):
+        self.assertEqual(self.jobs(4), 2)                                   # 不知道多大：每个 1.5 GB
+        self.assertEqual(self.jobs(4, [0.5] * 4), 4)
+        self.assertEqual(self.jobs(4, [1.0] * 4), 3)
+        self.assertEqual(self.jobs(4, [0.25, 1.5, 0.25, 1.5]), 2)           # 两个大的可能同时在跑
+        self.assertEqual(self.jobs(4, [1.5] * 4, free=1.0), 1)
+        self.assertEqual(self.jobs(4, [0.2] * 4, cpu=3), 2)
+        self.assertEqual(self.jobs(1, [0.2]), 1)
+
+    def test_estimate(self):
+        d = tempfile.mkdtemp(prefix="m2v_mem_")
+        try:
+            pmx = os.path.join(d, "a.pmx")
+            with open(pmx, "wb") as f:
+                f.write(b"\0" * (4 << 20))
+            self.assertAlmostEqual(pipeline.memory_estimate(pmx), 0.15 + 4 * 35 / 1024)
+            z = os.path.join(d, "a.zip")
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("m/body.pmx", b"\0" * (16 << 20))                 # 按解压后的大小估
+                zf.writestr("m/prop.pmx", b"\0" * 1000)
+                zf.writestr("m/tex.png", b"\0" * (64 << 20))
+            self.assertAlmostEqual(pipeline.memory_estimate(z), 0.15 + 16 * 35 / 1024)
+            with zipfile.ZipFile(z, "w") as zf:
+                zf.writestr("m/a.unitypackage", b"x")
+            self.assertEqual(pipeline.memory_estimate(z), pipeline.UNKNOWN_GB)
+            self.assertEqual(pipeline.memory_estimate(os.path.join(d, "x.7z")), pipeline.UNKNOWN_GB)
+            big = os.path.join(d, "big.fbx")
+            with open(big, "wb") as f:
+                f.truncate(200 << 20)
+            self.assertEqual(pipeline.memory_estimate(big), pipeline.parallel.GB_PER_JOB)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 class ComboTest(Base):
@@ -590,8 +762,7 @@ class ComboTest(Base):
         pmxio.write_pmx(m, cls.pmx)
 
     def binds(self, g, obj):
-        names = g["meshes"][0]["extras"]["targetNames"]
-        return [(names[b["index"]], b["weight"]) for b in obj["morphTargetBinds"]]
+        return bind_names(g, obj["morphTargetBinds"])
 
     def test_vrm1(self):
         out = self.convert("combo1")
@@ -679,11 +850,10 @@ class OtherNamingTest(Base):
         pmx2vrm.convert(self.pmx, out, log=lambda s, t=None: logs.append((s, t)))
         self.assertValid(out)
         g = vrmio.read_glb(out)[0]
-        names = g["meshes"][0]["extras"]["targetNames"]
         pre = g["extensions"]["VRMC_vrm"]["expressions"]["preset"]
 
         def binds(p):
-            return [(names[b["index"]], b["weight"]) for b in pre[p]["morphTargetBinds"]]
+            return bind_names(g, pre[p]["morphTargetBinds"])
         self.assertEqual(binds("blink"), [("眨眼", 1.0)])                 # 中文名
         self.assertEqual(binds("aa"), [("啊2", 1.0)])                     # 中文名 + 变体后缀
         self.assertEqual(binds("ou"), [("mouthPucker", 1.0)])            # ARKit 退路

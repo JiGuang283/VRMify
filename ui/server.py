@@ -359,7 +359,7 @@ class Backend:
             if f:
                 todo.append((fid, f["path"], f["name"], self.edits_for(f)))
         total = len(todo)
-        jobs = parallel.jobs_for(total, opts.get("jobs"))
+        jobs = parallel.jobs_for(total, opts.get("jobs"), [pipeline.memory_estimate(p) for _, p, _, _ in todo])
         st = {"done": 0, "failed": 0, "skipped": 0, "finished": 0}
         running, t0 = {}, {}
 

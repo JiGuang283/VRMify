@@ -437,13 +437,14 @@ def report(expr_preset, blend_groups, is1, log):
 def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_morphs, log, combo=True, hidden=()):
     """表情 → 各 primitive 的 morph target + VRM 表情。
 
-    flat：_flatten_morphs 的结果；prims：mesh.build_primitives 的结果（会往 pr["targets"] 里追加）；
+    flat：_flatten_morphs 的结果；prims：mesh.build_primitives 的结果（往 pr["tmap"] 里写 morph target）；
     UV 表情能表示成整个材质的缩放 + 偏移时写 textureTransformBinds（0.x：_MainTex_ST）；
     mats：materials.MaterialBuilder；vmat：T-pose 后每个顶点的混合旋转（表情偏移要跟着转）。
     combo：情绪预设组合眉 / 眼 / 嘴（COMBO）；原来单个对应的表情回到自定义表情。
     hidden：只做 morph target、不做表情的名字（视线表情的深度场，见 morphbake.split_gaze）。
     返回 dict：target_names、preset / custom（1.0）、blend_groups（0.x）。
-    morphTargetBinds 的 node 先写 0，写出前由调用方改成网格节点。
+    绑定里的 index 先是全局的 morph target 序号、node / mesh 先写 0，分好网格后由
+    mesh.remap_binds 改成各网格里的序号和网格节点。
     """
     materials = mats.model["materials"]
     target_names = []
@@ -469,7 +470,9 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     recipes = combo_recipes(delta_of, panel, lookup) if combo else {}
 
     def add_target(name, deltas):
-        """一个 morph target（每个 primitive 一份）→ 序号。"""
+        """一个 morph target → 序号。只写进它动得到的 primitive（pr["tmap"][序号] = accessor），
+        其余的在分网格（mesh.group_meshes）后按需补零。"""
+        slot = len(target_names)
         for pr in prims:
             loc = pr["local"]
             items = []
@@ -483,11 +486,12 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
                 # 以前用 xf_dir 只翻了轴没缩放，偏移大了 1/scale≈12 倍，
                 # 表情一开脸就拉成长刺。
                 items.append((j, xf(d)))
+            if not items:
+                continue
             if sparse_morphs:
                 # 稀疏存储：一个表情通常只动几百个顶点，密集存储每个表情
-                # 每个 primitive 都要「顶点数 × 12 字节」。稀疏至少要一项：空的写一个零偏移
+                # 每个 primitive 都要「顶点数 × 12 字节」
                 items.sort()
-                items = items or [(0, (0.0, 0.0, 0.0))]
                 acc = gb.add_sparse_accessor(
                     pr["vcount"], [j for j, _ in items],
                     [c for _, d in items for c in d], "VEC3")
@@ -496,12 +500,12 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
                 for j, d in items:
                     arr[j * 3:j * 3 + 3] = d
                 acc = gb.add_accessor(arr, vrmio.FLOAT, "VEC3", 34962)
-            pr["targets"].append({"POSITION": acc})
+            pr["tmap"][slot] = acc
         # Unity 的 BlendShape 名在一个网格内必须唯一，重名时 UniVRM 导入直接抛
         # 「Blend shape name already exists」中断（开拓者 PMX 里有两个「手前」）
         target_names.append(uniq_name(name, target_set))
         target_set.add(target_names[-1])
-        return len(target_names) - 1
+        return slot
 
     for mname, deltas, ops, uvs in flat:
         slot = None

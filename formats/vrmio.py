@@ -120,22 +120,20 @@ def default_sampler():
 
 
 def write_glb(gltf, bin_bytes, path):
+    """bin_bytes：bytes / bytearray / memoryview 都行，直接写进文件、不复制（大模型的二进制块有几十 MB）。"""
     js = json.dumps(gltf, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    while len(js) % 4:
-        js += b" "
-    b = bytes(bin_bytes)
-    while len(b) % 4:
-        b += b"\x00"
-    total = 12 + 8 + len(js) + (8 + len(b) if b else 0)
-    out = bytearray()
-    out += struct.pack("<III", GLB_MAGIC, 2, total)
-    out += struct.pack("<II", len(js), CHUNK_JSON)
-    out += js
-    if b:
-        out += struct.pack("<II", len(b), CHUNK_BIN)
-        out += b
+    js += b" " * (-len(js) % 4)
+    n = len(bin_bytes)
+    pad = -n % 4
+    total = 12 + 8 + len(js) + (8 + n + pad if n else 0)
     with open(path, "wb") as f:
-        f.write(out)
+        f.write(struct.pack("<III", GLB_MAGIC, 2, total))
+        f.write(struct.pack("<II", len(js), CHUNK_JSON))
+        f.write(js)
+        if n:
+            f.write(struct.pack("<II", n + pad, CHUNK_BIN))
+            f.write(bin_bytes)
+            f.write(b"\x00" * pad)
     return total
 
 

@@ -438,6 +438,35 @@ def _fbxs_to_vrm(fbxs, out_dir, opts, log, edits=None, name=None):
 
 
 SMALL_MODEL = 1 << 20      # 输入文件小于 1 MB 的模型（道具、配件）转得比开子进程还快，不为它们并行
+UNKNOWN_GB = 1.0           # 看不到里面的包（unitypackage / 7z / rar / tar）按这么多估
+
+
+def _model_gb(size):
+    """一个模型文件（PMX / FBX / …，size 字节）转换时的进程内存峰值估计（GB）。
+    实测 VRM 1.0（主要花在 PMX 读进来的逐顶点字典上）：PMX 约 0.09 GB + 文件大小 × 28
+    （爱弥斯 16 MB → 0.51 GB，开拓者 2.2 MB → 0.15 GB）；FBX 更省（12 MB → 0.14 GB）。按 × 35 估、留余量。"""
+    return min(parallel.GB_PER_JOB, 0.15 + size * 35 / 1024 ** 3)
+
+
+def memory_estimate(path):
+    """转换这个文件时的进程内存峰值估计（GB），给 parallel.jobs_for 决定同时转几个。
+    压缩包里的模型是一个一个转的，按最大的那个估：zip 直接看目录；看不到里面的按 UNKNOWN_GB
+    （Marycia 154 MB 的 unitypackage 实测峰值 0.44 GB）。"""
+    kind = classify(path)
+    try:
+        if kind == "zip":
+            with zipfile.ZipFile(path) as zf:
+                infos = zf.infolist()
+            inner = [classify(i.filename) for i in infos]
+            if any(k in ARCHIVES or k == "unitypackage" for k in inner):
+                return UNKNOWN_GB
+            sizes = [i.file_size for i, k in zip(infos, inner) if k in CONVERTIBLE]
+            return _model_gb(max(sizes)) if sizes else UNKNOWN_GB
+        if kind in ARCHIVES or kind == "unitypackage":
+            return UNKNOWN_GB
+        return _model_gb(os.path.getsize(path))
+    except (OSError, zipfile.BadZipFile, ValueError):
+        return UNKNOWN_GB
 
 
 def _convert_each(tasks, names, sizes, opts, log, where):
@@ -452,7 +481,7 @@ def _convert_each(tasks, names, sizes, opts, log, where):
         func, args, kw = tasks[0]
         return func(*args, log=log, **kw)
     big = sum(1 for s in sizes if s >= SMALL_MODEL)  # 一个人物 + 几个小道具：一个一个转更快
-    jobs = parallel.jobs_for(big, opts.get("jobs")) if big > 1 else 1
+    jobs = parallel.jobs_for(big, opts.get("jobs"), [_model_gb(s) for s in sizes if s >= SMALL_MODEL]) if big > 1 else 1
     keyed = [(i,) + tuple(t) for i, t in enumerate(tasks)]
     if jobs > 1:
         log("%s有 %d 个模型，同时转 %d 个" % (where, len(tasks), jobs), "info")

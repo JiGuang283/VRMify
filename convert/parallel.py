@@ -19,7 +19,8 @@ import threading
 import traceback
 
 WORKER_ENV = "MODEL2VRM_WORKER"
-GB_PER_JOB = 1.5          # 一个大模型（十几万顶点）转换时进程峰值约 0.6 GB，多留余量
+GB_PER_JOB = 1.5          # 不知道任务多大时按这么多算（十几万顶点的模型转换时进程峰值约 0.5 GB）
+MEM_SHARE = 0.8           # 并行的任务加起来最多占可用内存的这么多
 
 
 def in_worker():
@@ -55,8 +56,12 @@ def threads():
     return max(1, min(2 if in_worker() else 4, os.cpu_count() or 1))
 
 
-def jobs_for(n_tasks, setting=0):
-    """同时跑几个：setting > 0 时按设置；0 = 自动（CPU 核数 − 1、最多 4 个、按可用内存每个约 1.5 GB）。"""
+def jobs_for(n_tasks, setting=0, mem_gb=None):
+    """同时跑几个：setting > 0 时按设置；0 = 自动（CPU 核数 − 1、最多 4 个，再看可用内存）。
+
+    mem_gb：每个任务的内存峰值估计（GB，见 pipeline.memory_estimate）。给了就取「最大的几个加起来
+    不超过可用内存的 MEM_SHARE」——同时在跑的任意几个都不会超；不给按每个 GB_PER_JOB 算。
+    """
     if n_tasks <= 1 or in_worker():
         return 1
     try:
@@ -65,8 +70,17 @@ def jobs_for(n_tasks, setting=0):
         setting = 0
     if setting > 0:
         return min(setting, n_tasks)
-    cpu = os.cpu_count() or 2
-    return max(1, min(4, cpu - 1, int(free_memory_gb() // GB_PER_JOB), n_tasks))
+    cap = max(1, min(4, (os.cpu_count() or 2) - 1, n_tasks))
+    free = free_memory_gb()
+    if not mem_gb:
+        return max(1, min(cap, int(free // GB_PER_JOB)))
+    k, tot = 0, 0.0
+    for m in sorted(mem_gb, reverse=True)[:cap]:
+        tot += m
+        if tot > free * MEM_SHARE:
+            break
+        k += 1
+    return max(1, k)
 
 
 _QUEUE = None

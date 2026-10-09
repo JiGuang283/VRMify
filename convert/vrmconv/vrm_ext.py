@@ -17,8 +17,8 @@ def _pick(meta, key, allowed, default):
     return v if v in allowed else default
 
 
-def build_vrm1(meta, title, human, mesh_node, expr, look=None):
-    """VRMC_vrm。meta：用户给的作者 / 许可等；expr：expressions.build_expressions 的结果。
+def build_vrm1(meta, title, human, mesh_nodes, expr, look=None):
+    """VRMC_vrm。meta：用户给的作者 / 许可等；expr：expressions.build_expressions 的结果；mesh_nodes：网格节点。
 
     默认值和以前一致：谁都可以「扮演」（avatarPermission=everyone，不然有的应用拒绝加载），
     其余取保守值（仅个人非商用、禁止再分发和修改、要求署名）——转换的大多是别人的模型，
@@ -55,8 +55,7 @@ def build_vrm1(meta, title, human, mesh_node, expr, look=None):
                                   ("prohibited", "allowModification", "allowModificationRedistribution"),
                                   "prohibited"),
         },
-        "firstPerson": {"meshAnnotations": [{"node": mesh_node,
-                                             "type": "auto"}]},
+        "firstPerson": {"meshAnnotations": [{"node": n, "type": "auto"} for n in mesh_nodes]},
     }
     if expr["preset"] or expr["custom"]:
         vrm_ext["expressions"] = {}
@@ -77,7 +76,7 @@ def build_vrm1(meta, title, human, mesh_node, expr, look=None):
     return vrm_ext
 
 
-def build_vrm0(meta, title, human, expr, material_props, look=None):
+def build_vrm0(meta, title, human, expr, material_props, look=None, n_meshes=1):
     """VRM 0.x 的 VRM 扩展。material_props：materials.MaterialBuilder.props_0x。"""
     return {
         "exporterVersion": "pmx2vrm.py",
@@ -111,7 +110,7 @@ def build_vrm0(meta, title, human, expr, material_props, look=None):
         "firstPerson": {
             "firstPersonBone": human.get("head", 0),
             "firstPersonBoneOffset": {"x": 0.0, "y": 0.06, "z": 0.0},
-            "meshAnnotations": [{"firstPersonFlag": "Auto", "mesh": 0}],
+            "meshAnnotations": [{"firstPersonFlag": "Auto", "mesh": k} for k in range(n_meshes)],
             "lookAtTypeName": ("Bone" if ("leftEye" in human or
                                           "rightEye" in human)
                                else "BlendShape"),

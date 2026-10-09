@@ -222,16 +222,13 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     target_names = expr["target_names"]
     _gaze_binds(expr, gaze_split, look, is1)
 
-    # ---- 收尾节点
-    gltf_mesh = {"name": model["name"] or "body", "primitives": []}
-    for pr in prims:
-        p = {"attributes": pr["acc"], "indices": pr["indices"],
-             "material": pr["mat"]}
-        if pr["targets"]:
-            p["targets"] = pr["targets"]
-        gltf_mesh["primitives"].append(p)
-    if target_names:
-        gltf_mesh["extras"] = {"targetNames": target_names}
+    # ---- 按表情分网格（每个网格只带动得到它的 morph target）
+    groups = mesh.group_meshes(prims, len(target_names))
+    gltf_meshes, where = mesh.build_meshes(gb, prims, groups, target_names,
+                                           model["name"] or "body", sparse_morphs)
+    if len(gltf_meshes) > 1:
+        _log("网格：按表情分成 %d 个（%s）" % (len(gltf_meshes), " / ".join(
+            "%s %d" % (m["name"], len(m.get("extras", {}).get("targetNames", ()))) for m in gltf_meshes)))
 
     inv = []
     for i in range(len(bones)):
@@ -244,11 +241,17 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         inv = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]
     ibm = gb.add_accessor(inv, vrmio.FLOAT, "MAT4", minmax=False)
 
-    mesh_node_index = len(nodes)
-    nodes.append({"name": "mesh", "mesh": 0, "skin": 0})
+    mesh_nodes = []
+    taken = {n.get("name") for n in nodes}
+    for k, m in enumerate(gltf_meshes):
+        mesh_nodes.append(len(nodes))
+        # 网格按材质起名，可能和骨骼重名（「髪」）：Unity 里按名字找物体的会找错，加后缀
+        nm = expressions.uniq_name("mesh" if len(gltf_meshes) == 1 else m["name"], taken)
+        taken.add(nm)
+        nodes.append({"name": nm, "mesh": k, "skin": 0})
     root_index = len(nodes)
     nodes.append({"name": "root",
-                  "children": list(top_nodes) + [mesh_node_index]})
+                  "children": list(top_nodes) + mesh_nodes})
 
     joints = [tree.bone_node(i) for i in range(len(bones))]
     if not joints:
@@ -259,7 +262,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         "scene": 0,
         "scenes": [{"nodes": [root_index]}],
         "nodes": nodes,
-        "meshes": [gltf_mesh],
+        "meshes": gltf_meshes,
         "skins": [{"joints": joints, "inverseBindMatrices": ibm,
                    "skeleton": root_index}],
         "materials": mats.materials,
@@ -272,16 +275,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         gltf["textures"] = gb.textures
         gltf["samplers"] = gb.samplers
 
-    # morphTargetBinds 的 node 指向 mesh 节点；0.x 的 mesh 指向 mesh 索引
-    if is1:
-        for grp in (expr["preset"], expr["custom"]):
-            for obj in grp.values():
-                for b in obj.get("morphTargetBinds", []):
-                    b["node"] = mesh_node_index
-    else:
-        for g in expr["blend_groups"]:
-            for b in g["binds"]:
-                b["mesh"] = 0
+    # 绑定的 morph target 序号 → 各网格里的；1.0 的 node 指向网格节点，0.x 的 mesh 指向网格号
+    mesh.remap_binds(expr, where, mesh_nodes, is1)
 
     # ---- VRM 扩展
     meta = meta or {}
@@ -289,7 +284,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     if is1:
         gltf["extensionsUsed"] = ["VRMC_vrm", "VRMC_materials_mtoon"]
         gltf["extensions"] = {"VRMC_vrm": vrm_ext.build_vrm1(meta, title, human,
-                                                             mesh_node_index, expr, look)}
+                                                             mesh_nodes, expr, look)}
         if spring_ext:
             if spring_center:
                 # center = 根节点：在模型自身的空间里模拟。应用里人物整体移动（走路的
@@ -303,14 +298,14 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     else:
         gltf["extensionsUsed"] = ["VRM"]
         gltf["extensions"] = {"VRM": vrm_ext.build_vrm0(meta, title, human, expr,
-                                                        mats.props_0x, look)}
+                                                        mats.props_0x, look, len(gltf_meshes))}
 
-    size = vrmio.write_glb(gltf, bytes(gb.bin), vrm_path)
+    size = vrmio.write_glb(gltf, gb.bin, vrm_path)
     n_expr = (len(expr["preset"]) + len(expr["custom"])) if is1 else len(expr["blend_groups"])
     _log("已写出 %s（%.2f MB）· 节点 %d · morph target %d · 表情 %d"
          % (os.path.basename(vrm_path), size / 1048576.0, len(nodes),
             len(target_names), n_expr), "ok")
-    return {"nodes": len(nodes), "primitives": len(prims),
+    return {"nodes": len(nodes), "primitives": len(prims), "meshes": len(gltf_meshes),
             "morphs": len(target_names), "bytes": size, "scale": scale,
             "vertices": sum(p["vcount"] for p in prims)}
 

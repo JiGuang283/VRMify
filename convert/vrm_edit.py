@@ -125,8 +125,17 @@ def _apply_look(vrm, b, edits, g=None):
         _gaze_weights(g, vrm, is1, edits)
 
 
+def _target_name(g, bind, is1):
+    """表情绑定指向的 morph target 名（找不到时 None）。1.0 的 node 是网格节点，0.x 的 mesh 是网格号。"""
+    try:
+        m = g["nodes"][bind["node"]]["mesh"] if is1 else bind["mesh"]
+        names = g["meshes"][m]["extras"]["targetNames"]
+        return names[bind["index"]] if 0 <= bind["index"] < len(names) else None
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def _gaze_weights(g, vrm, is1, edits):
-    names = (g.get("meshes") or [{}])[0].get("extras", {}).get("targetNames") or []
     depth = set(morphbake.GAZE_DEPTH.values())
     for p, key in morphbake.GAZE_KEY.items():
         deg = _num(edits.get(key), None)
@@ -143,11 +152,12 @@ def _gaze_weights(g, vrm, is1, edits):
                        if x.get("name") == p and x.get("presetName") == p.lower()), None)
             binds = gr and gr.get("binds")
             scale = 100.0
-        # 只认转换时补的那种：两个绑定、第二个是深度场
-        if not binds or len(binds) != 2 or not (0 <= binds[1]["index"] < len(names))                 or names[binds[1]["index"]] not in depth:
+        # 只认转换时补的那种：横向场 + 深度场（眼睛分在几个网格里时每个网格各一对）
+        names = [_target_name(g, bd, is1) for bd in binds or ()]
+        if not names or None in names or len(set(names)) != 2 or not depth.intersection(names):
             continue
-        binds[0]["weight"] = round(wt * scale, 6)
-        binds[1]["weight"] = round(wd * scale, 6)
+        for bd, n in zip(binds, names):
+            bd["weight"] = round((wd if n in depth else wt) * scale, 6)
 
 
 def _apply_intensity(vrm, is1, edits):
