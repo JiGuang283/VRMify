@@ -433,13 +433,14 @@ def report(expr_preset, blend_groups, is1, log):
         "warn" if {"blink", "aa"} & set(miss) else None)
 
 
-def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_morphs, log, combo=True):
+def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_morphs, log, combo=True, hidden=()):
     """表情 → 各 primitive 的 morph target + VRM 表情。
 
     flat：_flatten_morphs 的结果；prims：mesh.build_primitives 的结果（会往 pr["targets"] 里追加）；
     UV 表情能表示成整个材质的缩放 + 偏移时写 textureTransformBinds（0.x：_MainTex_ST）；
     mats：materials.MaterialBuilder；vmat：T-pose 后每个顶点的混合旋转（表情偏移要跟着转）。
     combo：情绪预设组合眉 / 眼 / 嘴（COMBO）；原来单个对应的表情回到自定义表情。
+    hidden：只做 morph target、不做表情的名字（视线表情的深度场，见 morphbake.split_gaze）。
     返回 dict：target_names、preset / custom（1.0）、blend_groups（0.x）。
     morphTargetBinds 的 node 先写 0，写出前由调用方改成网格节点。
     """
@@ -503,9 +504,11 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
 
     for mname, deltas, ops, uvs in flat:
         slot = None
-        if deltas:
+        if deltas or mname in hidden:
             slot = add_target(mname, deltas)
             slot_of.setdefault(mname, slot)
+        if mname in hidden:
+            continue
 
         # 材质表情 → 目标颜色（权重 1 时的漫反射 RGBA）
         colors = []

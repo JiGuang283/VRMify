@@ -350,6 +350,13 @@ def _map_humanoid(bones, is1, alias):
             if a in spine_up and a not in alias and a not in human.values():
                 human["hips"] = a
                 break
+    # 上半身2 / 上半身3 的名字和层级反着的模型（鸣潮的娜波摩、秧秧：上半身 → 上半身3 → 上半身2 → 首）：
+    # 按实际的父子顺序分，下面那根是 chest、上面那根是 upperChest。按名字分的话 upperChest
+    # 在 chest 上面，层级改不过来只能把它从 humanoid 里去掉，躯干少一节
+    if "chest" in human and "upperChest" in human:
+        parents = [b.get("parent", -1) for b in bones]
+        if _is_ancestor(parents, human["upperChest"], human["chest"]):
+            human["chest"], human["upperChest"] = human["upperChest"], human["chest"]
     for (side, finger), digits in fingers.items():
         for d, slot in _finger_slots(finger, digits, is1).items():
             human.setdefault(side + finger + slot, digits[d])

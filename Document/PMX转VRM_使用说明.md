@@ -118,7 +118,7 @@ python tools/qa/check_vrm.py "model.vrm"
 | 材质表情 | expression 的 `materialColorBinds`（0.x：`materialValues`），用于显示/隐藏部件 |
 | 骨骼表情（寄り目、+目上、齿轮旋转 …） | 静止姿势下按表情摆骨（付与骨跟着付与親、子骨跟着父骨），线性蒙皮算出顶点位移 → morph target；グループ里的骨骼表情同样算进去 |
 | UV 表情（漫符、表情贴图切换） | 整个材质的 UV 按同一个缩放 + 平移变化时 → `textureTransformBinds`（0.x：`_MainTex_ST`）；不是的话跳过并提示 |
-| 左右眼骨 | humanoid 的 leftEye / rightEye，lookAt 用骨骼。最大转角按眼球几何算：瞳孔看起来走多远 = 转角 × 眼骨支点到瞳孔的距离，MMD 模型的支点常贴着眼球（VRoid 深得多），固定角度转眼不明显，所以反推「瞳孔走到约 28% 瞳孔宽度」的左右角度（8°～20°），向下取它的 0.7、向上 0.5（日志：`视线：左右 x° · 下 x° · 上 x°`）；算不出时 10°。另外按同样的角度转眼骨烘焙出 lookLeft / lookRight / lookUp / lookDown 四个预设表情，给直接播这几个表情的程序用（模型自己有同名表情时不补，`--no-gaze` 关掉） |
+| 左右眼骨 | humanoid 的 leftEye / rightEye，lookAt 用骨骼。最大转角按眼球几何算：瞳孔看起来走多远 = 转角 × 眼骨支点到瞳孔的距离，MMD 模型的支点常贴着眼球（VRoid 深得多），固定角度转眼不明显，所以反推「瞳孔走到约 28% 瞳孔宽度」的左右角度（8°～20°），向下取它的 0.7、向上 0.5（日志：`视线：左右 x° · 下 x° · 上 x°`）；算不出时 10°。另外按同样的角度转眼骨烘焙出 lookLeft / lookRight / lookUp / lookDown 四个预设表情，给直接播这几个表情的程序用（模型自己有同名表情时不补，`--no-gaze` 关掉）。这四个表情按左右 40°、上下 30° 烘焙成「横向」「深度」两个形态键（`lookLeftRight_depth`、`lookUpDown_depth` 只是形态键，不是表情），权重 sinθ / sinΘ 和 (1−cosθ) / (1−cosΘ) 给出实际角度——转眼骨的位移正好是这两部分的组合，任意角度都和直接转眼骨一样；所以调整面板改视线角度时这几个表情跟着变，不用重新转换 |
 | 物理刚体（mode 1/2）+ 关节 | `VRMC_springBone` 的 springs（仅 1.0，见下文） |
 | 跟随骨骼的刚体（mode 0） | SpringBone 碰撞体（球 / 胶囊；盒近似成胶囊） |
 | 表情名 | 自动对应 VRM 预设（まばたき→blink、あ→aa …）；MMD 的「上」「下」是眉毛表情，不映射成 lookUp / lookDown。名字比较时全角半角、大小写、`_ . -` 分隔符不计（ｷﾘｯ = キリッ、あ２ = あ2、eyeBlink_L = eyeBlinkLeft），也认变体后缀 A / B / 1 / 2 / 3（怒りA、まばたき2；模型里同时有不带后缀的就用不带的）。英文名（VRChat 的 `vrc.v_aa`、VRoid 的 `Fcl_ALL_Joy`、`MTH_A` …）和常见中文名（眨眼、啊 / 咿 / 呜 / 诶 / 哦、开心、生气、伤心、惊讶 …）也认，日文名优先。都对应不上时：眨眼用 ARKit 的 eyeBlinkLeft + eyeBlinkRight，再不行用左右单眼合起来；口型用 ARKit 的 jawOpen（a）、mouthPucker（u）、mouthFunnel（o）、mouthStretch + mouthSmile（e / i，单用 mouthStretch 是嘴角下拉的苦脸） |

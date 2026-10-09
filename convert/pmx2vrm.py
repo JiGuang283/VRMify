@@ -189,8 +189,9 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     # ---- 逐材质构建网格（材质表情会影响材质的 alphaMode，表情要先整理）
     gb = vrmio.GLBBuilder()
     gb.samplers.append(vrmio.default_sampler())
-    flat = expressions._flatten_morphs(model["morphs"], model,
-                                       _gaze(model, bs.human_b, is1, gaze, _log, look))
+    gaze_extra = _gaze(model, bs.human_b, is1, gaze, _log, look)
+    flat = expressions._flatten_morphs(model["morphs"], model, gaze_extra)
+    gaze_split = morphbake.split_gaze(flat, {n for n, _ in gaze_extra})
     # max_morphs: None = 全部；0 = 不导出；n = 只取前 n 个
     if max_morphs is not None and max_morphs >= 0:
         flat = flat[:int(max_morphs)]
@@ -207,8 +208,10 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
 
     # ---- 表情 → morph target + VRM expression
     expr = expressions.build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat,
-                                         is1, sparse_morphs, _log, combo=combo_expr)
+                                         is1, sparse_morphs, _log, combo=combo_expr,
+                                         hidden={d for _, d, _ in gaze_split.values()})
     target_names = expr["target_names"]
+    _gaze_binds(expr, gaze_split, look, is1)
 
     # ---- 收尾节点
     gltf_mesh = {"name": model["name"] or "body", "primitives": []}
@@ -313,11 +316,33 @@ def _gaze(model, human_b, is1, enabled, log, look=None):
         p = expressions._table_preset(mo["name"], True) or expressions._preset_en(mo["name"], True)
         if p:
             have.add(p)
-    out = [(n, offs) for n, offs in morphbake.gaze_offsets(human_b["leftEye"], human_b["rightEye"], look)
+    # 左右（上下）都要补时按 GAZE_MAX 烘焙，之后拆成横向 + 深度两个场、权重给出实际角度（morphbake.split_gaze）；
+    # 只补一边的按实际角度烘焙
+    deg = dict(look or morphbake.GAZE_DEG)
+    for a, b, axis in morphbake.GAZE_PAIRS:
+        if a not in have and b not in have:
+            deg[a] = deg[b] = morphbake.GAZE_MAX[axis]
+    out = [(n, offs) for n, offs in morphbake.gaze_offsets(human_b["leftEye"], human_b["rightEye"], deg)
            if n not in have]
     if out:
         log("表情：补视线表情 %s（转眼骨烘焙；lookAt 仍用骨骼）" % " / ".join(n for n, _ in out))
     return out
+
+
+def _gaze_binds(expr, split, look, is1):
+    """拆过的视线表情 → 横向场 + 深度场两个绑定，权重按实际视线角度（vrm_edit 改视线角度时同样重算）。"""
+    names = expr["target_names"]
+    for p, (tan, depth, axis) in split.items():
+        wt, wd = morphbake.gaze_weights((look or morphbake.GAZE_DEG)[p], axis)
+        slots = [(len(names) - 1 - names[::-1].index(n), w) for n, w in ((tan, wt), (depth, wd))]
+        if is1:
+            obj = expr["preset"].get(p)
+            if obj and (obj.get("extras") or {}).get("source") == p:
+                obj["morphTargetBinds"] = [{"node": 0, "index": i, "weight": w} for i, w in slots]
+        else:
+            for gr in expr["blend_groups"]:
+                if gr["name"] == p and gr["presetName"] == p.lower():
+                    gr["binds"] = [{"mesh": 0, "index": i, "weight": round(w * 100, 4)} for i, w in slots]
 
 
 def main(argv=None):

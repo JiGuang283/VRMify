@@ -24,6 +24,7 @@ import os
 import time
 
 import vrmio
+from vrmconv import morphbake
 
 PRESETS_1 = ["happy", "angry", "sad", "relaxed", "surprised", "neutral",
              "aa", "ih", "ou", "ee", "oh", "blink", "blinkLeft", "blinkRight",
@@ -99,8 +100,9 @@ def _look_deg(b):
     return out
 
 
-def _apply_look(vrm, b, edits):
-    """视线：先还原转换时的设置，再套用 edits（左右 / 向下 / 向上的最大转角）。"""
+def _apply_look(vrm, b, edits, g=None):
+    """视线：先还原转换时的设置，再套用 edits（左右 / 向下 / 向上的最大转角）。
+    转换时补的视线表情（lookLeft 等，横向场 + 深度场两个绑定，见 morphbake.split_gaze）按新角度重算权重。"""
     is1 = b["spec"] == "1.0"
     if is1:
         if b.get("look") is not None:
@@ -119,6 +121,33 @@ def _apply_look(vrm, b, edits):
         deg = min(90.0, max(0.0, deg))
         for n in names:
             target[n]["outputScale" if is1 else "yRange"] = deg
+    if g is not None:
+        _gaze_weights(g, vrm, is1, edits)
+
+
+def _gaze_weights(g, vrm, is1, edits):
+    names = (g.get("meshes") or [{}])[0].get("extras", {}).get("targetNames") or []
+    depth = set(morphbake.GAZE_DEPTH.values())
+    for p, key in morphbake.GAZE_KEY.items():
+        deg = _num(edits.get(key), None)
+        if deg is None:
+            continue
+        axis = "h" if key == "h" else "v"
+        wt, wd = morphbake.gaze_weights(deg, axis)
+        if is1:
+            obj = (vrm.get("expressions") or {}).get("preset", {}).get(p)
+            binds = obj and (obj.get("extras") or {}).get("source") == p and obj.get("morphTargetBinds")
+            scale = 1.0
+        else:
+            gr = next((x for x in vrm.get("blendShapeMaster", {}).get("blendShapeGroups", [])
+                       if x.get("name") == p and x.get("presetName") == p.lower()), None)
+            binds = gr and gr.get("binds")
+            scale = 100.0
+        # 只认转换时补的那种：两个绑定、第二个是深度场
+        if not binds or len(binds) != 2 or not (0 <= binds[1]["index"] < len(names))                 or names[binds[1]["index"]] not in depth:
+            continue
+        binds[0]["weight"] = round(wt * scale, 6)
+        binds[1]["weight"] = round(wd * scale, 6)
 
 
 def _apply_intensity(vrm, is1, edits):
@@ -389,7 +418,7 @@ def apply(path, edits, out_path=None):
     else:
         _apply_expr_0(vrm, b["groups"], edits.get("expressions"))
     _apply_intensity(vrm, is1, edits.get("intensity"))
-    _apply_look(vrm, b, edits.get("lookAt"))
+    _apply_look(vrm, b, edits.get("lookAt"), g)
     n += bool(edits.get("expressions")) + bool(edits.get("spring")) + bool(edits.get("lookAt"))
     n += any(_num(v, 1.0) != 1.0 for v in (edits.get("intensity") or {}).values())
     if edits.get("title"):

@@ -371,6 +371,45 @@ class MorphBakeTest(Base):
         self.assertEqual(la["rangeMapHorizontalOuter"]["outputScale"], orig["h"])
         self.assertEqual(la["rangeMapVerticalUp"]["outputScale"], orig["up"])
 
+    def test_gaze_fields_exact(self):
+        """视线表情 = 横向场 × sinθ/sinΘ + 深度场 × (1−cosθ)/(1−cosΘ)：任意角度都等于直接转眼骨。"""
+        m = pmxio.read_pmx(self.pmx)
+        idx = {b["name"]: i for i, b in enumerate(m["bones"])}
+        eyes = (idx["左目"], idx["右目"])
+        flat = [(n, morphbake.BoneBaker(m).deltas(o), [], {}) for n, o in morphbake.gaze_offsets(
+            *eyes, {"lookLeft": 40.0, "lookRight": 40.0, "lookUp": 30.0, "lookDown": 30.0})]
+        split = morphbake.split_gaze(flat, {"lookLeft", "lookRight", "lookUp", "lookDown"})
+        self.assertEqual(split["lookDown"], ("lookDown", "lookUpDown_depth", "v"))
+        field = {n: d for n, d, _, _ in flat}
+        for p, deg in (("lookLeft", 13.0), ("lookDown", 7.5), ("lookRight", 40.0)):
+            tan, depth, axis = split[p]
+            wt, wd = morphbake.gaze_weights(deg, axis)
+            direct = morphbake.BoneBaker(m).deltas(dict(morphbake.gaze_offsets(
+                *eyes, {"lookLeft": deg, "lookRight": deg, "lookUp": deg, "lookDown": deg}))[p])
+            for v, d in direct.items():
+                t, z = field[tan].get(v, (0, 0, 0)), field[depth].get(v, (0, 0, 0))
+                for k in range(3):
+                    self.assertAlmostEqual(t[k] * wt + z[k] * wd, d[k], places=5)
+
+    def test_tune_look_moves_gaze_expressions(self):
+        out = self.convert("eyes_gaze_w")
+        g = vrmio.read_glb(out)[0]
+        names = g["meshes"][0]["extras"]["targetNames"]
+        ex = g["extensions"]["VRMC_vrm"]["expressions"]
+        self.assertNotIn("lookLeftRight_depth", ex.get("custom", {}))          # 深度场只是 morph target
+        h = vrm_edit.describe(out)["look"]["h"]
+        binds = ex["preset"]["lookLeft"]["morphTargetBinds"]
+        self.assertEqual([names[b["index"]] for b in binds], ["lookLeft", "lookLeftRight_depth"])
+        self.assertEqual([b["weight"] for b in binds], list(morphbake.gaze_weights(h, "h")))
+        vrm_edit.apply(out, {"lookAt": {"h": 30, "down": 5}})
+        self.assertValid(out)
+        ex = vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]["preset"]
+        self.assertEqual([b["weight"] for b in ex["lookRight"]["morphTargetBinds"]], list(morphbake.gaze_weights(30, "h")))
+        self.assertEqual([b["weight"] for b in ex["lookDown"]["morphTargetBinds"]], list(morphbake.gaze_weights(5, "v")))
+        vrm_edit.apply(out, {})                                                   # 还原
+        ex = vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]["preset"]
+        self.assertEqual([b["weight"] for b in ex["lookLeft"]["morphTargetBinds"]], list(morphbake.gaze_weights(h, "h")))
+
     def test_no_gaze(self):
         out = self.convert("eyes_nogaze", gaze=False)
         ex = vrmio.read_glb(out)[0]["extensions"]["VRMC_vrm"]["expressions"]
@@ -553,6 +592,24 @@ class SkeletonTest(Base):
             x = [a + b for a, b in zip(x, g["nodes"][node].get("translation", [0, 0, 0]))]
             node = par.get(node)
         return x
+
+    def test_upper_chest_by_hierarchy(self):
+        """上半身3 在 上半身 和 上半身2 之间（名字和层级反着）：按层级分，上半身3 是 chest。"""
+        m = pmxio.read_pmx(synth.build(os.path.join(self.tmp, "uc"), "上半身3"))
+        idx = {b["name"]: i for i, b in enumerate(m["bones"])}
+        m["bones"].append({"name": "上半身3", "name_en": "", "pos": (0, 12.2, 0), "parent": idx["上半身"],
+                           "layer": 0, "flag": 0x0001 | 0x0002 | 0x0008 | 0x0010, "tail": idx["上半身2"]})
+        m["bones"][idx["上半身2"]]["parent"] = len(m["bones"]) - 1
+        pmx = os.path.join(self.tmp, "uc", "上半身3.pmx")
+        pmxio.write_pmx(m, pmx)
+        out, logs = os.path.join(self.tmp, "uc.vrm"), []
+        pmx2vrm.convert(pmx, out, log=lambda s, t=None: logs.append(s))
+        self.assertValid(out)
+        g = vrmio.read_glb(out)[0]
+        hb = g["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"]
+        self.assertEqual(g["nodes"][hb["chest"]["node"]]["name"], "上半身3")
+        self.assertEqual(g["nodes"][hb["upperChest"]["node"]]["name"], "上半身2")
+        self.assertFalse([s for s in logs if "无法修正" in s], logs)
 
     def test_hips_and_chest(self):
         out = self.convert("mmd1")

@@ -230,6 +230,54 @@ def gaze_offsets(left_eye, right_eye, deg=None):
     return out
 
 
+# 视线表情按这个角度烘焙（和调整面板滑块的上限一样），实际角度靠权重：转眼骨 θ 时顶点的位移
+# 恰好是「横向场 × sinθ + 深度场 ×（1 − cosθ）」（Rodrigues），左右一对 ±Θ 的烘焙结果正好拆出这两个场：
+#   横向 = (d(+Θ) − d(−Θ)) / 2，深度 = (d(+Θ) + d(−Θ)) / 2
+# 表情 = 横向 × sinθ/sinΘ + 深度 × (1−cosθ)/(1−cosΘ)，任意 θ ≤ Θ 都和真的转眼骨一样（蒙皮是线性混合，
+# 部分挂在眼骨上的眼皮也一样）。调整面板改视线角度时只改这两个权重，不用重新烘焙
+GAZE_MAX = {"h": 40.0, "v": 30.0}
+GAZE_PAIRS = (("lookLeft", "lookRight", "h"), ("lookUp", "lookDown", "v"))
+GAZE_DEPTH = {"h": "lookLeftRight_depth", "v": "lookUpDown_depth"}
+GAZE_KEY = {"lookLeft": "h", "lookRight": "h", "lookUp": "up", "lookDown": "down"}   # 对应 lookAt 的哪个转角
+
+
+def gaze_weights(deg, axis):
+    """转 deg 度 → (横向权重, 深度权重)。超过烘焙角度时按烘焙角度。"""
+    big = math.radians(GAZE_MAX[axis])
+    t = math.radians(min(max(deg, 0.0), GAZE_MAX[axis]))
+    return round(math.sin(t) / math.sin(big), 6), round((1 - math.cos(t)) / (1 - math.cos(big)), 6)
+
+
+def split_gaze(flat, names):
+    """flat（_flatten_morphs 的结果）里按 GAZE_MAX 烘焙的视线表情（成对的、从末尾找）拆成横向场 + 深度场：
+    lookLeft / lookRight / lookUp / lookDown 原地换成横向场，再追加两个深度场。
+    → {预设: (横向名, 深度名, 轴)}；names 是补进去的视线表情名，不成对的不拆。"""
+    pos = {}
+    for k in range(len(flat) - 1, -1, -1):
+        if flat[k][0] in names and flat[k][0] not in pos:
+            pos[flat[k][0]] = k
+    out = {}
+    for a, b, axis in GAZE_PAIRS:
+        if a not in pos or b not in pos:
+            continue
+        da, db = flat[pos[a]][1], flat[pos[b]][1]
+        tan, depth = {}, {}
+        for v in set(da) | set(db):
+            x, y = da.get(v, (0.0, 0.0, 0.0)), db.get(v, (0.0, 0.0, 0.0))
+            t = tuple((x[i] - y[i]) * 0.5 for i in range(3))
+            d = tuple((x[i] + y[i]) * 0.5 for i in range(3))
+            if abs(t[0]) + abs(t[1]) + abs(t[2]) > 1e-9:
+                tan[v] = t
+            if abs(d[0]) + abs(d[1]) + abs(d[2]) > 1e-9:
+                depth[v] = d
+        flat[pos[a]] = (a, tan, [], {})
+        flat[pos[b]] = (b, {v: (-t[0], -t[1], -t[2]) for v, t in tan.items()}, [], {})
+        flat.append((GAZE_DEPTH[axis], depth, [], {}))
+        out[a] = (a, GAZE_DEPTH[axis], axis)
+        out[b] = (b, GAZE_DEPTH[axis], axis)
+    return out
+
+
 def material_vertices(model):
     """→ [每个材质用到的顶点集合]。"""
     faces = model["faces"]

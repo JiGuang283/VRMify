@@ -60,7 +60,8 @@ into the output VRM:
   The slider next to each preset is its **strength** (0–150%, previewed while dragging): morph weights are scaled and capped at 100% each,
   so going above 100% only helps combined presets
 - **Gaze range**: how far the eyes turn left/right, down and up at the edge of their range (computed from the eye shape by default);
-  the arrows preview it. Only affects VRM look-at (looking at the camera etc.); the lookLeft etc. expressions baked at conversion keep their angles
+  the arrows preview it. Changes both VRM look-at (looking at the camera etc.) and the lookLeft etc. expressions added at
+  conversion (those go up to 40° left/right, 30° up/down)
 - **Physics**: overall stiffness / drag / gravity plus per-chain stiffness, gravity and on/off, previewed live while dragging
 
 Tuning is stored per source file in `edits.json` (thumbnails in `edits/`) and reapplied on later conversions; "Reset all"
