@@ -98,6 +98,7 @@ function renderFiles() {
       else if (act === 'reveal') api('/api/open', { path: f.outputs.length ? f.outputs[f.outputs.length - 1].path : f.path });
       else if (out !== undefined) {
         const o = f.outputs[+out];
+        if (!leaveTune(f.id)) return;
         if (o.url) { S.current = f.id; renderFiles(); loadModel(o.url, o.name); loadTune(); }
         else if (o.previewable) previewFile(f.id, +out);
         else api('/api/open', { path: o.path });
@@ -108,7 +109,9 @@ function renderFiles() {
   $('drop').classList.toggle('compact', S.files.length > 0);
   $('drop').firstElementChild.textContent = t(S.files.length ? 'dropHintShort' : 'dropHint');
   const conv = S.files.filter((f) => f.kind !== 'vrm' && f.status !== 'running');
-  const n = conv.filter((f) => f.status === 'pending' || f.status === 'error').length || conv.length;
+  const todo = conv.filter((f) => f.status === 'pending' || f.status === 'error').length;
+  const n = todo || conv.length;                     // nothing left to convert → the button converts everything again
+  $('startLabel').textContent = t(todo || !n ? 'start' : 'restart');
   $('startCount').textContent = n ? `(${n})` : '';
   $('start').disabled = S.busy || !n;
 }
@@ -255,10 +258,19 @@ viewer.onLoad = (info) => {
 let modelUrl = null;
 
 function showBusy(text) { $('pvBusy').hidden = !text; $('pvBusyText').textContent = text || ''; }
+// switching to another model drops unsaved tune edits: ask first
+function leaveTune(id) {
+  if (!T.dirty || !T.fid || T.fid === id) return true;
+  if (!confirm(t('tuneDiscard'))) return false;
+  T.dirty = false;
+  return true;
+}
 async function previewFile(id, output) {
+  if (!leaveTune(id)) return;
   S.current = id; renderFiles();
-  // the tune panel opens with the preview, unless another panel (light / expressions / info) is open
-  if (['lightPanel', 'exprPanel', 'infoPanel', 'tunePanel'].every((p) => $(p).hidden)) $('tunePanel').hidden = false;
+  // the tune panel opens with the preview once there is something to tune (a converted / preview VRM),
+  // unless another panel (light / expressions / info) is open
+  S.autoTune = ['lightPanel', 'exprPanel', 'infoPanel', 'tunePanel'].every((p) => $(p).hidden);
   loadTune();
   const r = await api('/api/preview', output === undefined ? { id } : { id, output });
   if (r.url) loadModel(r.url, r.name);
@@ -320,6 +332,7 @@ $('pvSpring').addEventListener('change', () => viewer.setSpring($('pvSpring').ch
 function panelToggle(btn, panel) {
   $(btn).onclick = () => {
     const open = $(panel).hidden;
+    S.autoTune = false;
     ['lightPanel', 'exprPanel', 'infoPanel', 'tunePanel'].forEach((p) => { $(p).hidden = true; });
     $(panel).hidden = !open;
     if (open && panel === 'tunePanel') loadTune();
@@ -354,13 +367,14 @@ const clone = (o) => JSON.parse(JSON.stringify(o || {}));
 const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
 
 async function loadTune() {
-  if ($('tunePanel').hidden) return;
+  if ($('tunePanel').hidden && !S.autoTune) return;
   const fid = S.current;
   if (!fid) { T.fid = null; T.info = null; renderTune(); return; }
   const r = await api('/api/tune', { id: fid });
   if (fid !== S.current) return;
   T.fid = fid; T.info = r; T.edits = clone(r.edits); delete T.edits.thumbnail; T.dirty = false;
-  renderTune();
+  if (S.autoTune && r.ready && $('tunePanel').hidden) { $('tunePanel').hidden = false; S.autoTune = false; }
+  if (!$('tunePanel').hidden) renderTune();
 }
 
 function assigned(p, edits) {
@@ -404,12 +418,19 @@ function slider(label, val, min, max, step, onInput, fmt) {
 const fmtMul = (v) => '×' + (+v).toFixed(2), fmtAdd = (v) => '+' + (+v).toFixed(2);
 
 function renderTune() {
-  const body = $('tuneBody'); body.innerHTML = '';
+  const body = $('tuneBody');
+  const keep = T.renderedFid === T.fid ? body.scrollTop : 0;   // re-render (reset / thumbnail …) stays in place
+  T.renderedFid = T.fid;
+  requestAnimationFrame(() => { body.scrollTop = keep; });
+  body.innerHTML = '';
   const msg = (text) => { body.innerHTML = `<div class="tune-msg">${esc(text)}</div>`; $('tuneFoot').hidden = true; };
   if (!T.info || T.fid !== S.current) return msg(t('tuneNoFile'));
   if (T.info.error) return msg(T.info.error);
   if (T.info.editable === false) return msg(t('tuneNotEditable'));
-  if (!T.info.ready) return msg(t('tuneNotReady'));
+  if (!T.info.ready) {
+    const f = S.files.find((x) => x.id === T.fid);
+    return msg(t(f && f.kind === 'pmx' ? 'tuneNotReadyPmx' : 'tuneNotReady'));
+  }
   $('tuneFoot').hidden = false;
   $('tuneState').textContent = T.dirty ? t('tuneDirty') : t('tuneClean');
   $('tuneSave').disabled = !T.dirty;
