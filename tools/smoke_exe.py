@@ -37,7 +37,7 @@ for _p in ("tests", "convert", "formats", os.path.join("tools", "qa"), "ui"):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 APP = "Model-To-VRM"
-STATIC = ["/", "/app.js", "/viewer/viewer-core.js", "/viewer/vendor/three/three.module.min.js",
+STATIC = ["/", "/app.js", "/core.js", "/files.js", "/options.js", "/run.js", "/preview.js", "/tune.js", "/i18n.js", "/viewer/viewer-core.js", "/viewer/vendor/three/three.module.min.js",
           "/viewer/vendor/three-vrm/three-vrm.module.min.js", "/viewer/vendor/three/addons/libs/ammo.wasm.js",
           "/viewer/vendor/three/addons/loaders/MMDLoader.js"]
 

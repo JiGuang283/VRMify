@@ -24,6 +24,7 @@
 
 <div class="layout">
   <aside class="left">
+   <div class="left-scroll">
     <!-- files -->
     <section class="card files-card">
       <div class="card-head">
@@ -117,12 +118,6 @@
       </div>
 
       <div class="tab-body" data-panel="input" hidden>
-        <div class="field">
-          <label data-i18n="target"></label>
-          <div class="seg" data-opt="target">
-            <button data-v="vrm" data-i18n="targetVrm"></button><button data-v="pmx" data-i18n="targetPmx"></button>
-          </div>
-        </div>
         <h3 data-i18n="fbx"></h3>
         <div class="field">
           <label data-i18n="fbxAlpha"></label>
@@ -163,6 +158,12 @@
 
       <div class="tab-body" data-panel="output" hidden>
         <div class="field">
+          <label data-i18n="target"></label>
+          <div class="seg" data-opt="target">
+            <button data-v="vrm" data-i18n="targetVrm"></button><button data-v="pmx" data-i18n="targetPmx"></button>
+          </div>
+        </div>
+        <div class="field">
           <label data-i18n="outLocation"></label>
           <div class="seg" data-opt="output.mode">
             <button data-v="app" data-i18n="outApp"></button><button data-v="beside" data-i18n="outBeside"></button><button data-v="folder" data-i18n="outFolder"></button>
@@ -176,20 +177,21 @@
       </div>
     </section>
 
-    <!-- run -->
-    <section class="runbar">
-      <button id="start" class="btn primary"><span id="startLabel"></span> <span id="startCount"></span></button>
-      <button id="stop" class="btn" data-i18n="stop" hidden></button>
-      <div class="progress"><div id="progressFill"></div></div>
-      <div id="status" class="status"></div>
-    </section>
-
     <section class="card log-card" id="logCard">
       <div class="card-head">
-        <button id="logToggle" class="link"><span class="caret">▸</span> <span data-i18n="log"></span> <span id="logBadge" class="badge" hidden></span></button>
+        <button id="logToggle" class="link" aria-expanded="false"><span class="caret">▸</span> <span data-i18n="log"></span> <span id="logBadge" class="badge" hidden></span></button>
         <button id="clearLog" class="btn ghost small" data-i18n="clearLog"></button>
       </div>
       <pre id="log" class="log" hidden></pre>
+    </section>
+   </div>
+
+    <!-- run: pinned to the bottom of the left column -->
+    <section class="runbar">
+      <button id="start" class="btn primary"><span id="startLabel"></span> <span id="startCount"></span></button>
+      <button id="stop" class="btn" data-i18n="stop" hidden></button>
+      <div id="status" class="status"></div>
+      <div class="progress"><div id="progressFill"></div></div>
     </section>
   </aside>
 
@@ -213,31 +215,35 @@
       <button class="btn small" id="infoBtn" data-i18n="info"></button>
       <button class="btn small" id="shotBtn" data-i18n="shot"></button>
     </div>
-    <div class="pv" id="pv">
-      <div class="pv-empty" id="pvEmpty"><span data-i18n="pvEmpty"></span></div>
-      <div class="pv-busy" id="pvBusy" hidden><div class="spinner"></div><span id="pvBusyText"></span></div>
-
-      <div class="panel" id="lightPanel" hidden>
-        <div class="field"><label data-i18n="lightAz"></label><input type="range" id="lAz" min="-180" max="180" step="5" value="35"><output id="lAzV"></output></div>
-        <div class="field"><label data-i18n="lightEl"></label><input type="range" id="lEl" min="-10" max="90" step="5" value="40"><output id="lElV"></output></div>
-        <div class="field"><label data-i18n="lightI"></label><input type="range" id="lI" min="0" max="3" step="0.1" value="1.4"><output id="lIV"></output></div>
-        <div class="field"><label data-i18n="ambient"></label><input type="range" id="lAmb" min="0" max="2" step="0.05" value="0.6"><output id="lAmbV"></output></div>
-        <label class="switch"><input type="checkbox" id="lShadow" checked><span data-i18n="shadow"></span></label>
-        <div class="swatches" id="bgSeg"><button data-bg="#8a8f98" class="on" style="background:#8a8f98"></button><button data-bg="#2b2d31" style="background:#2b2d31"></button><button data-bg="#eef0f3" style="background:#eef0f3"></button></div>
+    <div class="stage">
+      <div class="pv" id="pv">
+        <div class="pv-empty" id="pvEmpty"><span data-i18n="pvEmpty"></span></div>
+        <div class="pv-busy" id="pvBusy" hidden><div class="spinner"></div><span id="pvBusyText"></span></div>
       </div>
-      <div class="panel tall" id="exprPanel" hidden>
-        <div class="field"><input id="exprFilter" class="input" data-i18n-ph="filter"><button id="exprReset" class="btn small" data-i18n="reset"></button></div>
-        <div id="exprList" class="expr-list"></div>
-      </div>
-      <div class="panel" id="infoPanel" hidden><dl id="infoList" class="info"></dl></div>
-      <div class="panel tall wide" id="tunePanel" hidden>
-        <div class="tune-body" id="tuneBody"></div>
-        <div class="tune-foot" id="tuneFoot">
-          <span id="tuneState" class="muted"></span>
-          <button id="tuneReset" class="btn small" data-i18n="tuneReset"></button>
-          <button id="tuneSave" class="btn small primary" data-i18n="tuneSave"></button>
+      <!-- side column: one panel at a time; the preview narrows instead of being covered -->
+      <aside class="side" id="side" hidden>
+        <div class="panel" id="lightPanel" hidden>
+          <div class="field"><label data-i18n="lightAz"></label><input type="range" id="lAz" min="-180" max="180" step="5" value="35"><output id="lAzV"></output></div>
+          <div class="field"><label data-i18n="lightEl"></label><input type="range" id="lEl" min="-10" max="90" step="5" value="40"><output id="lElV"></output></div>
+          <div class="field"><label data-i18n="lightI"></label><input type="range" id="lI" min="0" max="3" step="0.1" value="1.4"><output id="lIV"></output></div>
+          <div class="field"><label data-i18n="ambient"></label><input type="range" id="lAmb" min="0" max="2" step="0.05" value="0.6"><output id="lAmbV"></output></div>
+          <label class="switch"><input type="checkbox" id="lShadow" checked><span data-i18n="shadow"></span></label>
+          <div class="swatches" id="bgSeg"><button data-bg="#8a8f98" class="on" style="background:#8a8f98" aria-label="#8a8f98"></button><button data-bg="#2b2d31" style="background:#2b2d31" aria-label="#2b2d31"></button><button data-bg="#eef0f3" style="background:#eef0f3" aria-label="#eef0f3"></button></div>
         </div>
-      </div>
+        <div class="panel" id="exprPanel" hidden>
+          <div class="field"><input id="exprFilter" class="input" data-i18n-ph="filter"><button id="exprReset" class="btn small" data-i18n="reset"></button></div>
+          <div id="exprList" class="expr-list"></div>
+        </div>
+        <div class="panel" id="infoPanel" hidden><dl id="infoList" class="info"></dl></div>
+        <div class="panel" id="tunePanel" hidden>
+          <div class="tune-body" id="tuneBody"></div>
+          <div class="tune-foot" id="tuneFoot">
+            <span id="tuneState" class="muted"></span>
+            <button id="tuneReset" class="btn small" data-i18n="tuneReset"></button>
+            <button id="tuneSave" class="btn small primary" data-i18n="tuneSave"></button>
+          </div>
+        </div>
+      </aside>
     </div>
   </main>
 </div>

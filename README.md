@@ -50,7 +50,7 @@ components (MMD shading + MMD physics), not through VRM. Works offline.
 
 ### Tuning after conversion
 
-The **Tune** panel (top right of the preview, opens with the preview) adjusts one model after conversion — **no reconversion**; saving writes straight
+The **Tune** panel (right of the preview; opens by itself when the previewed model can be tuned — convert a PMX first) adjusts one model after conversion — **no reconversion**; saving writes straight
 into the output VRM:
 
 - **Name** and **thumbnail** (a square shot of the current preview, shown as the avatar icon in games / VRM apps)
@@ -92,16 +92,19 @@ uv venv .venv && uv pip install -r requirements.txt     # or python -m venv .ven
 
 From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces the system browser).
 
-- Left: add files / folders (PMX, VRM, archives, FBX, unitypackage, uemodel, psk, xps) and click "Start conversion".
+- Left: add files / folders (PMX, VRM, archives, FBX, unitypackage, uemodel, psk, xps) and click "Start conversion" at the bottom
+  ("Convert again" once everything is done).
   Settings have four tabs:
   - **VRM**: version, physics, expressions, outline, texture max size and JPEG
-  - **Inputs**: non-PMX formats go through PMX to VRM by default, or stop at PMX
+  - **Inputs**: options for FBX, uemodel, psk and xps
   - **Metadata**: author and usage license (the name defaults to the model file name)
-  - **Output**: the app folder (default: a `vrm` folder next to the program) / next to the source / a chosen folder, optional per-run subfolder
+  - **Output**: convert non-PMX formats to VRM (default, via PMX) or stop at PMX; save to the app folder (default: a `vrm`
+    folder next to the program) / next to the source / a chosen folder, optional per-run subfolder
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names
-  (Japanese MMD or common English names) also play the idle / walk motions. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
+  (Japanese MMD or common English names) also play the idle / walk motions. The Light, Expressions, Tune and Info panels open in a column to the right of the preview (one at a time); the preview narrows
+  instead of being covered. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
 - **Archives from model sites can be added directly** (zip / 7z / rar / tar.gz …; add the first part of a split archive):
   they are extracted to a temp folder, the PMX inside is converted (other formats if there is no PMX; one nested archive level
   is unpacked too) and the output goes next to the archive. Zip uses the built-in extractor and restores legacy GBK / Shift-JIS
