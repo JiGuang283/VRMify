@@ -1,5 +1,5 @@
 {
-  "name": "model-to-vrm-qa-harness",
+  "name": "vrmify-qa-harness",
   "private": true,
   "description": "SpringBone behaviour tests for converted VRM files (three.js + three-vrm, headless)",
   "type": "module",

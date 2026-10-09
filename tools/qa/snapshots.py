@@ -205,7 +205,7 @@ def shoot(models, out_png, size=224, custom=False, browser=None, timeout=300, co
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    prof = tempfile.mkdtemp(prefix="model2vrm_snap_profile_")
+    prof = tempfile.mkdtemp(prefix="vrmify_snap_profile_")
     url = "http://127.0.0.1:%d/" % srv.server_address[1]
     proc = subprocess.Popen([exe, "--headless=new", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
                              "--no-first-run", "--no-default-browser-check", "--disable-extensions",
@@ -248,7 +248,7 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    tmp = tempfile.mkdtemp(prefix="model2vrm_snap_")
+    tmp = tempfile.mkdtemp(prefix="vrmify_snap_")
     try:
         models = to_vrms(a.inputs, tmp, print)
         print("截图 %d 个模型 …" % len(models))

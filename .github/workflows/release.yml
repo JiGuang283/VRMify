@@ -44,4 +44,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" "${{ steps.build.outputs.zip }}" --draft `
-            --title "Model-To-VRM ${{ github.ref_name }}" --generate-notes
+            --title "VRMify ${{ github.ref_name }}" --generate-notes

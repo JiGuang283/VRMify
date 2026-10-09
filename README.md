@@ -1,7 +1,7 @@
-# Model-To-VRM
+# VRMify — PMX / MMD to VRM converter
 
-Converts MMD **PMX models to VRM 1.0 / 0.x**, ready for Unity (UniVRM), VSeeFace, three-vrm and other VRM apps and
-games. FBX, unitypackage, uemodel, psk, xps and the archives model sites hand out convert directly too.
+Converts MMD **PMX models to VRM 1.0 / 0.x** avatars, ready for Unity (UniVRM), VSeeFace, VTuber apps, three-vrm and
+other VRM games. FBX, unitypackage, uemodel, psk, xps and the archives model sites hand out convert directly too.
 
 Comes with a desktop UI for batch conversion, a 3D preview and post-conversion tuning. The converter uses only the
 Python standard library — no Blender, Unity or plugins.
@@ -10,8 +10,8 @@ English | [简体中文](README_SC.md)
 
 ## Download
 
-Get `Model-To-VRM-v<version>-win64.zip` from [Releases](https://github.com/JiGuang283/Model-To-VRM/releases/latest),
-unzip it and run `Model-To-VRM.exe`. Nothing to install; delete the folder to uninstall.
+Get `VRMify-v<version>-win64.zip` from [Releases](https://github.com/JiGuang283/VRMify/releases/latest),
+unzip it and run `VRMify.exe`. Nothing to install; delete the folder to uninstall.
 
 - The exe isn't code-signed, so Windows may show "Windows protected your PC" the first time: click
   "More info → Run anyway".
@@ -138,7 +138,7 @@ pip install -r requirements-dev.txt          # jsonschema, pyinstaller, …
 python -m unittest discover -s tests         # unit tests
 python tools/regress.py record <model dir>   # record real-model results (kept out of the repo)
 python tools/regress.py check                # re-convert and compare after code changes
-python tools/build_release.py                # build → dist/Model-To-VRM-v<version>-win64.zip
+python tools/build_release.py                # build → dist/VRMify-v<version>-win64.zip
 ```
 
 Releasing: bump `ui/version.py` → commit → push a `v<version>` tag. GitHub Actions tests, builds, smoke-tests the exe

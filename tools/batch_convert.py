@@ -110,7 +110,7 @@ def main(argv=None):
                 "nospring": [("无SpringBone", False)]}[a.variants]
     if a.spec != "1.0" and a.variants != "nospring":
         print("提示：VRM 0.x 不输出 SpringBone，「有SpringBone」那份会和「无」一样")
-    extract = tempfile.mkdtemp(prefix="model2vrm_zip_")
+    extract = tempfile.mkdtemp(prefix="vrmify_zip_")
     try:
         jobs = collect(a.models, extract, a.only)
         names = [(char_name(f), os.path.basename(p)) for f, p, _ in jobs]

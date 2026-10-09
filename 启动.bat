@@ -1,5 +1,5 @@
 @echo off
-rem Model-To-VRM launcher: double-click to open the converter UI (ui\app.py).
+rem VRMify launcher: double-click to open the converter UI (ui\app.py).
 rem Uses the project's .venv when it exists (pywebview window, Pillow for texture slimming);
 rem otherwise the Python on PATH, which opens the UI in the default browser if pywebview is missing.
 rem Files or folders dropped onto this .bat are added to the list.

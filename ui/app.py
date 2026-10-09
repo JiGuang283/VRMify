@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Model-To-VRM 图形界面入口。
+"""VRMify 图形界面入口。
 
     python ui/app.py [文件或文件夹 ...] [--browser] [--port N]
 
@@ -69,7 +69,7 @@ def _webview2_ok():
 
 
 def _browser_loop(backend, url, open_page, keep):
-    print("Model-To-VRM：%s（关闭页面一分钟后自动退出，Ctrl+C 立即退出）" % url, flush=True)
+    print("VRMify：%s（关闭页面一分钟后自动退出，Ctrl+C 立即退出）" % url, flush=True)
     if open_page:
         webbrowser.open(url)
     backend.last_seen = time.time()
@@ -81,7 +81,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) >= 2 and argv[0] == "--dialog":
         return _dialog(argv[1])
-    ap = argparse.ArgumentParser(description="Model-To-VRM")
+    ap = argparse.ArgumentParser(description="VRMify")
     ap.add_argument("paths", nargs="*", help="启动时加入的文件或文件夹")
     ap.add_argument("--browser", action="store_true", help="用系统浏览器，不用 pywebview 窗口")
     ap.add_argument("--no-open", action="store_true", help="只启动服务并打印地址（调试用）")
@@ -109,7 +109,7 @@ def main(argv=None):
                         "https://developer.microsoft.com/microsoft-edge/webview2/）", "warn")
     try:
         if webview is not None:
-            win = webview.create_window("Model-To-VRM", url, width=1440, height=900, min_size=(1000, 640))
+            win = webview.create_window("VRMify", url, width=1440, height=900, min_size=(1000, 640))
             backend.window = win
 
             def on_start():

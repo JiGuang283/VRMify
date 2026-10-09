@@ -258,7 +258,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         joints = [0]
 
     gltf = {
-        "asset": {"version": "2.0", "generator": "pmx2vrm.py (pure python)"},
+        "asset": {"version": "2.0", "generator": "VRMify"},
         "scene": 0,
         "scenes": [{"nodes": [root_index]}],
         "nodes": nodes,

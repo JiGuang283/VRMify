@@ -1,18 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 # 图形界面（ui/app.py）的 PyInstaller 打包配置：
 #
-#     pyinstaller Model-To-VRM.spec        → dist/Model-To-VRM/Model-To-VRM.exe
+#     pyinstaller VRMify.spec        → dist/VRMify/VRMify.exe
 #
 # 打包环境里要装 pywebview（原生窗口 + 拖放）和 Pillow（贴图瘦身），见 requirements.txt；
 # 没装的话 exe 会退回系统浏览器 / 不能瘦身贴图。settings.json、edits.json 写在 exe 旁边
-# （那里写不了时改到 %APPDATA%\Model-To-VRM）。发布用的 zip 由 tools/build_release.py 生成。
+# （那里写不了时改到 %APPDATA%\VRMify）。发布用的 zip 由 tools/build_release.py 生成。
 import os
 import re
 import sys
 
 is_win = sys.platform.startswith('win')
 is_mac = sys.platform == 'darwin'
-app_name = 'Model-To-VRM'
+app_name = 'VRMify'
 icon_file = 'ui/icon.ico' if is_win else None      # 由 tools/make_icon.py 生成
 
 # ---- 版本号：唯一来源是 ui/version.py，写进 exe 的「属性 → 详细信息」
@@ -29,11 +29,11 @@ if is_win:
                     fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[
     StringFileInfo([StringTable('040904B0', [
-      StringStruct('FileDescription', 'Model-To-VRM'),
+      StringStruct('FileDescription', 'VRMify'),
       StringStruct('FileVersion', '%(s)s'),
-      StringStruct('InternalName', 'Model-To-VRM'),
-      StringStruct('OriginalFilename', 'Model-To-VRM.exe'),
-      StringStruct('ProductName', 'Model-To-VRM'),
+      StringStruct('InternalName', 'VRMify'),
+      StringStruct('OriginalFilename', 'VRMify.exe'),
+      StringStruct('ProductName', 'VRMify'),
       StringStruct('ProductVersion', '%(s)s'),
       StringStruct('LegalCopyright', 'GPL-3.0')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])
@@ -98,4 +98,4 @@ coll = COLLECT(
     name=app_name,
 )
 if is_mac:
-    app = BUNDLE(coll, name=f'{app_name}.app', icon=icon_file, bundle_identifier='com.model2vrm.app')
+    app = BUNDLE(coll, name=f'{app_name}.app', icon=icon_file, bundle_identifier='com.vrmify.app')

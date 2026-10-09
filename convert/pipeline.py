@@ -337,7 +337,7 @@ def to_pmx(path, kind, out_dir, opts, log):
 def _unpack_fbxs(path, log):
     """unitypackage 解到临时目录（几百个资源文件，转完就删）→ ([FBX，大的在前], 临时目录)。"""
     from unitypackage_unpack import unpack
-    dest = tempfile.mkdtemp(prefix="model2vrm_unitypackage_")
+    dest = tempfile.mkdtemp(prefix="vrmify_unitypackage_")
     with contextlib.redirect_stdout(_LogWriter(log)):
         unpack(path, dest, verbose=False)
     n = sum(len(fs) for _, _, fs in os.walk(dest))
@@ -395,7 +395,7 @@ def fbx_to_vrm(fbx, name, out_dir, opts, log, edits=None):
     """一个 FBX → VRM；中间的 PMX 和贴图放自己的临时目录。→ [VRM 路径]，被「只转换人物」跳过时为 []。
     并行时在子进程里跑（parallel.run）。"""
     import pmxio
-    work = tempfile.mkdtemp(prefix="model2vrm_work_")
+    work = tempfile.mkdtemp(prefix="vrmify_work_")
     try:
         pmx = os.path.join(work, name + ".pmx")
         st = _fbx_to_pmx(fbx, pmx, name, opts["fbx"], log)
@@ -559,7 +559,7 @@ def extract_archive(path, kind, dest, log=None):
 
 
 def _convert_archive(path, kind, out_dir, opts, log, edits=None):
-    tmp = tempfile.mkdtemp(prefix="model2vrm_%s_" % kind)
+    tmp = tempfile.mkdtemp(prefix="vrmify_%s_" % kind)
     try:
         n = extract_archive(path, kind, tmp, log)
         found = find_inputs(tmp)
@@ -609,7 +609,7 @@ def _convert_model(path, kind, out_dir, opts, log, edits=None, name=None):
         finally:
             if dest:
                 shutil.rmtree(dest, ignore_errors=True)
-    work = tempfile.mkdtemp(prefix="model2vrm_work_")
+    work = tempfile.mkdtemp(prefix="vrmify_work_")
     try:
         outs = []
         for p in to_pmx(path, kind, work, opts, log):

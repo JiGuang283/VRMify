@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 UI = os.path.join(os.path.dirname(HERE), "ui")
 if UI not in sys.path:
     sys.path.insert(0, UI)
-os.environ.setdefault("MODEL2VRM_DATA", tempfile.mkdtemp(prefix="m2v_data_"))
+os.environ.setdefault("VRMIFY_DATA", tempfile.mkdtemp(prefix="m2v_data_"))
 import app  # noqa: E402
 import server  # noqa: E402
 import version  # noqa: E402
@@ -26,19 +26,31 @@ class VersionTest(unittest.TestCase):
 
 class DataDirTest(unittest.TestCase):
     def test_env_override(self):
-        with mock.patch.dict(os.environ, {"MODEL2VRM_DATA": "X:/somewhere"}):
+        with mock.patch.dict(os.environ, {"VRMIFY_DATA": "X:/somewhere"}):
             self.assertEqual(server._data_dir(), "X:/somewhere")
 
     def test_beside_program(self):
-        env = {k: v for k, v in os.environ.items() if k != "MODEL2VRM_DATA"}
+        env = {k: v for k, v in os.environ.items() if k != "VRMIFY_DATA"}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(server, "_writable", lambda d: True):
             self.assertEqual(server._data_dir(), server.ROOT)
 
     def test_fallback_to_appdata(self):
-        env = {k: v for k, v in os.environ.items() if k != "MODEL2VRM_DATA"}
+        env = {k: v for k, v in os.environ.items() if k != "VRMIFY_DATA"}
         env["APPDATA"] = "Y:/AppData/Roaming"
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(server, "_writable", lambda d: False):
-            self.assertEqual(server._data_dir(), os.path.join("Y:/AppData/Roaming", "Model-To-VRM"))
+            self.assertEqual(server._data_dir(), os.path.join("Y:/AppData/Roaming", "VRMify"))
+
+    def test_appdata_renamed_from_old_name(self):
+        """改名前的 %APPDATA%\\Model-To-VRM 还在、新的没有时改名过去，里面的设置跟着走。"""
+        base = tempfile.mkdtemp(prefix="m2v_appdata_")
+        os.makedirs(os.path.join(base, "Model-To-VRM"))
+        open(os.path.join(base, "Model-To-VRM", "settings.json"), "w").close()
+        env = {k: v for k, v in os.environ.items() if k != "VRMIFY_DATA"}
+        env["APPDATA"] = base
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(server, "_writable", lambda d: False):
+            self.assertEqual(server._data_dir(), os.path.join(base, "VRMify"))
+        self.assertTrue(os.path.isfile(os.path.join(base, "VRMify", "settings.json")))
+        self.assertFalse(os.path.exists(os.path.join(base, "Model-To-VRM")))
 
     def test_writable(self):
         self.assertTrue(server._writable(tempfile.mkdtemp(prefix="m2v_w_")))
@@ -124,7 +136,7 @@ class StalePreviewTest(unittest.TestCase):
     def test_sweep(self):
         """启动时删一天以前遗留的预览临时目录，新的不动。"""
         root = tempfile.mkdtemp(prefix="m2v_tmproot_")
-        old, new, other = (os.path.join(root, n) for n in ("model2vrm_preview_old", "model2vrm_preview_new", "keep_me"))
+        old, new, other = (os.path.join(root, n) for n in ("model2vrm_preview_old", "vrmify_preview_new", "keep_me"))
         for d in (old, new, other):
             os.makedirs(os.path.join(d, "sub"))
         past = 1_000_000_000

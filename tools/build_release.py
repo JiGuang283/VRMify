@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""打包发布用的 zip（绿色版：解压后双击 Model-To-VRM.exe）。本地和 GitHub Actions 用的是同一个脚本。
+"""打包发布用的 zip（绿色版：解压后双击 VRMify.exe）。本地和 GitHub Actions 用的是同一个脚本。
 
-    python tools/build_release.py                        → dist/Model-To-VRM-v0.1.0-win64.zip
+    python tools/build_release.py                        → dist/VRMify-v0.1.0-win64.zip
     python tools/build_release.py --expect-version v0.1.0   tag 和 ui/version.py 不一致时报错退出
 
-步骤：PyInstaller 按 Model-To-VRM.spec 打包 → 把 LICENSE、README 放进程序文件夹 → 压成 zip。
+步骤：PyInstaller 按 VRMify.spec 打包 → 把 LICENSE、README 放进程序文件夹 → 压成 zip。
 需要 requirements-dev.txt 里的包（pyinstaller、pywebview、Pillow）。
 """
 import argparse
@@ -19,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "ui"))
 from version import __version__  # noqa: E402
 
-APP = "Model-To-VRM"
+APP = "VRMify"
 # 随程序一起发的文档：GPL-3.0 要求附上许可证；README 里有用法和源码出处
 DOCS = ["LICENSE", "README_SC.md", "README.md"]
 
@@ -41,7 +41,7 @@ def main(argv=None):
               % (a.expect_version, __version__))
         return 1
 
-    subprocess.run([sys.executable, "-m", "PyInstaller", os.path.join(ROOT, "Model-To-VRM.spec"),
+    subprocess.run([sys.executable, "-m", "PyInstaller", os.path.join(ROOT, "VRMify.spec"),
                     "--noconfirm", "--clean", "--distpath", a.dist, "--workpath", a.work],
                    cwd=ROOT, check=True)
     app_dir = os.path.join(a.dist, APP)

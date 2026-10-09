@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """发布前的冒烟测试：启动打包好的 exe，通过它自己的 HTTP 接口转换几个合成模型，检查结果。
 
-    python tools/smoke_exe.py dist/Model-To-VRM-v0.1.2-win64.zip     发布用的 zip
-    python tools/smoke_exe.py dist/Model-To-VRM                      解开的程序文件夹（或 exe 本身）
+    python tools/smoke_exe.py dist/VRMify-v0.1.2-win64.zip     发布用的 zip
+    python tools/smoke_exe.py dist/VRMify                      解开的程序文件夹（或 exe 本身）
 
 单元测试测的是源码；这里测的是**打包以后**还能不能用：PyInstaller 漏打的模块（某种输入格式
 用到的 fbx2pmx / unitypackage_unpack / archive …）、漏打的页面和预览库、exe 起不来，都只在这里暴露。
 
 步骤（数据目录用临时文件夹，不碰本机的 settings.json / edits.json）：
   1. 用 tests/synth.py 合成 PMX，再做出 zip、FBX、unitypackage 三种输入；
-  2. `Model-To-VRM.exe --no-open --port N` 启动，等 /api/ping；
+  2. `VRMify.exe --no-open --port N` 启动，等 /api/ping；
   3. 版本号要和 ui/version.py 一致；页面、预览组件、three.js / three-vrm / ammo.js 都能取到；
   4. 加入四个文件 → 转换 → 等转换结束：每个都成功、各出一个 VRM，日志里没有错误；
   5. 每个 VRM 过 tools/qa/check_vrm（装了 jsonschema 时含官方 Schema）；
@@ -36,7 +36,7 @@ for _p in ("tests", "convert", "formats", os.path.join("tools", "qa"), "ui"):
     _d = os.path.join(ROOT, _p)
     if _d not in sys.path:
         sys.path.insert(0, _d)
-APP = "Model-To-VRM"
+APP = "VRMify"
 STATIC = ["/", "/app.js", "/core.js", "/files.js", "/options.js", "/run.js", "/preview.js", "/tune.js", "/layout.js", "/i18n.js", "/viewer/viewer-core.js", "/viewer/vendor/three/three.module.min.js",
           "/viewer/vendor/three-vrm/three-vrm.module.min.js", "/viewer/vendor/three/addons/libs/ammo.wasm.js",
           "/viewer/vendor/three/addons/loaders/MMDLoader.js"]
@@ -119,7 +119,7 @@ def run(exe, inputs, tmp, report, timeout):
     from version import __version__
 
     port = free_port()
-    env = dict(os.environ, MODEL2VRM_DATA=os.path.join(tmp, "data"))
+    env = dict(os.environ, VRMIFY_DATA=os.path.join(tmp, "data"))
     out_log = open(os.path.join(tmp, "exe.log"), "wb")
     proc = subprocess.Popen([exe, "--no-open", "--port", str(port)], env=env, cwd=tmp,
                             stdout=out_log, stderr=subprocess.STDOUT)
@@ -142,7 +142,7 @@ def run(exe, inputs, tmp, report, timeout):
         if st.get("version") != __version__:
             raise Failed("版本号 %r，ui/version.py 是 %r" % (st.get("version"), __version__))
         app_out = st.get("app_out") or ""
-        if not os.path.normcase(app_out).startswith(os.path.normcase(env["MODEL2VRM_DATA"])):
+        if not os.path.normcase(app_out).startswith(os.path.normcase(env["VRMIFY_DATA"])):
             raise Failed("默认输出目录 %r 不在数据目录里" % app_out)
         report("版本 %s · 默认输出 %s" % (__version__, app_out))
 
@@ -236,7 +236,7 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    tmp = tempfile.mkdtemp(prefix="model2vrm_smoke_")
+    tmp = tempfile.mkdtemp(prefix="vrmify_smoke_")
     ok = False
     try:
         exe = find_exe(os.path.abspath(a.target), tmp)

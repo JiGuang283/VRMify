@@ -97,17 +97,17 @@ python tools/make_icon.py      # → ui/icon.ico（exe 图标）+ ui/web/icon.pn
 ## 打包发布 `build_release.py`
 
 ```bash
-python tools/build_release.py                          # → dist/Model-To-VRM-v<版本>-win64.zip
+python tools/build_release.py                          # → dist/VRMify-v<版本>-win64.zip
 python tools/build_release.py --expect-version v0.1.0  # tag 和 ui/version.py 不一致时报错（Actions 里这么调用）
 ```
 
-按 `Model-To-VRM.spec` 打包，把 `LICENSE`、README 放进程序文件夹，再压成绿色版 zip。GitHub Actions 的
+按 `VRMify.spec` 打包，把 `LICENSE`、README 放进程序文件夹，再压成绿色版 zip。GitHub Actions 的
 `release.yml` 用的也是它，流程见 README 的「开发」一节。
 
 ## 冒烟测试 `smoke_exe.py`
 
 ```bash
-python tools/smoke_exe.py dist/Model-To-VRM-v0.1.2-win64.zip   # 发布 zip、解开的程序文件夹或 exe 都行
+python tools/smoke_exe.py dist/VRMify-v0.1.2-win64.zip   # 发布 zip、解开的程序文件夹或 exe 都行
 ```
 
 单元测试测源码，这里测**打包以后**的 exe：用临时数据目录启动 `--no-open`，通过它自己的 HTTP 接口

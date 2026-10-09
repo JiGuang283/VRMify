@@ -79,7 +79,7 @@ def build_vrm1(meta, title, human, mesh_nodes, expr, look=None):
 def build_vrm0(meta, title, human, expr, material_props, look=None, n_meshes=1):
     """VRM 0.x 的 VRM 扩展。material_props：materials.MaterialBuilder.props_0x。"""
     return {
-        "exporterVersion": "pmx2vrm.py",
+        "exporterVersion": "VRMify",
         "specVersion": "0.0",
         "meta": {
             "title": title,

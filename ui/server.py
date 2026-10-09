@@ -67,17 +67,25 @@ def _writable(folder):
 def _data_dir():
     """settings.json / edits.json 放哪：
 
-    * 环境变量 MODEL2VRM_DATA（测试 / 调试用，不动用户自己的设置）；
+    * 环境变量 VRMIFY_DATA（测试 / 调试用，不动用户自己的设置）；
     * 否则放程序旁边（exe 所在文件夹 / 源码根目录）——绿色版解压到哪都能带着设置走；
-    * 程序旁边写不了（比如放进了 C:\\Program Files）时改放 %APPDATA%\\Model-To-VRM。
+    * 程序旁边写不了（比如放进了 C:\\Program Files）时改放 %APPDATA%\\VRMify。以前叫 Model-To-VRM：
+      旧文件夹还在、新的还没有时改名过去（设置、调整、输出都在里面），改不了名就接着用旧的。
     """
-    env = os.environ.get("MODEL2VRM_DATA")
+    env = os.environ.get("VRMIFY_DATA")
     if env:
         return env
     beside = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ROOT
     if _writable(beside):
         return beside
-    return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Model-To-VRM")
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    new, old = os.path.join(base, "VRMify"), os.path.join(base, "Model-To-VRM")
+    if not os.path.exists(new) and os.path.isdir(old):
+        try:
+            os.rename(old, new)
+        except OSError:
+            return old
+    return new
 
 
 DATA_DIR = _data_dir()
@@ -97,12 +105,15 @@ from vrmconv import textures  # noqa: E402
 WEB = os.path.join(ROOT, "ui", "web")
 VIEWER = os.path.join(ROOT, "ui", "viewer")
 SETTINGS = os.path.join(DATA_DIR, "settings.json")
-# 「程序目录」保存位置：程序旁边的 vrm 文件夹（和设置放一起：程序旁边写不了时在 %APPDATA%\Model-To-VRM 下）
+# 「程序目录」保存位置：程序旁边的 vrm 文件夹（和设置放一起：程序旁边写不了时在 %APPDATA%\VRMify 下）
 APP_OUT = os.path.normpath(os.path.join(DATA_DIR, "vrm"))
 _OLD_DEFAULT_OUTPUT = {"mode": "beside", "folder": "", "subfolder": True}
 EDITS = os.path.join(DATA_DIR, "edits.json")
 EDITS_DIR = os.path.join(DATA_DIR, "edits")
 LANGS = ("zh_CN", "en")
+
+
+TMP_PREFIXES = ("vrmify_", "model2vrm_")     # 后一个是改名前（Model-To-VRM）的版本留下的
 
 
 def _sweep_stale_previews(max_age=86400):
@@ -117,7 +128,7 @@ def _sweep_stale_previews(max_age=86400):
     for n in names:
         p = os.path.join(root, n)
         try:
-            if not (n.startswith("model2vrm_") and os.path.isdir(p)):
+            if not (n.startswith(TMP_PREFIXES) and os.path.isdir(p)):
                 continue
             # 看目录本身和下一层的最近修改时间（预览文件在下一层的子目录里）
             newest = max([os.path.getmtime(p)] + [os.path.getmtime(os.path.join(p, c)) for c in os.listdir(p)])
@@ -154,7 +165,7 @@ class Backend:
         self.window = None              # pywebview 窗口（有的话用它的原生对话框）
         self.last_seen = time.time()
         _sweep_stale_previews()
-        self.tmp = tempfile.mkdtemp(prefix="model2vrm_preview_")
+        self.tmp = tempfile.mkdtemp(prefix="vrmify_preview_")
         self.opts, self.lang, self.ui = self._load_settings()
         self.edits = self._load_edits()
 

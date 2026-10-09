@@ -18,7 +18,7 @@ import queue
 import threading
 import traceback
 
-WORKER_ENV = "MODEL2VRM_WORKER"
+WORKER_ENV = "VRMIFY_WORKER"
 GB_PER_JOB = 1.5          # 不知道任务多大时按这么多算（十几万顶点的模型转换时进程峰值约 0.5 GB）
 MEM_SHARE = 0.8           # 并行的任务加起来最多占可用内存的这么多
 

@@ -1,6 +1,7 @@
-# Model-To-VRM
+# VRMify — PMX / MMD 模型转 VRM
 
-把 MMD 的 PMX 模型转成 **VRM 1.0 / 0.x**，可以直接导入 Unity（UniVRM）、VSeeFace、three-vrm 等支持 VRM 的软件和游戏。
+把 MMD 的 PMX 模型转成 **VRM 1.0 / 0.x** 虚拟形象，可以直接导入 Unity（UniVRM）、VSeeFace、VTuber 软件、three-vrm
+等支持 VRM 的软件和游戏。
 FBX、unitypackage、uemodel、psk、xps 和模型网站下载的压缩包也能直接转。
 
 带图形界面：批量转换、三维预览、转换后微调。转换器只用 Python 标准库，不需要 Blender、Unity 或任何插件。
@@ -9,8 +10,8 @@ FBX、unitypackage、uemodel、psk、xps 和模型网站下载的压缩包也能
 
 ## 下载
 
-到 [Releases](https://github.com/JiGuang283/Model-To-VRM/releases/latest) 下载 `Model-To-VRM-v<版本>-win64.zip`，
-解压后双击 `Model-To-VRM.exe`。不用安装，删掉文件夹就是卸载。
+到 [Releases](https://github.com/JiGuang283/VRMify/releases/latest) 下载 `VRMify-v<版本>-win64.zip`，
+解压后双击 `VRMify.exe`。不用安装，删掉文件夹就是卸载。
 
 - 程序没有代码签名，第一次运行时 Windows 可能提示「已保护你的电脑」：点「更多信息 → 仍要运行」。
 - 窗口用系统的 WebView2（Windows 11 自带，Windows 10 基本都有）；没有时自动改用浏览器打开界面。
@@ -122,7 +123,7 @@ pip install -r requirements-dev.txt          # jsonschema、pyinstaller 等
 python -m unittest discover -s tests         # 单元测试
 python tools/regress.py record <模型目录>     # 记下真实模型的转换结果（不进仓库）
 python tools/regress.py check                # 改代码后重转、对比
-python tools/build_release.py                # 打包 → dist/Model-To-VRM-v<版本>-win64.zip
+python tools/build_release.py                # 打包 → dist/VRMify-v<版本>-win64.zip
 ```
 
 发版：改 `ui/version.py` → 提交 → 打 `v<版本>` tag 并推送。GitHub Actions 会测试、打包、实际运行 exe 做冒烟测试，

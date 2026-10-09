@@ -1,4 +1,4 @@
-// Model-To-VRM UI entry. Talks to ui/server.py over HTTP (same API in the pywebview window and a browser).
+// VRMify UI entry. Talks to ui/server.py over HTTP (same API in the pywebview window and a browser).
 //   core.js     shared state, i18n, api
 //   files.js    file list          options.js  conversion settings
 //   run.js      run bar + log      preview.js  3D preview, toolbar, side column
