@@ -94,6 +94,9 @@ def fmt(res):
                 c["hf"], c["hfMax"], "!" if over else "", c["swing"]))
         if r.get("skirtInside") is not None:
             parts.append("穿腿 %.1f%%" % (r["skirtInside"] * 100))
+        if r.get("skirtGap"):
+            g = r["skirtGap"]
+            parts.append("张开 %.1f/%.1f/%.1f cm" % (g["mean"] * 100, g["p90"] * 100, g["max"] * 100))
         out.append("    %-9s %s" % (m, " | ".join(parts)))
         if r.get("worst") and any(w["hf"] > LIMITS["hf"][w["cat"]] for w in r["worst"]):
             for w in r["worst"]:

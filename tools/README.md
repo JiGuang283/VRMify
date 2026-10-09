@@ -44,6 +44,7 @@ python tools/qa/dynamics.py a.vrm --fps 30 --jitter 0.3 --motions idle,walk_real
 | hf | 末端 8 Hz 以上的颤动能量 / 链长 ×1000（平均 / 最大） | 头发 2～16，裙摆 3～58 |
 | swing | 末端最大摆幅 / 链长 | — |
 | 穿腿 | 裙摆关节落在模型自己腿部碰撞体里的比例（含静止时的重叠，和 idle 对比看） | — |
+| 张开 | 相邻裙摆链末端比静止时多分开的距离（平均 / 90% / 最大，cm）；腿把裙子从中间劈开时变大 | 原 PMX 的 MMD 物理：走路 4～15 |
 
 动作：`idle`（放下手臂、轻微晃动）、`walk_real` / `run`（带根运动的走路 / 跑步）、`leg_raise`
 （抬腿 70°）等，定义在 `qa/harness/motions.mjs`。超出参考范围的数值标「!」，`--strict` 时返回 1。

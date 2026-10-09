@@ -74,7 +74,8 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
                    gravity_limb=None, omega_max=None, min_chain_len=0.05,
                    drag_limb=None, omega_max_lower=None, limb_min_len=0.12,
                    stiff_max=10.0, shrink_leg_col=True, omega_limb=0.5,
-                   set_parent=None, log=None):
+                   set_parent=None, cloth=None, leg_proxy=True, leg_proxy_max=1.0, leg_proxy_grid=0.005,
+                   log=None):
     """PMX 刚体物理 → VRMC_springBone（VRM 1.0）。返回扩展 dict 或 None。
 
     目标是「表现和原生 VRM 一致」，参数按 VRoid / VRM 官方示例模型
@@ -118,7 +119,9 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
         长裙从根部被撬开）。某节尾端在静止时就落在碰撞体里的，整条链不与它碰撞；
         例外是裙摆和大腿：PMX 的大腿刚体常比腿粗，贴腿的短裙静止时就在里面，
         这时给该链另配一个缩小到刚好让开的同位置碰撞体，而不是让腿完全拦不住裙片。
-      * PMX 里链与链之间的横向关节（裙摆常见）在 VRM 里无法表达，舍弃。
+      * PMX 里链与链之间的横向关节（裙摆常见）在 VRM 里无法表达，舍弃。近似：裙摆链碰到的腿部
+        胶囊换成按裙片朝向平移过的副本（leg_proxy，见 leg_proxy_shift），腿不再把相邻两条链分到两边。
+        cloth = (顶点法线, 顶点权重, xf_dir)，用来算裙片朝向；不给就不做这一步。
     """
     def _log(msg, tag=None):
         if log:
@@ -327,6 +330,90 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
             shrunk_cache[key] = len(colliders) - 1
         return shrunk_cache[key]
 
+    moved_cache = {}
+
+    def moved_collider(ci, t):
+        """碰撞体 ci 平移 t（VRM 坐标）的副本，挂在同一节点上；平移量按 leg_proxy_grid 取整共用。"""
+        t = tuple(round(x / leg_proxy_grid) * leg_proxy_grid for x in t)
+        key = (ci, t)
+        if key not in moved_cache:
+            shape = {k: dict(v) for k, v in colliders[ci]["shape"].items()}
+            for v in shape.values():
+                for f in ("offset", "tail"):
+                    if f in v:
+                        v[f] = [v[f][k] + t[k] for k in range(3)]
+            colliders.append({"node": colliders[ci]["node"], "shape": shape})
+            col_meta.append(col_meta[ci])
+            a, b, r = col_world[ci]
+            col_world.append((tuple(a[k] + t[k] for k in range(3)),
+                              None if b is None else tuple(b[k] + t[k] for k in range(3)), r))
+            col_role.append(col_role[ci])
+            moved_cache[key] = len(colliders) - 1
+        return moved_cache[key]
+
+    # ---- 裙片朝向：挂在链上的顶点法线的主方向（单双面都行：n 和 -n 贡献相同）
+    cov = {}                                  # 骨 → Σ w·n·nᵀ（VRM 坐标，6 个分量）
+    if cloth and leg_proxy:
+        vnrm, vweights, xf_dir = cloth
+        want = {b for chain, lower in chains if lower for b in chain}
+        for n, wl in zip(vnrm, vweights):
+            for b, w in wl:
+                if b in want and w > 0.3:
+                    x, y, z = xf_dir(n)
+                    c = cov.setdefault(b, [0.0] * 6)
+                    for k, v in enumerate((x * x, y * y, z * z, x * y, x * z, y * z)):
+                        c[k] += w * v
+
+    def cloth_normal(chain, guess):
+        """链上裙片的水平法线（单位向量，方向未定）；顶点太少或裙片接近水平时 None。"""
+        c = [0.0] * 6
+        for b in chain:
+            for k, v in enumerate(cov.get(b, ())):
+                c[k] += v
+        if c[0] + c[1] + c[2] < 1.0:
+            return None
+        m = (c[0], c[3], c[4], c[3], c[1], c[5], c[4], c[5], c[2])
+        v = guess
+        for _ in range(30):                   # 幂迭代求主特征向量
+            v = _m3vec(m, v)
+            s = math.sqrt(sum(x * x for x in v)) or 1.0
+            v = tuple(x / s for x in v)
+        h = math.hypot(v[0], v[2])
+        if h < 0.6:
+            return None
+        return (v[0] / h, 0.0, v[2] / h)
+
+    def leg_proxy_shift(ci, pts, normal):
+        """裙摆链 × 腿部胶囊：把腿平移到「静止时从裙片法线方向正对这条链」的位置。
+
+        SpringBone 把关节沿「腿轴 → 关节」的方向推出去。腿正好落在两条相邻链之间时
+        （大腿后摆碰后裙片），两条链被推向相反的两侧，裙子从中间劈开——MMD 里链间的
+        横向关节会把它们拉在一起，整片往后推。这里给每条链单独一份平移过的腿：
+        静止时离链的距离不变，但接触方向变成裙片法线，被推时整片沿法线方向走。
+        平移量不超过腿半径 × leg_proxy_max，不然真正的腿会从让出来的那一侧穿过裙子。"""
+        a, b, r = col_world[ci]
+        best = None
+        for q in pts:
+            ab = [b[k] - a[k] for k in range(3)]
+            l2 = sum(x * x for x in ab) or 1e-12
+            t = min(1.0, max(0.0, sum((q[k] - a[k]) * ab[k] for k in range(3)) / l2))
+            l_ = [a[k] + ab[k] * t for k in range(3)]
+            d = math.dist(q, l_)
+            if best is None or d < best[0]:
+                best = (d, q, l_)
+        _, q, l_ = best
+        vh = (q[0] - l_[0], 0.0, q[2] - l_[2])
+        m = math.hypot(vh[0], vh[2])
+        if m < 1e-6:
+            return None
+        n = normal if normal[0] * vh[0] + normal[2] * vh[2] >= 0 else tuple(-x for x in normal)
+        t = [vh[k] - n[k] * m for k in range(3)]
+        tl = math.hypot(t[0], t[2])
+        cap = r * leg_proxy_max
+        if tl > cap:
+            t = [x * cap / tl for x in t]
+        return t if min(tl, cap) >= 0.005 else None
+
     def clearance(pt, ci):
         """点到碰撞体表面的距离（负数 = 在碰撞体内部）。"""
         a, b, r = col_world[ci]
@@ -357,6 +444,7 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
     n_dropped = [0]
     n_shrunk = [0]
     n_tiny = [0]
+    n_proxy = [0]
     n_joints_mmd = n_joints_vrm = n_lower = 0
     for chain, lower in chains:
         last = chain[-1]
@@ -410,6 +498,11 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
         # 碰撞只会在手臂快速转动时——比如动画第一帧从 T-pose 放下——把链甩到碰撞体另一侧
         # 卡住，表现为配饰整个翻过去、一直抖）；手臂上的链默认完全不碰撞（limb_collide）。
         on_head = anc in ("head", "neck", "jaw", "leftEye", "rightEye")
+        normal = None
+        if lower and not limb and cov:
+            mid = pts[len(pts) // 2]
+            hp = xf(bpos[human_b["hips"]]) if "hips" in human_b else (0.0, 0.0, 0.0)
+            normal = cloth_normal(chain, (mid[0] - hp[0] + 1e-3, 0.0, mid[2] - hp[2]))
         ids = []
         for ci in ([] if arm and not limb_collide else mask_ids(rbs[dyn[chain[0]]])):
             role = col_role[ci]
@@ -417,6 +510,11 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
                 continue
             if on_head and not hair_arm_collide and (_limb_of(role) or ("", ""))[1] == "arm":
                 continue
+            if normal and ("UpperLeg" in role or "LowerLeg" in role) and col_world[ci][1] is not None:
+                t = leg_proxy_shift(ci, pts[1:], normal)
+                if t:
+                    ci = moved_collider(ci, t)
+                    n_proxy[0] += 1
             # 只看各节尾端（pts[1:]）：SpringBone 用「这一节的 hitRadius、在尾端位置」检测，
             # 链根钉在父骨上，埋在碰撞体里也不会被推
             minc = min(clearance(pt, ci) for pt in pts[1:])
@@ -455,6 +553,14 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
             _log("SpringBone：%d 条下半身物理链按设置跳过，没有可写的链"
                  % skipped_lower)
         return None
+    # 平移 / 缩小出来的碰撞体里，有些随后又被它自己的缩小副本取代、没有组在用：删掉并重排序号
+    used = {ci for g in collider_groups for ci in g["colliders"]}
+    keep = [ci for ci in range(len(colliders)) if ci < n_pmx_cols or ci in used]
+    if len(keep) < len(colliders):
+        remap = {ci: k for k, ci in enumerate(keep)}
+        colliders = [colliders[ci] for ci in keep]
+        for g in collider_groups:
+            g["colliders"] = [remap[ci] for ci in g["colliders"]]
     _log("SpringBone：%d 条链（裙摆类 %d、头发等 %d）· 碰撞体 %d · 碰撞组 %d"
          % (len(springs), n_lower, len(springs) - n_lower, len(colliders),
             len(collider_groups)))
@@ -480,8 +586,11 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
                     and parents[bb] != ba and parents[ba] != bb:
                 cross += 1
     if cross:
-        _log("提示：%d 个链间横向关节（裙摆等）在 SpringBone 里无法表达，已舍弃"
-             % cross, "warn")
+        _log("提示：%d 个链间横向关节（裙摆等）在 SpringBone 里无法表达，已舍弃%s"
+             % (cross, "；裙摆碰腿的方向已按裙片朝向修正（%d 处），裙片不容易被腿从中间劈开"
+                % n_proxy[0] if n_proxy[0] else ""), "warn")
+    elif n_proxy[0]:
+        _log("SpringBone：裙摆碰腿的方向按裙片朝向修正 %d 处" % n_proxy[0])
     ext = {"specVersion": "1.0", "springs": springs}
     if colliders:
         ext["colliders"] = colliders

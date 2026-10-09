@@ -277,6 +277,9 @@ export class Viewer {
     set('leftLowerArm', 0, p.armSwingL ? -0.3 : 0, 0); set('rightLowerArm', 0, p.armSwingR ? 0.3 : 0, 0);
     mesh.updateMatrixWorld(true);
     this.mmd.grant.update();          // 付与 bones (足D etc. carry the leg skinning in most MMD models)
+    // again after the grant: MMD physics reads bone.matrixWorld, and the leg rigid bodies usually hang
+    // on 足D / ひざD — without this they stay in the rest pose and skirts never meet the legs
+    mesh.updateMatrixWorld(true);
   }
 
   _info(gltf, v) {

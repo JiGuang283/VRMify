@@ -53,6 +53,7 @@ async function load(path) {
 
 const wp = (o) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
 const LEG = ['leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg'];
+const LEG_CHILD = { leftUpperLeg: 'leftLowerLeg', rightUpperLeg: 'rightLowerLeg', leftLowerLeg: 'leftFoot', rightLowerLeg: 'rightFoot' };
 
 async function restDrift(path) {
   const vrm = await load(path);
@@ -104,16 +105,44 @@ async function measure(path, mname) {
   const h = vrm.humanoid, sbm = vrm.springBoneManager;
   const { chains, roleOf } = chainsOf(vrm);
   const loc = (c) => (c.anchor ? c.anchor.worldToLocal(wp(c.tip)) : wp(c.tip));
+  // the leg itself: per leg bone the collider whose axis lies closest to the bone (skirt chains may also
+  // have shifted copies of it — see springbone.leg_proxy_shift — those are not the leg)
   const legCols = [];
-  for (const g of sbm.colliderGroups) for (const col of g.colliders) {
-    let p = col.parent; while (p && !roleOf.has(p)) p = p.parent;
-    if (p && LEG.includes(roleOf.get(p)) && !legCols.includes(col)) legCols.push(col);
+  for (const role of LEG) {
+    const bone = h.getRawBoneNode(role), child = h.getRawBoneNode(LEG_CHILD[role]);
+    if (!bone) continue;
+    const end = child && child !== bone ? bone.worldToLocal(wp(child)) : new THREE.Vector3(0, -0.4, 0);
+    const seg = new THREE.Line3(new THREE.Vector3(), end);
+    let best = null;
+    for (const g of sbm.colliderGroups) for (const col of g.colliders) {
+      if (col.parent !== bone) continue;
+      const s = col.shape, m = s.tail ? s.offset.clone().add(s.tail).multiplyScalar(0.5) : s.offset.clone();
+      const d = seg.closestPointToPoint(m, true, new THREE.Vector3()).distanceTo(m) - (s.radius || 0) * 0.01;
+      if (!best || d < best[0] - 1e-4) best = [d, col];
+    }
+    if (best) legCols.push(best[1]);
   }
   const node = (n) => h.getNormalizedBoneNode(n);
   for (let i = 0; i < 60; i++) vrm.update(1 / 60);       // settle before measuring
   vrm.scene.updateMatrixWorld(true);
   const rest = chains.map(loc);
   const traj = chains.map(() => []);
+  // skirt opening: neighbouring skirt chains (each chain's 2 nearest roots, within 2× the median
+  // nearest-root spacing) — how much further apart their tips get than at rest
+  const hipsY = wp(h.getRawBoneNode('hips')).y;
+  const ring = chains.filter((c) => (c.cat === 'skirt' && roleOf.get(c.anchor) === 'hips')
+    || (c.cat === 'torso' && wp(c.tip).y < hipsY));
+  const pairs = [];
+  if (ring.length > 2) {
+    const rp = ring.map((c) => wp(c.root.bone));
+    const near = ring.map((c, i) => rp.map((p, j) => [i === j ? Infinity : p.distanceTo(rp[i]), j]).sort((a, b) => a[0] - b[0]));
+    const med = near.map((n) => n[0][0]).sort((a, b) => a - b)[ring.length >> 1];
+    const seen = new Set();
+    near.forEach((n, i) => n.slice(0, 2).forEach(([d, j]) => {
+      const k = Math.min(i, j) + ':' + Math.max(i, j);
+      if (d < med * 2 && !seen.has(k)) { seen.add(k); pairs.push([ring[i], ring[j], wp(ring[i].tip).distanceTo(wp(ring[j].tip)), 0]); }
+    }));
+  }
   let inside = 0, skirtTips = 0;
   const N = FRAMES[mname];
   const fps = +(process.env.FPS || 60), jit = +(process.env.JITTER || 0);
@@ -136,10 +165,11 @@ async function measure(path, mname) {
     while (acc60 >= nextDt - 1e-9) { vrm.update(nextDt); acc60 -= nextDt; nextDt = (1 / fps) * (1 + jit * (rnd() * 2 - 1)); }
     vrm.scene.updateMatrixWorld(true);
     chains.forEach((c, i) => traj[i].push(loc(c).sub(rest[i])));
+    if (f < N) for (const p of pairs) p[3] = Math.max(p[3], wp(p[0].tip).distanceTo(wp(p[1].tip)) - p[2]);
     if (legCols.length) for (const c of chains) if (c.cat === 'skirt') {
       for (const j of c.joints) {
         const t = wp(j.child || j.bone); skirtTips++;
-        for (const col of legCols) { if (col.shape.calculateCollision(col.colliderMatrix, t, 0, new THREE.Vector3()) < -0.005) { inside++; break; } }
+        for (const col of legCols) { if (col.shape.calculateCollision(col.colliderMatrix, t, 0, new THREE.Vector3()) < -0.005) { inside++; c.inside = (c.inside || 0) + 1; break; } }
       }
     }
   }
@@ -168,8 +198,15 @@ async function measure(path, mname) {
     out.cats[cat] = { n: ids.length, hf: ids.reduce((a, i) => a + hf[i], 0) / ids.length,
       hfMax: Math.max(...ids.map((i) => hf[i])), swing: Math.max(...ids.map(swingOf)) };
   }
-  out.skirtInside = skirtTips ? inside / skirtTips : null;
   const nd = +(process.env.DETAIL || 3);
+  out.skirtInside = skirtTips ? inside / skirtTips : null;
+  if (inside) out.insideWorst = chains.filter((c) => c.inside).sort((a, b) => b.inside - a.inside).slice(0, nd)
+    .map((c) => [c.root.bone.name, +(c.inside / c.joints.length / (N + 120)).toFixed(3)]);
+  if (pairs.length) {
+    const g = pairs.map((p) => p[3]).sort((a, b) => a - b);
+    out.skirtGap = { pairs: g.length, mean: g.reduce((a, b) => a + b, 0) / g.length, p90: g[Math.floor(g.length * 0.9)], max: g[g.length - 1],
+      worst: pairs.sort((a, b) => b[3] - a[3]).slice(0, nd).map((p) => [p[0].root.bone.name, p[1].root.bone.name, +p[2].toFixed(3), +p[3].toFixed(3)]) };
+  }
   out.worst = chains.map((c, i) => [hf[i], i]).sort((a, b) => b[0] - a[0]).slice(0, nd)
     .map(([v, i]) => ({ cat: chains[i].cat, chain: chains[i].root.bone.name, hf: +v.toFixed(2), swing: +swingOf(i).toFixed(3),
       joints: chains[i].joints.length, length: +chains[i].L.toFixed(3) }));

@@ -169,7 +169,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             tree.bone_node, tree.node_pos, tree.add_node,
             include_lower=spring_skirt, stiffness_mul=spring_stiffness,
             gravity=spring_gravity, gravity_lower=spring_gravity_skirt,
-            set_parent=tree.set_parent, log=_log,
+            set_parent=tree.set_parent, cloth=(vnrm, vweights, xf_dir), log=_log,
             **(spring_opts or {}))
     elif spring and model.get("rigid_bodies"):
         _log("提示：VRM 0.x 暂不转换 SpringBone（物理），头发/裙摆不会摆动", "warn")

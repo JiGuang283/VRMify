@@ -526,6 +526,85 @@ class SkeletonTest(Base):
                 self.assertAlmostEqual(-m[16 * k + 12 + a], w[a], places=5)
 
 
+class SkirtTest(Base):
+    """左腿后面一片后裙：两条链分在腿轴两侧（A 在内侧、B 在外侧），裙片朝后。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = pmxio.read_pmx(cls.pmx)
+        idx = {b["name"]: i for i, b in enumerate(m["bones"])}
+        z, ys = 1.5, (10.6, 9.0, 7.4, 5.8)
+        cols = {"A": 0.35, "B": 1.45}                      # 左腿轴在 x = 0.9
+        for c, x in cols.items():
+            parent = idx["下半身"]
+            for k, y in enumerate(ys):
+                idx["後裙%s%d" % (c, k)] = len(m["bones"])
+                m["bones"].append({"name": "後裙%s%d" % (c, k), "name_en": "", "pos": (x, y, z),
+                                   "parent": parent, "layer": 0, "flag": 0x0001 | 0x0002 | 0x0008 | 0x0010,
+                                   "tail": -1})
+                parent = idx["後裙%s%d" % (c, k)]
+        v0, xs = len(m["vertices"]), [0.2 + 0.2 * i for i in range(8)]
+        for y in ys:
+            for x in xs:
+                c = "A" if x < 0.9 else "B"
+                k = min(range(3), key=lambda k: abs(ys[k] - y))
+                m["vertices"].append({"pos": (x, y, z), "normal": (0, 0, 1), "uv": (0, 0), "wtype": 0,
+                                      "wbones": [idx["後裙%s%d" % (c, k)]], "wweights": [1.0], "edge": 0.0})
+        faces = []
+        for r in range(len(ys) - 1):
+            for i in range(len(xs) - 1):
+                a, b = v0 + r * len(xs) + i, v0 + (r + 1) * len(xs) + i
+                faces += [a, b, b + 1, a, b + 1, a + 1]
+        m["faces"] += faces
+        m["materials"].append(dict(m["materials"][0], name="裙", faces=len(faces)))
+
+        def rb(nm, bone, pos, mode, shape=0, size=(0.3, 0, 0)):
+            return {"name": nm, "name_en": nm, "bone": idx[bone], "group": 0 if mode == 0 else 2, "mask": 0xFFFF,
+                    "shape": shape, "size": size, "pos": pos, "rot": (0, 0, 0), "mass": 1.0, "move_damp": 0.5,
+                    "rot_damp": 0.5, "repulsion": 0.0, "friction": 0.5, "mode": mode}
+        m["rigid_bodies"].append(rb("左足", "左足", (0.9, 8.25, 0), 0, shape=2, size=(0.6, 3.5, 0)))
+        for c, x in cols.items():
+            for k in range(3):
+                m["rigid_bodies"].append(rb("後裙%s%d" % (c, k), "後裙%s%d" % (c, k), (x, ys[k], z), 1))
+        cls.pmx = os.path.join(cls.tmp, "src", "裙.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+
+    def leg_shifts(self, out):
+        """每条裙链用到的左腿碰撞体，相对原碰撞体（挂在左足上、半径最大的那个）的平移。"""
+        g = vrmio.read_glb(out)[0]
+        sb = g["extensions"]["VRMC_springBone"]
+        leg = next(i for i, n in enumerate(g["nodes"]) if n.get("name") == "左足")
+        caps = {i: c["shape"]["capsule"] for i, c in enumerate(sb["colliders"])
+                if c["node"] == leg and "capsule" in c["shape"]}
+        orig = caps[min(caps)]
+        res = {}
+        for sp in sb["springs"]:
+            if not sp["name"].startswith("後裙"):
+                continue
+            ids = [i for gi in sp.get("colliderGroups", []) for i in sb["colliderGroups"][gi]["colliders"] if i in caps]
+            self.assertEqual(len(ids), 1)
+            res[sp["name"][2]] = [caps[ids[0]]["offset"][k] - orig["offset"][k] for k in range(3)]
+        return res
+
+    def test_leg_pushes_along_panel(self):
+        out = self.convert("skirt")
+        self.assertValid(out)
+        d = self.leg_shifts(out)
+        # 两条链各自的腿往自己那一侧挪（A 内侧 -x、B 外侧 +x），前后几乎不动：
+        # 被腿碰到时两条链都沿裙片法线往后推，而不是被腿轴分到两边
+        self.assertLess(d["A"][0], -0.03)
+        self.assertGreater(d["B"][0], 0.03)
+        for c in "AB":
+            self.assertLess(abs(d[c][2]), 0.015)
+            self.assertAlmostEqual(d[c][1], 0.0, places=6)
+
+    def test_leg_proxy_off(self):
+        d = self.leg_shifts(self.convert("skirt_off", spring_opts={"leg_proxy": False}))
+        for c in "AB":
+            self.assertEqual(d[c], [0.0, 0.0, 0.0])
+
+
 class PipelineTest(Base):
     def _pack_files(self):
         src = os.path.dirname(self.pmx)

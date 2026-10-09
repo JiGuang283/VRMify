@@ -288,7 +288,9 @@ rename the PMX or disable `[ファイル] → [アンカーデータの自動読
 ## 7. Known limitations
 
 - **VRM 0.x has no SpringBone output** (physics is written for VRM 1.0 only).
-- **Physics**: PMX joints between chains (common in skirts) can't be expressed in SpringBone and are dropped.
+- **Physics**: PMX joints between chains (common in skirts) can't be expressed in SpringBone and are dropped. The converter
+  turns the legs' push on each skirt chain toward the panel's facing, so legs no longer split a skirt down the middle, but the
+  panel still doesn't move as one piece like the original.
 - **Materials**: multiplicative sphere maps (.sph) and shared toon07–10 have no equivalent; outlines are off by default.
 - **Expression presets**: mapped and combined by standard MMD morph names; models with non-standard names can't be combined
   (assign them in Tune), and the combination weights are fixed, so a few models may look a bit strong or weak.
