@@ -72,7 +72,7 @@ every save starts from them.
 
 ## 2. Requirements
 
-- **Python 3.10+** (the converter itself is standard library only; without pywebview the file dialogs use tkinter,
+- **Python 3.10+** (the converter itself is standard library only, and noticeably faster with Pillow installed; without pywebview the file dialogs use tkinter,
   included in the official Windows installer)
 - **Optional** (`pip install -r requirements.txt`): `pywebview` (native window with drag & drop; otherwise the system browser is
   used), `Pillow` (texture slimming)

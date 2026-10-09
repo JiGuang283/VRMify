@@ -169,6 +169,30 @@ class ConvertTest(Base):
         self.assertEqual(hair["alphaMode"], "MASK")
 
 
+class AlphaStatsTest(unittest.TestCase):
+    """贴图透明度统计：装了 Pillow 时走 Pillow（快），结论要和纯 Python 版一致。"""
+
+    @staticmethod
+    def png(alpha_of):
+        w = h = 64
+        rows = [bytes(v for x in range(w) for v in (200, 120, 90, alpha_of(x, y))) for y in range(h)]
+        return vrmio.encode_png(w, h, rows)
+
+    @unittest.skipUnless(textures.available(), "需要 Pillow")
+    def test_pillow_matches_pure_python(self):
+        from unittest import mock
+        cases = {"不透明": lambda x, y: 255, "镂空": lambda x, y: 0 if (x // 4 + y // 4) % 2 else 255,
+                 "半透明": lambda x, y: 128, "渐变": lambda x, y: x * 4}
+        for name, f in cases.items():
+            data = self.png(f)
+            fast = vrmio.png_alpha_stats(data)
+            with mock.patch.object(vrmio, "_png_alpha_stats_pil", return_value=NotImplemented):
+                slow = vrmio.png_alpha_stats(data)
+            self.assertEqual([round(fast[1] / fast[0], 3), round(fast[2] / fast[0], 3)],
+                             [round(slow[1] / slow[0], 3), round(slow[2] / slow[0], 3)], name)
+        self.assertIsNone(vrmio.png_alpha_stats(b"not a png"))
+
+
 class EditTest(Base):
     def setUp(self):
         self.v1 = self.convert("e1")

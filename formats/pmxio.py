@@ -115,6 +115,9 @@ class _R:
         return v
 
 
+_IDX = {1: "b", 2: "h", 4: "i"}                 # 索引宽度 → struct 格式（有符号；面的顶点索引用大写 = 无符号）
+
+
 def read_pmx(path):
     with open(path, "rb") as f:
         d = f.read()
@@ -136,36 +139,52 @@ def read_pmx(path):
     m["comment"] = r.text()
     m["comment_en"] = r.text()
 
-    # ---- vertices
+    # ---- vertices：每个顶点按固定布局批量解（逐个字段 struct.unpack 是读大模型时最慢的一段）
     r.sec = "顶点"
     verts = []
+    head = struct.Struct("<%df" % (8 + 4 * add_uv))           # 位置、法线、UV、追加 UV
+    bone_st = {n: struct.Struct("<%d%s" % (n, _IDX[bi])) for n in (1, 2, 4)}
+    float_st = {n: struct.Struct("<%df" % n) for n in (1, 4, 9)}
     for vi_ in range(r.i32("vertex count")):
         r.sec = "顶点[%d]" % vi_
-        pos = (r.f32(), r.f32(), r.f32())
-        nrm = (r.f32(), r.f32(), r.f32())
-        uv = (r.f32(), r.f32())
-        au = []
-        for _ in range(add_uv):
-            au.append((r.f32(), r.f32(), r.f32(), r.f32()))
-        wt = r.u8()
+        r._need(head.size + 1, "vertex")
+        v = head.unpack_from(d, r.p)
+        r.p += head.size
+        pos, nrm, uv = v[0:3], v[3:6], v[6:8]
+        au = [v[8 + 4 * k:12 + 4 * k] for k in range(add_uv)]
+        wt = d[r.p]
+        r.p += 1
         nb = WEIGHT_BONES.get(wt, 1)
         nf = WEIGHT_FLOATS.get(wt, 0)
-        bs = [r.idx(bi) for _ in range(nb)]
-        ws = [r.f32() for _ in range(nf)]
+        st = bone_st[nb]
+        r._need(st.size, "weight bones")
+        bs = list(st.unpack_from(d, r.p))
+        r.p += st.size
+        ws = []
+        if nf:
+            st = float_st[nf]
+            r._need(st.size, "weights")
+            ws = list(st.unpack_from(d, r.p))
+            r.p += st.size
         sdef = None
         if wt == 3:
-            sdef = ((r.f32(), r.f32(), r.f32()),
-                    (r.f32(), r.f32(), r.f32()),
-                    (r.f32(), r.f32(), r.f32()))
+            st = float_st[9]
+            r._need(st.size, "SDEF")
+            c = st.unpack_from(d, r.p)
+            r.p += st.size
+            sdef = (c[0:3], c[3:6], c[6:9])
         edge = r.f32()
         verts.append({"pos": pos, "normal": nrm, "uv": uv, "add_uv": au,
                       "wtype": wt, "wbones": bs, "wweights": ws,
                       "sdef": sdef, "edge": edge})
     m["vertices"] = verts
 
-    # ---- faces
+    # ---- faces（一次解完）
     r.sec = "面"
-    m["faces"] = [r.idx(vi, signed=False) for _ in range(r.i32())]
+    nface = r.i32("face count")
+    r._need(nface * vi, "faces")
+    m["faces"] = list(struct.unpack_from("<%d%s" % (nface, _IDX[vi].upper()), d, r.p))
+    r.p += nface * vi
 
     # ---- textures
     r.sec = "贴图"

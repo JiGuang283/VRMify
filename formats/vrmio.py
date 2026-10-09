@@ -7,6 +7,7 @@
     write_glb    —— 打包成 .vrm/.glb
     to_png / decode_image / save_image —— 贴图处理
 """
+import io
 import json
 import os
 import struct
@@ -689,6 +690,28 @@ def decode_rgba(data, max_pixels=4 << 20):
     return w, h, rows
 
 
+def _png_alpha_stats_pil(data):
+    """png_alpha_stats 的 Pillow 版（C 解码，比纯 Python 版快十倍以上，统计整张图）。
+    没装 Pillow 或解不开时返回 NotImplemented，交给纯 Python 版。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        return NotImplemented
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.load()
+        if im.mode in ("RGBA", "LA", "PA"):
+            a = im.getchannel("A")
+        elif im.mode == "P" and "transparency" in im.info:
+            a = im.convert("RGBA").getchannel("A")
+        else:
+            return None                            # 没有 alpha（tRNS 色键和纯 Python 版一样忽略）
+        h = a.histogram()
+    except Exception:  # noqa: BLE001  坏图 / 罕见格式：纯 Python 版有自己的保守处理
+        return NotImplemented
+    return (sum(h), sum(h[:250]), sum(h[11:245]))
+
+
 def png_alpha_stats(data, max_rows=512):
     """统计 PNG 的透明度分布，用来决定材质的 alphaMode。
 
@@ -697,10 +720,13 @@ def png_alpha_stats(data, max_rows=512):
     只解 alpha 通道：PNG 的行滤波按「同一通道的左边/上边字节」做，
     alpha 字节只依赖 alpha 字节，不必把 RGB 也算一遍。
     大图只抽约 max_rows 行（从最近的「不依赖上一行」的行开始连续解到目标行），
-    纯 Python 也能在一两秒内处理 2048² 的贴图。
+    纯 Python 也能在一两秒内处理 2048² 的贴图。装了 Pillow（打包的 exe 里都有）时先用 Pillow。
     """
     if not data or data[:8] != b"\x89PNG\r\n\x1a\n":
         return None
+    fast = _png_alpha_stats_pil(data)
+    if fast is not NotImplemented:
+        return fast
     p = 8
     idat = []
     w = h = bd = ct = il = 0

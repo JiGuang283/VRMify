@@ -1038,11 +1038,9 @@ def _load_rgba(src):
 
 
 def _has_any_transparency(w, h, rgba):
-    """整张图有没有非 255 的 alpha。"""
-    for i in range(3, len(rgba), 4):
-        if rgba[i] != 255:
-            return True
-    return False
+    """整张图有没有非 255 的 alpha（切片 + count 在 C 里跑，不逐像素循环）。"""
+    alpha = bytes(rgba[3::4])
+    return alpha.count(255) != len(alpha)
 
 
 def _alpha_stats_whole(w, h, rgba):
@@ -1096,7 +1094,7 @@ def _alpha_stats_uv(w, h, rgba, uvs):
     return t / n, o / n, n
 
 
-def decide_alpha(src, uvs=None):
+def decide_alpha(src, uvs=None, got=None):
     """判定一张贴图的 alpha 是不是「真透明」。返回 (verdict, detail)。
 
     判据（两条统计**都要**满足才算「不是透明度」）：
@@ -1112,7 +1110,7 @@ def decide_alpha(src, uvs=None):
     代价是有时会少去一张（偏保守），而这正是要的方向：判不准就保留，
     用户还能手动选「全部去除」。
     """
-    got = _load_rgba(src)
+    got = got or _load_rgba(src)                    # 调用方已经解过就不再解一遍
     if got is None:
         return ALPHA_KEEP, "cannot sample alpha"
     w, h, rgba = got
@@ -1575,7 +1573,7 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
                     verdict, detail = ALPHA_STRIP, "StripAll"
                 else:
                     stats["weighed"] += 1
-                    verdict, detail = decide_alpha(src, (alpha_uvs or {}).get(bn))
+                    verdict, detail = decide_alpha(src, (alpha_uvs or {}).get(bn), got)
                 if has_a:
                     stats["decisions"].append((bn, verdict, detail))
                     if verdict != ALPHA_STRIP:

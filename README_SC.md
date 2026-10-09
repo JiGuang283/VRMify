@@ -67,7 +67,7 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 
 ## 二、环境要求
 
-- **Python 3.10+**（转换本身只用标准库；没装 pywebview 时文件对话框用 tkinter，Windows 官方安装包自带）
+- **Python 3.10+**（转换本身只用标准库，装了 Pillow 会快不少（贴图检查用它）；没装 pywebview 时文件对话框用 tkinter，Windows 官方安装包自带）
 - **可选**（`pip install -r requirements.txt`）：`pywebview`（独立窗口、可以把文件拖进窗口，不装就用系统浏览器）、
   `Pillow`（贴图瘦身）
 
