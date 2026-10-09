@@ -58,10 +58,9 @@ Settings tabs:
 
 | Tab | Contents |
 |---|---|
-| VRM | Version (1.0 / 0.x); characters only; physics, expressions, outline; max texture size, opaque textures as JPEG (often halves the file) |
-| Inputs | Options for FBX, uemodel, psk and xps (facing, texture alpha, bone naming…) |
-| Metadata | Author, version and license; defaults to the most restrictive terms (credit required, no redistribution, no modification) |
-| Output | Convert to VRM or stop at PMX; where to save; how many to convert at once |
+| Convert | Convert to VRM 1.0 / VRM 0.x / PMX only; characters only; physics, expressions; file size (smaller textures, often halving the file); where to save. Physics and expression details, fixes for display problems and how many to convert at once sit under "Advanced" |
+| Other formats | Options for the formats in the list (FBX, uemodel, psk, xps): facing, texture alpha… |
+| Metadata | Author, model version and license, set once for every model; defaults to the most restrictive terms (credit required, no redistribution, no modification) |
 
 **Archives**: zip uses the built-in extractor and restores GBK / Shift-JIS file names from old archives; 7z / rar use
 7-Zip, WinRAR or Bandizip if installed, otherwise the `tar` that ships with Windows (Windows 10's can't open some 7z
@@ -105,10 +104,10 @@ and shadow switch.
 overall or per chain in the Tune panel.
 
 **Holes or black edges**: look at the winding line in the conversion log; for thin hair or skirt sheets that rely on
-double-sided rendering, turn on "All materials double-sided" on the VRM tab.
+double-sided rendering, turn on "All materials double-sided" under Advanced on the Convert tab.
 
 **An FBX faces away or its transparency is wrong**: turn on "Extra 180° turn" or try another "Texture alpha" mode on
-the Inputs tab; see [Other formats → PMX](docs/other-formats.md).
+the Other formats tab; see [Other formats → PMX](docs/other-formats.md).
 
 ## Known limitations
 

@@ -297,6 +297,15 @@ class _LogWriter(io.TextIOBase):
         self._buf = ""
 
 
+def _fmt_opts(opts, kind):
+    """某个输入格式的选项。转 VRM 时格式自己的「导出表情」跟着 VRM 的「表情」开关走（界面里只显示那一个；
+    格式的开关只在「只转 PMX」时显示和生效）。"""
+    o = opts[kind]
+    if opts["target"] != "pmx" and "morphs" in o:
+        o = dict(o, morphs=opts["vrm"]["morphs"])
+    return o
+
+
 def to_pmx(path, kind, out_dir, opts, log):
     """非 PMX 输入 → PMX，返回写出的 PMX 路径列表（unitypackage 可能有多个）。"""
     stem = os.path.splitext(os.path.basename(path))[0]
@@ -305,7 +314,7 @@ def to_pmx(path, kind, out_dir, opts, log):
     if kind in ("fbx", "unitypackage"):
         fbxs, dest = _unpack_fbxs(path, log) if kind == "unitypackage" else ([path], None)
         try:
-            return _fbxs_to_pmx(fbxs, out_dir, opts["fbx"], log)
+            return _fbxs_to_pmx(fbxs, out_dir, _fmt_opts(opts, "fbx"), log)
         finally:
             if dest:
                 shutil.rmtree(dest, ignore_errors=True)
@@ -318,7 +327,7 @@ def to_pmx(path, kind, out_dir, opts, log):
                             force_double_sided=opts["vrm"]["double_sided"])
     elif kind == "psk":
         import psk2pmx
-        o = opts["psk"]
+        o = _fmt_opts(opts, "psk")
         psk2pmx.convert(path, out, scale_mode="auto", log=log, name=stem,
                         jp_bones=o["jp_bones"], make_ik=o["ik"], export_morphs=o["morphs"],
                         remove_alpha=o["alpha"], force_double_sided=opts["vrm"]["double_sided"])
@@ -398,7 +407,7 @@ def fbx_to_vrm(fbx, name, out_dir, opts, log, edits=None):
     work = tempfile.mkdtemp(prefix="vrmify_work_")
     try:
         pmx = os.path.join(work, name + ".pmx")
-        st = _fbx_to_pmx(fbx, pmx, name, opts["fbx"], log)
+        st = _fbx_to_pmx(fbx, pmx, name, _fmt_opts(opts, "fbx"), log)
         # 中间的 PMX 只读一次，「是不是人物」的检查和转 VRM 共用
         return _to_vrm(pmx, out_dir, opts, log, edits=edits, model=pmxio.read_pmx(pmx),
                        tex_alpha=st["alpha"]["png_alpha"], step="PMX → VRM：%s.pmx" % name)

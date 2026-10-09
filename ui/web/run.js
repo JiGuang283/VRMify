@@ -1,13 +1,18 @@
 // Run bar (start / stop / progress) and the log.
 import { $, S, api, t, toast } from './core.js';
 import { renderFiles } from './files.js';
+import { flushOpts } from './options.js';
 
 $('start').onclick = async () => {
+  await flushOpts();
   const r = await api('/api/convert', {});
   if (!r.started) toast(t('nothing'));
   S.result = null; S.logErrors = 0; renderBadge();
 };
 $('stop').onclick = () => api('/api/stop', {});
+// after a run: show where the results went (the newest output, selected in the file manager)
+const lastOutput = () => [...S.files].reverse().flatMap((f) => f.outputs.slice(-1))[0];
+$('openOut').onclick = () => { const o = lastOutput(); if (o) api('/api/open', { path: o.path }); };
 
 export function renderStatus() {
   $('start').hidden = S.busy; $('stop').hidden = !S.busy;
@@ -17,6 +22,7 @@ export function renderStatus() {
     pct = S.progress.index / S.progress.total * 100;
   } else if (S.result) { s = t(S.result.skipped ? 'finishedSkip' : 'finished', S.result); pct = 100; }
   $('status').textContent = s;
+  $('openOut').hidden = S.busy || !lastOutput();
   $('progressFill').style.width = pct + '%';
   renderFiles();
 }

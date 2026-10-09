@@ -2,6 +2,7 @@
 import { Viewer } from '/viewer/viewer-core.js';
 import { $, S, api, esc, t, toast } from './core.js';
 import { renderFiles } from './files.js';
+import { flushOpts } from './options.js';
 import { T, leaveTune, loadTune, springParams } from './tune.js';
 
 export const viewer = new Viewer($('pv'));
@@ -24,6 +25,7 @@ export async function previewFile(id, output) {
   // unless another panel (light / expressions / info) is open
   S.autoTune = !openPanel();
   loadTune();
+  await flushOpts();
   const r = await api('/api/preview', output === undefined ? { id } : { id, output });
   if (r.url) loadModel(r.url, r.name);
   else if (r.pending) showBusy(t('pvMaking'));

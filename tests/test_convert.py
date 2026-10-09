@@ -696,6 +696,18 @@ class GlbWriteTest(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class FormatOptsTest(unittest.TestCase):
+    def test_morphs_follow_vrm_switch(self):
+        """转 VRM 时格式自己的「导出表情」跟着 VRM 的「表情」开关（界面里只显示那一个）；只转 PMX 时用格式自己的。"""
+        opts = pipeline.merged({"vrm": {"morphs": False}, "fbx": {"morphs": True}, "psk": {"morphs": True}})
+        self.assertFalse(pipeline._fmt_opts(opts, "fbx")["morphs"])
+        self.assertFalse(pipeline._fmt_opts(opts, "psk")["morphs"])
+        self.assertTrue(opts["fbx"]["morphs"])                       # 存着的设置不变
+        opts["target"] = "pmx"
+        self.assertTrue(pipeline._fmt_opts(opts, "fbx")["morphs"])
+        self.assertEqual(pipeline._fmt_opts(opts, "uemodel"), opts["uemodel"])
+
+
 class JobsBudgetTest(unittest.TestCase):
     """同时转几个：按每个任务的内存估计，最大的几个加起来不超过可用内存的 MEM_SHARE。"""
 

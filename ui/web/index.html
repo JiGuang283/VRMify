@@ -39,50 +39,137 @@
       <ul id="fileList" class="file-list"></ul>
     </section>
 
-    <!-- settings -->
+    <!-- settings: the first tab holds what most conversions need; the rest folds into "Advanced" -->
     <section class="card settings-card">
       <div class="card-head">
         <h2 data-i18n="settings"></h2>
         <div class="tabs" id="tabs">
-          <button data-tab="vrm" class="on" data-i18n="tabVrm"></button>
+          <button data-tab="main" class="on" data-i18n="tabMain"></button>
           <button data-tab="input" data-i18n="tabInput"></button>
           <button data-tab="meta" data-i18n="tabMeta"></button>
-          <button data-tab="output" data-i18n="tabOutput"></button>
         </div>
       </div>
 
-      <div class="tab-body" data-panel="vrm">
+      <div class="tab-body" data-panel="main">
         <div class="field">
-          <label data-i18n="spec"></label>
-          <div class="seg" data-opt="vrm.spec">
-            <button data-v="1.0">1.0</button><button data-v="0.x" data-i18n="spec0x"></button>
+          <label data-i18n="convertTo"></label>
+          <div class="seg" id="targetSeg">
+            <button data-v="vrm1">VRM 1.0</button><button data-v="vrm0">VRM 0.x</button><button data-v="pmx" data-i18n="targetPmx"></button>
           </div>
         </div>
-        <label class="switch"><input type="checkbox" data-opt="vrm.avatar_only"><span data-i18n="avatarOnly"></span></label>
-        <div class="hint" data-i18n="avatarOnlyHint"></div>
-        <label class="switch"><input type="checkbox" data-opt="vrm.spring"><span data-i18n="spring"></span></label>
-        <div class="hint" data-i18n="springHint"></div>
-        <label class="switch sub"><input type="checkbox" data-opt="vrm.spring_skirt"><span data-i18n="springSkirt"></span></label>
-        <label class="switch sub"><input type="checkbox" data-opt="vrm.auto_spring"><span data-i18n="autoSpring"></span></label>
-        <div class="field sub">
-          <label data-i18n="stiffness"></label>
-          <input type="range" min="0.5" max="2" step="0.1" data-opt="vrm.spring_stiffness"><output data-for="vrm.spring_stiffness"></output>
-        </div>
-        <label class="switch"><input type="checkbox" data-opt="vrm.morphs"><span data-i18n="morphs"></span></label>
-        <label class="switch sub"><input type="checkbox" data-opt="vrm.combo_expr"><span data-i18n="comboExpr"></span></label>
-        <label class="switch sub"><input type="checkbox" data-opt="vrm.gaze"><span data-i18n="gaze"></span></label>
-        <label class="switch"><input type="checkbox" data-opt="vrm.outline"><span data-i18n="outline"></span></label>
-        <label class="switch"><input type="checkbox" data-opt="vrm.keep_pose"><span data-i18n="keepPose"></span></label>
-        <label class="switch"><input type="checkbox" data-opt="vrm.double_sided"><span data-i18n="doubleSided"></span></label>
-        <h3 data-i18n="texTitle"></h3>
-        <div class="field">
-          <label data-i18n="texMax"></label>
-          <div class="seg" data-opt="vrm.tex_max">
-            <button data-v="0" data-i18n="texOrig"></button><button data-v="4096">4096</button><button data-v="2048">2048</button><button data-v="1024">1024</button>
+        <div class="hint flush" id="targetHint"></div>
+        <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.avatar_only"><span data-i18n="avatarOnly"></span></label>
+        <div class="hint vrm-only" data-i18n="avatarOnlyHint"></div>
+        <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.spring"><span data-i18n="spring"></span></label>
+        <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.morphs"><span data-i18n="morphs"></span></label>
+        <div class="field vrm-only">
+          <label data-i18n="fileSize"></label>
+          <div class="seg" id="sizeSeg">
+            <button data-v="orig" data-i18n="sizeOrig"></button><button data-v="mid" data-i18n="sizeMid"></button><button data-v="small" data-i18n="sizeSmall"></button>
           </div>
         </div>
-        <label class="switch"><input type="checkbox" data-opt="vrm.tex_jpeg"><span data-i18n="texJpeg"></span></label>
-        <div class="hint" id="texHint"></div>
+        <div class="hint flush vrm-only" id="texHint"></div>
+        <div class="field">
+          <label data-i18n="outLocation"></label>
+          <div class="seg" data-opt="output.mode">
+            <button data-v="app" data-i18n="outApp"></button><button data-v="beside" data-i18n="outBeside"></button><button data-v="folder" data-i18n="outFolder"></button>
+          </div>
+        </div>
+        <div class="field folder-row">
+          <span id="outFolder" class="path"></span>
+          <button id="chooseOut" class="btn" data-i18n="choose"></button>
+        </div>
+
+        <details class="sec adv" id="advanced">
+          <summary data-i18n="advanced"></summary>
+          <h3 class="vrm-only" data-i18n="advPhysics"></h3>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.spring_skirt"><span data-i18n="springSkirt"></span></label>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.auto_spring"><span data-i18n="autoSpring"></span></label>
+          <div class="hint vrm-only" data-i18n="autoSpringHint"></div>
+          <div class="field vrm-only">
+            <label data-i18n="stiffness"></label>
+            <input type="range" min="0.5" max="2" step="0.1" data-opt="vrm.spring_stiffness"><output data-for="vrm.spring_stiffness"></output>
+          </div>
+          <h3 class="vrm-only" data-i18n="advExpr"></h3>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.combo_expr"><span data-i18n="comboExpr"></span></label>
+          <div class="hint vrm-only" data-i18n="comboExprHint"></div>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.gaze"><span data-i18n="gaze"></span></label>
+          <div class="hint vrm-only" data-i18n="gazeHint"></div>
+          <h3 data-i18n="advLook"></h3>
+          <label class="switch"><input type="checkbox" data-opt="vrm.double_sided"><span data-i18n="doubleSided"></span></label>
+          <div class="hint" data-i18n="doubleSidedHint"></div>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.outline"><span data-i18n="outline"></span></label>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.keep_pose"><span data-i18n="keepPose"></span></label>
+          <h3 class="vrm-only" data-i18n="texTitle"></h3>
+          <div class="field vrm-only">
+            <label data-i18n="texMax"></label>
+            <div class="seg" data-opt="vrm.tex_max">
+              <button data-v="0" data-i18n="texOrig"></button><button data-v="4096">4096</button><button data-v="2048">2048</button><button data-v="1024">1024</button>
+            </div>
+          </div>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.tex_jpeg"><span data-i18n="texJpeg"></span></label>
+          <h3 data-i18n="advRun"></h3>
+          <label class="switch"><input type="checkbox" data-opt="output.subfolder"><span data-i18n="subfolder"></span></label>
+          <div class="hint" data-i18n="subfolderHint"></div>
+          <div class="field">
+            <label data-i18n="jobs"></label>
+            <div class="seg" data-opt="jobs">
+              <button data-v="0" data-i18n="jobsAuto"></button><button data-v="1">1</button><button data-v="2">2</button><button data-v="4">4</button>
+            </div>
+          </div>
+          <div class="hint flush" data-i18n="jobsHint"></div>
+        </details>
+      </div>
+
+      <!-- other input formats: only the sections for kinds in the file list (archives may hold any of them) -->
+      <div class="tab-body" data-panel="input" hidden>
+        <div class="hint flush" id="inputNone" hidden><span data-i18n="inputNone"></span> <button class="link" id="inputAll" data-i18n="inputShowAll"></button></div>
+        <section class="fmt" data-kinds="fbx unitypackage">
+          <h3 data-i18n="fbx"></h3>
+          <div class="field">
+            <label data-i18n="fbxAlpha"></label>
+            <div class="seg" data-opt="fbx.alpha">
+              <button data-v="auto" data-i18n="alphaAuto"></button><button data-v="keep" data-i18n="alphaKeep"></button><button data-v="strip" data-i18n="alphaStrip"></button>
+            </div>
+          </div>
+          <div class="hint flush" data-i18n="fbxAlphaHint"></div>
+          <div class="grid2">
+            <label class="switch"><input type="checkbox" data-opt="fbx.auto_facing"><span data-i18n="autoFacing"></span></label>
+            <label class="switch"><input type="checkbox" data-opt="fbx.face_180"><span data-i18n="face180"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="fbx.morphs"><span data-i18n="fbxMorphs"></span></label>
+          </div>
+        </section>
+        <section class="fmt" data-kinds="uemodel">
+          <h3 data-i18n="ue"></h3>
+          <label class="switch"><input type="checkbox" data-opt="uemodel.alpha"><span data-i18n="ueAlpha"></span></label>
+          <div class="field folder-row">
+            <label data-i18n="ueAlign"></label>
+            <span id="ueRef" class="path"></span>
+            <button id="ueRefPick" class="btn" data-i18n="choose"></button>
+            <button id="ueRefClear" class="btn ghost" data-i18n="clearRef"></button>
+          </div>
+          <div class="hint flush" data-i18n="ueAlignHint"></div>
+        </section>
+        <section class="fmt" data-kinds="psk">
+          <h3 data-i18n="psk"></h3>
+          <div class="grid2">
+            <label class="switch"><input type="checkbox" data-opt="psk.alpha"><span data-i18n="inAlpha"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="psk.morphs"><span data-i18n="inMorphs"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="psk.jp_bones"><span data-i18n="jpBones"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="psk.ik"><span data-i18n="ik"></span></label>
+          </div>
+        </section>
+        <section class="fmt" data-kinds="xps">
+          <h3 data-i18n="xps"></h3>
+          <div class="grid2">
+            <label class="switch"><input type="checkbox" data-opt="xps.double_sided"><span data-i18n="xpsDouble"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="xps.jp_bones"><span data-i18n="jpBones"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="xps.ik"><span data-i18n="ik"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="xps.hide_unused"><span data-i18n="hideUnused"></span></label>
+            <label class="switch pmx-only"><input type="checkbox" data-opt="xps.edge"><span data-i18n="xpsEdge"></span></label>
+          </div>
+        </section>
+        <div class="hint flush pmx-hidden" data-i18n="inputVrmHint"></div>
       </div>
 
       <div class="tab-body" data-panel="meta" hidden>
@@ -92,6 +179,7 @@
         <div class="field"><label data-i18n="metaContact"></label><input type="text" class="input" data-opt="meta.contact"></div>
         <div class="field"><label data-i18n="metaCopyright"></label><input type="text" class="input" data-opt="meta.copyright"></div>
         <div class="field"><label data-i18n="metaLicense"></label><input type="text" class="input" data-opt="meta.license_url" placeholder="https://vrm.dev/licenses/1.0/"></div>
+        <h3 data-i18n="metaTerms"></h3>
         <div class="field">
           <label data-i18n="metaAvatar"></label>
           <div class="seg" data-opt="meta.avatar_permission">
@@ -105,84 +193,20 @@
           </div>
         </div>
         <div class="field">
-          <label data-i18n="metaMod"></label>
-          <div class="seg" data-opt="meta.modification">
-            <button data-v="prohibited" data-i18n="modNo"></button><button data-v="allowModification" data-i18n="modYes"></button><button data-v="allowModificationRedistribution" data-i18n="modRedist"></button>
-          </div>
-        </div>
-        <div class="field">
           <label data-i18n="metaCredit"></label>
           <div class="seg" data-opt="meta.credit_notation">
             <button data-v="required" data-i18n="creditYes"></button><button data-v="unnecessary" data-i18n="creditNo"></button>
           </div>
         </div>
         <label class="switch"><input type="checkbox" data-opt="meta.allow_redistribution"><span data-i18n="metaRedist"></span></label>
-      </div>
-
-      <div class="tab-body" data-panel="input" hidden>
-        <h3 data-i18n="fbx"></h3>
         <div class="field">
-          <label data-i18n="fbxAlpha"></label>
-          <div class="seg" data-opt="fbx.alpha">
-            <button data-v="auto" data-i18n="alphaAuto"></button><button data-v="keep" data-i18n="alphaKeep"></button><button data-v="strip" data-i18n="alphaStrip"></button>
+          <label data-i18n="metaMod"></label>
+          <div class="seg" data-opt="meta.modification">
+            <button data-v="prohibited" data-i18n="modNo"></button><button data-v="allowModification" data-i18n="modYes"></button><button data-v="allowModificationRedistribution" data-i18n="modRedist"></button>
           </div>
         </div>
-        <div class="grid2">
-          <label class="switch"><input type="checkbox" data-opt="fbx.auto_facing"><span data-i18n="autoFacing"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="fbx.face_180"><span data-i18n="face180"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="fbx.morphs"><span data-i18n="fbxMorphs"></span></label>
-        </div>
-        <h3 data-i18n="ue"></h3>
-        <label class="switch"><input type="checkbox" data-opt="uemodel.alpha"><span data-i18n="ueAlpha"></span></label>
-        <div class="field folder-row">
-          <label data-i18n="ueAlign"></label>
-          <span id="ueRef" class="path"></span>
-          <button id="ueRefPick" class="btn" data-i18n="choose"></button>
-          <button id="ueRefClear" class="btn ghost" data-i18n="clearRef"></button>
-        </div>
-        <div class="hint flush" data-i18n="ueAlignHint"></div>
-        <h3 data-i18n="psk"></h3>
-        <div class="grid2">
-          <label class="switch"><input type="checkbox" data-opt="psk.jp_bones"><span data-i18n="jpBones"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="psk.ik"><span data-i18n="ik"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="psk.morphs"><span data-i18n="inMorphs"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="psk.alpha"><span data-i18n="inAlpha"></span></label>
-        </div>
-        <h3 data-i18n="xps"></h3>
-        <div class="grid2">
-          <label class="switch"><input type="checkbox" data-opt="xps.jp_bones"><span data-i18n="jpBones"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="xps.ik"><span data-i18n="ik"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="xps.hide_unused"><span data-i18n="hideUnused"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="xps.double_sided"><span data-i18n="xpsDouble"></span></label>
-          <label class="switch"><input type="checkbox" data-opt="xps.edge"><span data-i18n="xpsEdge"></span></label>
-        </div>
-      </div>
-
-      <div class="tab-body" data-panel="output" hidden>
-        <div class="field">
-          <label data-i18n="target"></label>
-          <div class="seg" data-opt="target">
-            <button data-v="vrm" data-i18n="targetVrm"></button><button data-v="pmx" data-i18n="targetPmx"></button>
-          </div>
-        </div>
-        <div class="field">
-          <label data-i18n="outLocation"></label>
-          <div class="seg" data-opt="output.mode">
-            <button data-v="app" data-i18n="outApp"></button><button data-v="beside" data-i18n="outBeside"></button><button data-v="folder" data-i18n="outFolder"></button>
-          </div>
-        </div>
-        <div class="field folder-row">
-          <span id="outFolder" class="path"></span>
-          <button id="chooseOut" class="btn" data-i18n="choose"></button>
-        </div>
-        <label class="switch"><input type="checkbox" data-opt="output.subfolder"><span data-i18n="subfolder"></span></label>
-        <div class="field">
-          <label data-i18n="jobs"></label>
-          <div class="seg" data-opt="jobs">
-            <button data-v="0" data-i18n="jobsAuto"></button><button data-v="1">1</button><button data-v="2">2</button><button data-v="4">4</button>
-          </div>
-        </div>
-        <div class="hint flush" data-i18n="jobsHint"></div>
+        <div class="hint flush" data-i18n="metaModHint"></div>
+        <button class="btn ghost small" id="metaReset" data-i18n="metaReset"></button>
       </div>
     </section>
 
@@ -200,6 +224,7 @@
       <button id="start" class="btn primary"><span id="startLabel"></span> <span id="startCount"></span></button>
       <button id="stop" class="btn" data-i18n="stop" hidden></button>
       <div id="status" class="status"></div>
+      <button id="openOut" class="btn ghost small" data-i18n="openOut" hidden></button>
       <div class="progress"><div id="progressFill"></div></div>
     </section>
   </aside>

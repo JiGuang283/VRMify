@@ -1,7 +1,7 @@
 # 其它格式 → PMX
 
 FBX、unitypackage、uemodel、psk / pskx、xps 先转成 PMX，再走 [PMX → VRM](pmx-to-vrm.md)。图形界面里默认一路转到 VRM，
-中间的 PMX 和解包出来的资源放在临时目录，输出目录只有 VRM；「输出」页选「只转 PMX」时输出 PMX 和 `textures/`。
+中间的 PMX 和解包出来的资源放在临时目录，输出目录只有 VRM；「转换成」选「只转 PMX」时输出 PMX 和 `textures/`。
 
 转出的 PMX 也能直接在 MMD / PmxEditor 里用：文本编码是 MMD 要求的 UTF-16LE，材质不使用 toon，每个顶点最多 4 根
 骨骼权重，贴图拷进 `textures/`。
@@ -51,7 +51,7 @@ python convert/uemodel2pmx.py "part.uemodel" --align-to "body.uemodel"   # 把�
 | 参数 | 说明 |
 |---|---|
 | `--scale fixed` / `mmd` / 倍率 | 默认 `fixed`：按 UE 厘米统一换算，几个部件保持相对大小；`mmd` 每个文件各自归一到 20 单位 |
-| `--align-to 整身.uemodel` | 按 `*_adjust` 骨求平移，把部件对齐到整身模型（界面里在「输入格式」页选参考模型） |
+| `--align-to 整身.uemodel` | 按 `*_adjust` 骨求平移，把部件对齐到整身模型（界面里在「其它格式」页选参考模型） |
 | `--lod N` | 用第几级 LOD |
 | `--keep-alpha` | 保留贴图 alpha（默认去掉：UE 贴图的 alpha 多是数据遮罩） |
 | `--no-textures` / `--no-add-uv` | 不关联贴图 / 不写附加 UV |
