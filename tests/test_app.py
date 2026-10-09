@@ -78,6 +78,24 @@ class OutputDefaultTest(unittest.TestCase):
         self.assertEqual(pipeline.output_dir(os.path.join(out, "a.pmx"), opts), out)
 
 
+class StalePreviewTest(unittest.TestCase):
+    def test_sweep(self):
+        """启动时删一天以前遗留的预览临时目录，新的不动。"""
+        root = tempfile.mkdtemp(prefix="m2v_tmproot_")
+        old, new, other = (os.path.join(root, n) for n in ("model2vrm_preview_old", "model2vrm_preview_new", "keep_me"))
+        for d in (old, new, other):
+            os.makedirs(os.path.join(d, "sub"))
+        past = 1_000_000_000
+        for d in (old, other):
+            os.utime(os.path.join(d, "sub"), (past, past))
+            os.utime(d, (past, past))
+        with mock.patch.object(server.tempfile, "gettempdir", lambda: root):
+            server._sweep_stale_previews()
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(new))
+        self.assertTrue(os.path.exists(other))
+
+
 class WindowFallbackTest(unittest.TestCase):
     """pywebview 换成假模块，_browser_loop 换成记录调用，看 main() 走哪条路。"""
 

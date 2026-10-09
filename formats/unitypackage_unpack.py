@@ -54,7 +54,8 @@ def read_paths(t):
     return out
 
 
-def unpack(src, outdir, list_only=False):
+def unpack(src, outdir, list_only=False, verbose=True):
+    """解包到 outdir；verbose=False 时不逐个列出文件（界面 / 流水线自己记一行汇总）。"""
     with tarfile.open(src, 'r:gz') as t:
         paths = read_paths(t)
         if list_only:
@@ -98,9 +99,11 @@ def unpack(src, outdir, list_only=False):
             with open(dst, 'wb') as w:
                 w.write(t.extractfile(m).read())
             n += 1
-            print('  %8.1f KB  %s' % (os.path.getsize(dst) / 1024,
-                                      os.path.relpath(dst, outdir)))
-        print('\n%d files -> %s' % (n, outdir))
+            if verbose:
+                print('  %8.1f KB  %s' % (os.path.getsize(dst) / 1024,
+                                          os.path.relpath(dst, outdir)))
+        if verbose:
+            print('\n%d files -> %s' % (n, outdir))
     return 0
 
 

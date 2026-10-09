@@ -297,38 +297,27 @@ def to_pmx(path, kind, out_dir, opts, log):
     # 有的转换器只在拷贝贴图时才建输出目录：没有贴图的模型（白模）写 PMX 时目录还不存在
     os.makedirs(out_dir, exist_ok=True)
     if kind in ("fbx", "unitypackage"):
-        import fbx2pmx
-        o = opts["fbx"]
+        dest = None
         if kind == "unitypackage":
+            # 解到临时目录（几百个资源文件，转完就删），只有 PMX 和它的贴图写进 out_dir
             from unitypackage_unpack import unpack
-            dest = os.path.join(out_dir, stem + "_extracted")
-            log("解包 %s" % os.path.basename(path), "info")
+            dest = tempfile.mkdtemp(prefix="model2vrm_unitypackage_")
             with contextlib.redirect_stdout(_LogWriter(log)):
-                unpack(path, dest)
+                unpack(path, dest, verbose=False)
+            n = sum(len(fs) for _, _, fs in os.walk(dest))
             fbxs = [p for p in find_files(dest, ".fbx") if os.path.getsize(p) > 1024]
+            log("解包 %s：%d 个文件，%d 个 FBX" % (os.path.basename(path), n, len(fbxs)), "info")
             if not fbxs:
+                shutil.rmtree(dest, ignore_errors=True)
                 raise RuntimeError("包里没有找到 FBX")
             fbxs.sort(key=lambda p: -os.path.getsize(p))
-            src_dir = dest
         else:
-            fbxs, src_dir = [path], out_dir
-        outs = []
-        for fbx in fbxs:
-            name = os.path.splitext(os.path.basename(fbx))[0]
-            out = os.path.join(src_dir, name + ".pmx")
-            log("读取 FBX：%s" % os.path.basename(fbx), "info")
-            w = _LogWriter(log)
-            with contextlib.redirect_stdout(w):
-                scene = fbx2pmx.Scene(fbx)
-                st = fbx2pmx.convert(scene, out, scale_mode="auto", flip_z=o["flip_z"],
-                                     name=name, center=o["center"], morphs=o["morphs"],
-                                     alpha_mode=o["alpha"], auto_facing=o["auto_facing"],
-                                     face_180=o["face_180"])
-            w.flush()
-            if st.get("facing_reason"):
-                log("朝向：%s" % st["facing_reason"], None)
-            outs.append(out)
-        return outs
+            fbxs = [path]
+        try:
+            return _fbxs_to_pmx(fbxs, out_dir, opts["fbx"], log)
+        finally:
+            if dest:
+                shutil.rmtree(dest, ignore_errors=True)
     out = os.path.join(out_dir, stem + ".pmx")
     if kind == "uemodel":
         import uemodel2pmx
@@ -352,6 +341,33 @@ def to_pmx(path, kind, out_dir, opts, log):
     else:
         raise ValueError("不支持的输入：%s" % kind)
     return [out]
+
+
+def _fbxs_to_pmx(fbxs, out_dir, o, log):
+    """FBX → PMX（写进 out_dir，贴图在 out_dir/textures），返回 PMX 路径列表。"""
+    import fbx2pmx
+    outs, used = [], set()
+    for fbx in fbxs:
+        name = os.path.splitext(os.path.basename(fbx))[0]
+        k = 2
+        while name.lower() in used:            # 包里不同文件夹下的同名 FBX
+            name = "%s_%d" % (os.path.splitext(os.path.basename(fbx))[0], k)
+            k += 1
+        used.add(name.lower())
+        out = os.path.join(out_dir, name + ".pmx")
+        log("读取 FBX：%s" % os.path.basename(fbx), "info")
+        w = _LogWriter(log)
+        with contextlib.redirect_stdout(w):
+            scene = fbx2pmx.Scene(fbx)
+            st = fbx2pmx.convert(scene, out, scale_mode="auto", flip_z=o["flip_z"],
+                                 name=name, center=o["center"], morphs=o["morphs"],
+                                 alpha_mode=o["alpha"], auto_facing=o["auto_facing"],
+                                 face_180=o["face_180"])
+        w.flush()
+        if st.get("facing_reason"):
+            log("朝向：%s" % st["facing_reason"], None)
+        outs.append(out)
+    return outs
 
 
 def find_files(root, ext):
@@ -435,13 +451,59 @@ def _convert_archive(path, kind, out_dir, opts, log, edits=None):
 def _convert_model(path, kind, out_dir, opts, log, edits=None):
     if kind == "pmx":
         return [pmx_to_vrm(path, out_dir, opts, log, edits=edits)]
-    pmxs = to_pmx(path, kind, out_dir, opts, log)
-    for p in pmxs:
-        log("已写出 %s" % os.path.basename(p), "ok")
     if opts["target"] == "pmx":
+        pmxs = to_pmx(path, kind, out_dir, opts, log)
+        for p in pmxs:
+            log("已写出 %s" % os.path.basename(p), "ok")
         return pmxs
-    outs = list(pmxs)
-    for p in pmxs:
-        log("PMX → VRM：%s" % os.path.basename(p), "info")
-        outs.append(pmx_to_vrm(p, out_dir, opts, log, edits=edits))
-    return outs
+    # 转 VRM 时中间的 PMX 和它的贴图只是过渡：放临时目录，转完删掉，输出目录只留 VRM
+    work = tempfile.mkdtemp(prefix="model2vrm_work_")
+    try:
+        pmxs = to_pmx(path, kind, work, opts, log)
+        outs = []
+        for p in pmxs:
+            if len(pmxs) > 1:
+                why = not_an_avatar(p)
+                if why:
+                    log("跳过 %s：%s（主体模型里通常已经带着；要转换可以单独添加这个文件）"
+                        % (os.path.basename(p)[:-4], why), "warn")
+                    continue
+            log("PMX → VRM：%s" % os.path.basename(p), "info")
+            outs.append(pmx_to_vrm(p, out_dir, opts, log, edits=edits))
+        return outs
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def not_an_avatar(pmx_path):
+    """看起来不是一个完整角色（只有衣服 / 配件）时返回原因，否则 None。
+
+    VRChat 等的模型包里常有单独的服装 FBX：骨架是完整的，网格只有衣服。判断：头部（头骨及其子骨，
+    包括头发、眼睛）没挂任何顶点，或者两只手都没挂顶点。骨架里找不到头 / 手时不判断。
+    """
+    import pmxio
+    from vrmconv import mesh
+    from vrmconv.humanoid import _map_humanoid
+    m = pmxio.read_pmx(pmx_path)
+    human = _map_humanoid(m["bones"], True, {})
+    parents = [b["parent"] for b in m["bones"]]
+
+    def subtree(root):
+        out, grew = {root}, True
+        while grew:
+            grew = False
+            for i, p in enumerate(parents):
+                if p in out and i not in out:
+                    out.add(i)
+                    grew = True
+        return out
+
+    if "head" not in human or "leftHand" not in human or "rightHand" not in human:
+        return None
+    weights = mesh.vertex_weights(m["vertices"], len(m["bones"]), {})
+    used = {b for wl in weights for b, w in wl if w > 0.3}
+    if not used & subtree(human["head"]):
+        return "头部没有网格，看起来只有衣服或配件"
+    if not used & (subtree(human["leftHand"]) | subtree(human["rightHand"])):
+        return "手上没有网格，看起来只有衣服或配件"
+    return None

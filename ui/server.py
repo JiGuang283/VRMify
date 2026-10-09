@@ -104,6 +104,28 @@ EDITS_DIR = os.path.join(DATA_DIR, "edits")
 LANGS = ("zh_CN", "en")
 
 
+def _sweep_stale_previews(max_age=86400):
+    """删掉以前遗留的预览临时目录：正常退出时会删，程序崩溃或被强制结束时会留下来（每个几十 MB）。
+    只删一天以前的——同时开着的另一个窗口的目录还在用。"""
+    root = tempfile.gettempdir()
+    now = time.time()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    for n in names:
+        p = os.path.join(root, n)
+        try:
+            if not (n.startswith("model2vrm_") and os.path.isdir(p)):
+                continue
+            # 看目录本身和下一层的最近修改时间（预览文件在下一层的子目录里）
+            newest = max([os.path.getmtime(p)] + [os.path.getmtime(os.path.join(p, c)) for c in os.listdir(p)])
+            if now - newest > max_age:
+                shutil.rmtree(p, ignore_errors=True)
+        except OSError:
+            pass
+
+
 class Backend:
     def __init__(self):
         self.lock = threading.RLock()
@@ -117,6 +139,7 @@ class Backend:
         self.stop_flag = False
         self.window = None              # pywebview 窗口（有的话用它的原生对话框）
         self.last_seen = time.time()
+        _sweep_stale_previews()
         self.tmp = tempfile.mkdtemp(prefix="model2vrm_preview_")
         self.opts, self.lang = self._load_settings()
         self.edits = self._load_edits()

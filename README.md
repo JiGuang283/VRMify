@@ -35,7 +35,7 @@ Conversion details: [Document/PMX转VRM_使用说明.md](Document/PMX转VRM_使�
 
 | Input | Notes |
 |---|---|
-| FBX / unitypackage | Binary and ASCII FBX 7.x; automatic facing detection, texture alpha-mask handling, skips game effect sheets. When the FBX has no texture file names (common for Unity assets), textures are found through the Unity materials (.mat); English bone names (HumanIK / Mixamo / VRoid / Blender / 3ds Max) and expression names (VRChat, VRoid, `MTH_A`-style) map to VRM automatically; overlapping alternate meshes (hand poses, an open-mouth head) show one and become toggle expressions |
+| FBX / unitypackage | Binary and ASCII FBX 7.x; automatic facing detection, texture alpha-mask handling, skips game effect sheets. When the FBX has no texture file names (common for Unity assets), textures are found through the Unity materials (.mat); English bone names (HumanIK / Mixamo / VRoid / Blender / 3ds Max) and expression names (VRChat, VRoid, `MTH_A`-style) map to VRM automatically; overlapping alternate meshes (hand poses, an open-mouth head) show one and become toggle expressions. When converting to VRM, unpacked assets and the intermediate PMX stay in a temp folder, so the output folder only gets VRMs; in a package with several models, an outfit / accessory-only one (no mesh on the head or hands) is skipped |
 | uemodel (UEFormat v1–v10) | FortnitePorting / FModel exports; split parts can be aligned to a full-body reference |
 | psk / pskx (Unreal ActorX) | Weights, MRPH vertex morphs, extra UVs; Bip001 bone names → standard MMD Japanese names |
 | xps (XNALara binary) | Axis conversion, standard Japanese bone names, IK bones, texture alpha kept |

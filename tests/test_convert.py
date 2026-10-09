@@ -6,6 +6,7 @@
 Schema 校验需要 jsonschema（requirements-dev.txt），贴图瘦身需要 Pillow；缺了对应的测试会跳过。
 """
 import copy
+import io
 import os
 import shutil
 import subprocess
@@ -530,6 +531,82 @@ class PipelineTest(Base):
         src = os.path.dirname(self.pmx)
         return [(os.path.join(d, fn), os.path.join("包", os.path.relpath(os.path.join(d, fn), src)))
                 for d, _, fs in os.walk(src) for fn in fs]
+
+    # VRChat 风格的英文骨名（FBX 导出会把非 ASCII 的名字换成下划线）
+    _EN = {"センター": "Root", "下半身": "Hips", "上半身": "Spine", "上半身2": "Chest", "首": "Neck", "頭": "Head",
+           "左目": "Eye.L", "右目": "Eye.R", "髪1": "Hair1", "髪2": "Hair2", "髪3": "Hair3"}
+    for _s, _t in (("左", "L"), ("右", "R")):
+        _EN.update({_s + "肩": "Shoulder." + _t, _s + "腕": "Upper_arm." + _t, _s + "ひじ": "Lower_arm." + _t,
+                    _s + "手首": "Hand." + _t, _s + "足": "Upper_leg." + _t, _s + "ひざ": "Lower_leg." + _t,
+                    _s + "足首": "Foot." + _t, _s + "つま先": "Toe." + _t})
+
+    def _variant_pmx(self, name, outfit=False):
+        """synth 模型换成英文骨名；outfit=True 时改成「只有衣服」：头部（头骨和头发）的顶点都改挂到上半身。"""
+        m = pmxio.read_pmx(self.pmx)
+        names = [b["name"] for b in m["bones"]]
+        if outfit:
+            head = {names.index("頭")}
+            for i, b in enumerate(m["bones"]):
+                if b["parent"] in head or names[i].startswith("髪"):
+                    head.add(i)
+            spine = names.index("上半身")
+            for v in m["vertices"]:
+                if set(v["wbones"]) & head:
+                    v.update(wtype=0, wbones=[spine], wweights=[])
+        for b in m["bones"]:
+            b["name"] = b["name_en"] = self._EN.get(b["name"], b["name"])
+        out = os.path.join(self.tmp, "variant_src", name + ".pmx")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        pmxio.write_pmx(m, out)
+        return out
+
+    def _outfit_pmx(self):
+        return self._variant_pmx("Outfit", outfit=True)
+
+    def test_not_an_avatar(self):
+        self.assertIsNone(pipeline.not_an_avatar(self.pmx))
+        self.assertIn("头部", pipeline.not_an_avatar(self._outfit_pmx()))
+
+    def test_fbx_output_is_only_vrm(self):
+        """FBX → VRM：中间的 PMX 和贴图放临时目录，输出目录只有 VRM；只转 PMX 时才留 PMX + 贴图。"""
+        import fbxout
+        fbx = os.path.join(self.tmp, "fbx_src", "体.fbx")
+        os.makedirs(os.path.dirname(fbx), exist_ok=True)
+        fbxout.export_pmx(self.pmx, fbx, log=lambda *a, **k: None)
+        out = os.path.join(self.tmp, "fbx_out")
+        outs = pipeline.convert_file(fbx, {}, out_dir=out)
+        self.assertEqual([os.path.basename(p) for p in outs], ["体.vrm"])
+        self.assertEqual(os.listdir(out), ["体.vrm"])
+        out_pmx = os.path.join(self.tmp, "fbx_out_pmx")
+        outs = pipeline.convert_file(fbx, {"target": "pmx"}, out_dir=out_pmx)
+        self.assertEqual([os.path.basename(p) for p in outs], ["体.pmx"])
+        self.assertIn("体.pmx", os.listdir(out_pmx))
+
+    def test_unitypackage_skips_outfit(self):
+        """unitypackage：解到临时目录、日志一行汇总；包里只有衣服的 FBX 跳过，输出目录只有角色的 VRM。"""
+        import fbxout
+        src = os.path.join(self.tmp, "up_src")
+        os.makedirs(src, exist_ok=True)
+        avatar, outfit = os.path.join(src, "Avatar.fbx"), os.path.join(src, "Outfit.fbx")
+        fbxout.export_pmx(self._variant_pmx("Avatar"), avatar, log=lambda *a, **k: None)
+        fbxout.export_pmx(self._outfit_pmx(), outfit, log=lambda *a, **k: None)
+        pkg = os.path.join(self.tmp, "Avatar.unitypackage")
+        with tarfile.open(pkg, "w:gz") as tf:
+            for k, (fn, rel) in enumerate(((avatar, "Assets/Model/Avatar.fbx"), (outfit, "Assets/Model/Outfit.fbx"))):
+                guid = "%032x" % (k + 1)
+                tf.add(fn, guid + "/asset")
+                info = tarfile.TarInfo(guid + "/pathname")
+                data = rel.encode("utf-8")
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+        logs = []
+        out = os.path.join(self.tmp, "up_out")
+        outs = pipeline.convert_file(pkg, {}, out_dir=out, log=lambda m, t=None: logs.append((m, t)))
+        self.assertEqual([os.path.basename(p) for p in outs], ["Avatar.vrm"])
+        self.assertEqual(os.listdir(out), ["Avatar.vrm"])
+        self.assertTrue(any("跳过 Outfit" in m and t == "warn" for m, t in logs), logs)
+        self.assertTrue(any(m.startswith("解包 Avatar.unitypackage：") for m, _ in logs))
+        self.assertFalse(any(" KB " in m for m, _ in logs))             # 不再逐个列文件
 
     def test_archive_kinds(self):
         for name, kind in (("a.zip", "zip"), ("a.7z", "7z"), ("a.7z.001", "7z"), ("a.7z.002", None),
