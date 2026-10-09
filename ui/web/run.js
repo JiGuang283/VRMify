@@ -15,7 +15,7 @@ export function renderStatus() {
   if (S.busy && S.progress) {
     s = t('converting', { i: S.progress.index + 1, n: S.progress.total, name: S.progress.name });
     pct = S.progress.index / S.progress.total * 100;
-  } else if (S.result) { s = t('finished', S.result); pct = 100; }
+  } else if (S.result) { s = t(S.result.skipped ? 'finishedSkip' : 'finished', S.result); pct = 100; }
   $('status').textContent = s;
   $('progressFill').style.width = pct + '%';
   renderFiles();

@@ -7,7 +7,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `ui/app.py` | **图形界面**（根目录的 `启动.bat`），FBX / unitypackage / zip / uemodel / PSK / XPS 加进去就能转，默认一路转到 VRM（解包的资源和中间 PMX 放临时目录，输出目录只有 VRM），「输入格式」页可以只转 PMX（这时输出 PMX 和 textures/） |
+| `ui/app.py` | **图形界面**（根目录的 `启动.bat`），FBX / unitypackage / zip / uemodel / PSK / XPS 加进去就能转，默认一路转到 VRM（解包的资源和中间 PMX 放临时目录，输出目录只有 VRM），「输出」页可以只转 PMX（这时输出 PMX 和 textures/） |
 | `formats/unitypackage_unpack.py` | 解包 `.unitypackage`（本质是 gzip tar） |
 | `formats/fbx_reader.py` | 二进制 FBX（7.x）解析库，被下面两个脚本调用 |
 | `convert/fbx2pmx.py` | **FBX → PMX 2.0 转换器** |

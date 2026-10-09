@@ -23,6 +23,8 @@ opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEF
     psk      {"jp_bones", "ik", "morphs", "alpha"}
     xps      {"jp_bones", "ik", "hide_unused", "double_sided", "edge"}
     jobs     同时转几个（多个文件、或一个包里的几个模型）：0 = 自动（见 parallel.jobs_for），1 = 一个一个转
+    avatar_only  转 VRM 时只转人物：道具（认不出人形骨架）和只有衣服 / 配件的模型跳过（见 not_an_avatar）；
+             一个文件里的模型全被跳过时 convert_file 返回 []
 
 log(msg, tag=None)：tag 为 None / "info" / "ok" / "warn" / "err" / "head"。
 """
@@ -54,6 +56,7 @@ CONVERTIBLE = {"pmx", "fbx", "unitypackage", "uemodel", "psk", "xps"} | ARCHIVES
 DEFAULTS = {
     "target": "vrm",
     "jobs": 0,
+    "avatar_only": True,
     "output": {"mode": "beside", "folder": "", "subfolder": True},
     "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True, "combo_expr": True,
             "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
@@ -389,29 +392,39 @@ def _fbxs_to_pmx(fbxs, out_dir, o, log):
     return outs
 
 
-def fbx_to_vrm(fbx, name, out_dir, opts, log, edits=None, check_avatar=False):
-    """一个 FBX → VRM；中间的 PMX 和贴图放自己的临时目录。check_avatar（包里有几个模型时）：
-    只有衣服 / 配件的跳过。→ [VRM 路径] 或 []。并行时在子进程里跑（parallel.run）。"""
+def fbx_to_vrm(fbx, name, out_dir, opts, log, edits=None):
+    """一个 FBX → VRM；中间的 PMX 和贴图放自己的临时目录。→ [VRM 路径]，被「只转换人物」跳过时为 []。
+    并行时在子进程里跑（parallel.run）。"""
     import pmxio
-    from vrmconv import mesh
     work = tempfile.mkdtemp(prefix="model2vrm_work_")
     try:
         pmx = os.path.join(work, name + ".pmx")
         st = _fbx_to_pmx(fbx, pmx, name, opts["fbx"], log)
-        # 中间的 PMX 只读一次：「是不是只有衣服」的检查和转 VRM 共用读好的模型和顶点权重
-        model = pmxio.read_pmx(pmx)
-        weights = None
-        if check_avatar:
-            weights = mesh.vertex_weights(model["vertices"], len(model["bones"]), {})
-            why = not_an_avatar(model, weights)
-            if why:
-                log("跳过 %s：%s（主体模型里通常已经带着；要转换可以单独添加这个文件）" % (name, why), "warn")
-                return []
-        log("PMX → VRM：%s.pmx" % name, "info")
-        return [pmx_to_vrm(pmx, out_dir, opts, log, edits=edits, model=model, raw_weights=weights,
-                           tex_alpha=st["alpha"]["png_alpha"])]
+        # 中间的 PMX 只读一次，「是不是人物」的检查和转 VRM 共用
+        return _to_vrm(pmx, out_dir, opts, log, edits=edits, model=pmxio.read_pmx(pmx),
+                       tex_alpha=st["alpha"]["png_alpha"], step="PMX → VRM：%s.pmx" % name)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _to_vrm(pmx, out_dir, opts, log, name=None, edits=None, model=None, step=None, **known):
+    """PMX → [VRM 路径]。opts["avatar_only"] 时先看是不是人物（not_an_avatar），不是就跳过、返回 []；
+    检查用的模型和顶点权重接着给转换用。step：确定要转时先记一行日志。known 见 pmx_to_vrm。"""
+    if opts.get("avatar_only", True):
+        import pmxio
+        from vrmconv import mesh
+        if model is None:
+            model = pmxio.read_pmx(pmx)
+        weights = mesh.vertex_weights(model["vertices"], len(model["bones"]), {})
+        why = not_an_avatar(model, weights)
+        if why:
+            log("跳过 %s：%s（要转换的话，在「输出」里关掉「只转换人物」）"
+                % (name or os.path.splitext(os.path.basename(pmx))[0], why), "warn")
+            return []
+        known["raw_weights"] = weights
+    if step:
+        log(step, "info")
+    return [pmx_to_vrm(pmx, out_dir, opts, log, name=name, edits=edits, model=model, **known)]
 
 
 def _fbxs_to_vrm(fbxs, out_dir, opts, log, edits=None, name=None):
@@ -420,7 +433,7 @@ def _fbxs_to_vrm(fbxs, out_dir, opts, log, edits=None, name=None):
     names = [name] if name and len(fbxs) == 1 else _unique_names(fbxs)
     if len(fbxs) == 1:
         return fbx_to_vrm(fbxs[0], names[0], out_dir, opts, log, edits=edits)
-    return _convert_each([(fbx_to_vrm, (fbx, names[i], out_dir, opts), {"edits": edits, "check_avatar": True})
+    return _convert_each([(fbx_to_vrm, (fbx, names[i], out_dir, opts), {"edits": edits})
                           for i, fbx in enumerate(fbxs)], names, [os.path.getsize(f) for f in fbxs], opts, log,
                          "包里")
 
@@ -554,8 +567,8 @@ def _convert_inner(path, rel, out_dir, opts, log, edits=None, name=None):
 def _convert_model(path, kind, out_dir, opts, log, edits=None, name=None):
     """name：转 VRM 时的输出名（不给时用文件名；unitypackage 里的几个模型各用各的文件名）。"""
     if kind == "pmx":
-        return [pmx_to_vrm(path, out_dir, opts, log, name=name, edits=edits)]
-    if opts["target"] == "pmx":
+        return _to_vrm(path, out_dir, opts, log, name=name, edits=edits)
+    if opts["target"] == "pmx":                      # 只转 PMX：道具在 MMD 里照样有用，不挑
         pmxs = to_pmx(path, kind, out_dir, opts, log)
         for p in pmxs:
             log("已写出 %s" % os.path.basename(p), "ok")
@@ -570,18 +583,21 @@ def _convert_model(path, kind, out_dir, opts, log, edits=None, name=None):
                 shutil.rmtree(dest, ignore_errors=True)
     work = tempfile.mkdtemp(prefix="model2vrm_work_")
     try:
-        pmxs = to_pmx(path, kind, work, opts, log)
-        log("PMX → VRM：%s" % os.path.basename(pmxs[0]), "info")
-        return [pmx_to_vrm(p, out_dir, opts, log, name=name, edits=edits) for p in pmxs]
+        outs = []
+        for p in to_pmx(path, kind, work, opts, log):
+            outs += _to_vrm(p, out_dir, opts, log, name=name, edits=edits,
+                            step="PMX → VRM：%s" % os.path.basename(p))
+        return outs
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
 def not_an_avatar(model, weights=None):
-    """看起来不是一个完整角色（只有衣服 / 配件）时返回原因，否则 None。
+    """看起来不是人物时返回原因，否则 None（「只转换人物」用）。
 
-    VRChat 等的模型包里常有单独的服装 FBX：骨架是完整的，网格只有衣服。判断：头部（头骨及其子骨，
-    包括头发、眼睛）没挂任何顶点，或者两只手都没挂顶点。骨架里找不到头 / 手时不判断。
+    * 道具：骨架里认不出头或腰（剑、椅子、请柬……一般只有一两根骨）。模之屋的模型包里常带着。
+    * 只有衣服 / 配件：VRChat 等的模型包里常有单独的服装 FBX，骨架是完整的，网格只有衣服。判断：
+      头部（头骨及其子骨，包括头发、眼睛）没挂任何顶点，或者两只手都没挂顶点（认不出手时不看手）。
     model：PMX 路径或读好的模型（pmxio.read_pmx）；weights：已经算好的不带别名的顶点权重。
     """
     import pmxio
@@ -601,13 +617,14 @@ def not_an_avatar(model, weights=None):
                     grew = True
         return out
 
-    if "head" not in human or "leftHand" not in human or "rightHand" not in human:
-        return None
+    if "head" not in human or "hips" not in human:
+        return "认不出人形骨架，看起来是道具"
     if weights is None:
         weights = mesh.vertex_weights(m["vertices"], len(m["bones"]), {})
     used = {b for wl in weights for b, w in wl if w > 0.3}
     if not used & subtree(human["head"]):
         return "头部没有网格，看起来只有衣服或配件"
-    if not used & (subtree(human["leftHand"]) | subtree(human["rightHand"])):
+    hands = [human[h] for h in ("leftHand", "rightHand") if h in human]
+    if len(hands) == 2 and not used & (subtree(hands[0]) | subtree(hands[1])):
         return "手上没有网格，看起来只有衣服或配件"
     return None

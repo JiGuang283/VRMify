@@ -60,7 +60,9 @@ def make_inputs(folder):
                 z.write(p, os.path.join("合成包", os.path.relpath(p, src)))
     fbx = os.path.join(folder, "fbx", "Synth.fbx")
     os.makedirs(os.path.dirname(fbx))
-    fbxout.export_pmx(pmx, fbx, log=lambda *a, **k: None)
+    # FBX 用英文骨名：导出会把日文名换成下划线，那样认不出人形骨架、会被「只转换人物」跳过
+    fbxout.export_pmx(synth.build(os.path.join(folder, "fbx_src"), "Synth", english=True), fbx,
+                      log=lambda *a, **k: None)
     pkg = os.path.join(folder, "Synth.unitypackage")
     with tarfile.open(pkg, "w:gz") as tf:
         guid = "%032x" % 1

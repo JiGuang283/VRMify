@@ -55,7 +55,7 @@ function handleEvent(ev) {
   else if (ev.type === 'busy') {
     S.busy = ev.busy;
     if (ev.busy) S.autoOpened = false;
-    else { S.progress = null; S.result = { done: ev.done, failed: ev.failed }; }
+    else { S.progress = null; S.result = { done: ev.done, failed: ev.failed, skipped: ev.skipped || 0 }; }
     renderStatus();
   } else if (ev.type === 'progress') { S.progress = ev; renderStatus(); }
   else if (ev.type === 'preview_busy') { if (ev.file === S.current) showBusy(t('pvMaking')); }

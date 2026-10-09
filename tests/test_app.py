@@ -95,6 +95,31 @@ class LayoutTest(unittest.TestCase):
             self.assertEqual(server.Backend._load_settings(None)[2], {"side": 220, "sideWide": 400})
 
 
+class SkippedStatusTest(unittest.TestCase):
+    """文件里的模型全被「只转换人物」跳过：状态是「已跳过」不是「完成」；关掉这个选项后回到「待转换」。"""
+
+    def test_skipped(self):
+        tmp = tempfile.mkdtemp(prefix="m2v_skip_")
+        prop = os.path.join(tmp, "剑.pmx")
+        with open(prop, "wb") as f:
+            f.write(b"PMX ")
+        with mock.patch.object(server, "SETTINGS", os.path.join(tmp, "settings.json")), \
+                mock.patch.object(server, "EDITS", os.path.join(tmp, "edits.json")):
+            b = server.Backend()
+            try:
+                b.add_paths([prop])
+                fid = next(iter(b.files))
+                with mock.patch.object(server.pipeline, "convert_file", return_value=[]):
+                    b._run([fid], b.opts)
+                self.assertEqual(b.files[fid]["status"], "skipped")
+                end = [e for _, e in b.events if e["type"] == "busy" and not e["busy"]][-1]
+                self.assertEqual((end["done"], end["skipped"], end["failed"]), (0, 1, 0))
+                b.set_options(dict(b.opts, avatar_only=False))
+                self.assertEqual(b.files[fid]["status"], "pending")
+            finally:
+                b.close()
+
+
 class StalePreviewTest(unittest.TestCase):
     def test_sweep(self):
         """启动时删一天以前遗留的预览临时目录，新的不动。"""

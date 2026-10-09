@@ -35,7 +35,7 @@ Conversion details: [Document/PMX转VRM_使用说明.md](Document/PMX转VRM_使�
 
 | Input | Notes |
 |---|---|
-| FBX / unitypackage | Binary and ASCII FBX 7.x; automatic facing detection, texture alpha-mask handling, skips game effect sheets. When the FBX has no texture file names (common for Unity assets), textures are found through the Unity materials (.mat); English bone names (HumanIK / Mixamo / VRoid / Blender / 3ds Max) and expression names (VRChat, VRoid, `MTH_A`-style) map to VRM automatically; overlapping alternate meshes (hand poses, an open-mouth head) show one and become toggle expressions. When converting to VRM, unpacked assets and the intermediate PMX stay in a temp folder, so the output folder only gets VRMs; in a package with several models, an outfit / accessory-only one (no mesh on the head or hands) is skipped |
+| FBX / unitypackage | Binary and ASCII FBX 7.x; automatic facing detection, texture alpha-mask handling, skips game effect sheets. When the FBX has no texture file names (common for Unity assets), textures are found through the Unity materials (.mat); English bone names (HumanIK / Mixamo / VRoid / Blender / 3ds Max) and expression names (VRChat, VRoid, `MTH_A`-style) map to VRM automatically; overlapping alternate meshes (hand poses, an open-mouth head) show one and become toggle expressions. When converting to VRM, unpacked assets and the intermediate PMX stay in a temp folder, so the output folder only gets VRMs; outfit / accessory-only models (no mesh on the head or hands) are skipped unless "Characters only" is turned off |
 | uemodel (UEFormat v1–v10) | FortnitePorting / FModel exports; split parts can be aligned to a full-body reference |
 | psk / pskx (Unreal ActorX) | Weights, MRPH vertex morphs, extra UVs; Bip001 bone names → standard MMD Japanese names |
 | xps (XNALara binary) | Axis conversion, standard Japanese bone names, IK bones, texture alpha kept |
@@ -101,7 +101,9 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   - **Output**: convert non-PMX formats to VRM (default, via PMX) or stop at PMX; save to the app folder (default: a `vrm`
     folder next to the program) / next to the source / a chosen folder, optional per-run subfolder; how many to convert at
     once (Auto / 1 / 2 / 4: several files, or several models in one package or archive, convert in parallel — about twice
-    as fast or more, ~1.5 GB of memory each)
+    as fast or more, ~1.5 GB of memory each); **Characters only** (on by default): when converting to VRM, props (swords,
+    chairs — no recognizable humanoid skeleton) and outfit / accessory-only models (no mesh on the head or hands), which
+    model packs often include, are skipped; a file with nothing else in it shows as "Skipped"
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names

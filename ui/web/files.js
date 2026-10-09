@@ -22,6 +22,7 @@ export function renderFiles() {
       li.append(d);
     }
     if (f.error) { const d = document.createElement('div'); d.className = 'err'; d.textContent = f.error; li.append(d); }
+    if (f.status === 'skipped') { const d = document.createElement('div'); d.className = 'note'; d.textContent = t('skippedNote'); li.append(d); }
     li.addEventListener('click', (e) => {
       const act = e.target.dataset.act, out = e.target.dataset.out;
       if (act === 'remove') api('/api/remove', { ids: [f.id] });

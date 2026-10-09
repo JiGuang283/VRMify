@@ -92,6 +92,7 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .file .outs { margin: 3px 0 0 4px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .file .outs a { color: var(--accent); cursor: pointer; text-decoration: none; }
 .file .err { color: var(--err); font-size: 12px; margin: 2px 0 0 4px; word-break: break-all; }
+.file .note { color: var(--muted); font-size: 12px; margin: 2px 0 0 4px; }
 
 /* run bar */
 .runbar { flex: none; display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 6px 10px; padding: 10px 12px;

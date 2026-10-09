@@ -35,7 +35,7 @@ FBX / unitypackage、uemodel（UEFormat）、psk / pskx（Unreal ActorX）、xps
 
 | 输入 | 说明 |
 |---|---|
-| FBX / unitypackage | 二进制和 ASCII FBX 7.x；自动判定朝向、处理贴图 alpha 遮罩、跳过游戏里的效果片网格。FBX 里没写贴图文件名时（Unity 资源常见），按 Unity 材质（.mat）找回贴图；英文骨名（HumanIK / Mixamo / VRoid / Blender / 3ds Max）和英文表情名（VRChat、VRoid、`MTH_A` 这类）自动对应 VRM；同一位置的几套替换网格（手势、张嘴的头）只显示一套，其余做成切换表情。转 VRM 时解包的资源和中间的 PMX 放临时目录，输出目录只有 VRM；包里有好几个模型时，只有衣服 / 配件的那个（头部或手上没有网格）跳过 |
+| FBX / unitypackage | 二进制和 ASCII FBX 7.x；自动判定朝向、处理贴图 alpha 遮罩、跳过游戏里的效果片网格。FBX 里没写贴图文件名时（Unity 资源常见），按 Unity 材质（.mat）找回贴图；英文骨名（HumanIK / Mixamo / VRoid / Blender / 3ds Max）和英文表情名（VRChat、VRoid、`MTH_A` 这类）自动对应 VRM；同一位置的几套替换网格（手势、张嘴的头）只显示一套，其余做成切换表情。转 VRM 时解包的资源和中间的 PMX 放临时目录，输出目录只有 VRM；只有衣服 / 配件的模型（头部或手上没有网格）跳过（关掉「只转换人物」就会转） |
 | uemodel（UEFormat v1–v10） | FortnitePorting / FModel 导出的中间格式；可按整身模型对齐拆开的部件 |
 | psk / pskx（Unreal ActorX） | 带权重、MRPH 顶点表情、附加 UV；Bip001 骨名转 MMD 日文标准名 |
 | xps（XNALara 二进制） | 自动换轴、骨名转日文标准名、补足 IK、保留贴图 alpha |
@@ -93,7 +93,9 @@ uv venv .venv && uv pip install -r requirements.txt     # 或 python -m venv .ve
   - **VRM 信息**：作者和使用许可（名称默认用模型文件名）
   - **输出**：非 PMX 的格式转成 VRM（默认，先转 PMX 再转 VRM）还是只转 PMX；保存位置：程序目录（默认，程序旁边的
     `vrm` 文件夹）/ 源文件旁 / 指定文件夹，是否每次建子文件夹；同时转换几个（自动 / 1 / 2 / 4：几个文件、或一个
-    包 / 压缩包里有几个模型时同时转，快一倍以上，每个大约要 1.5 GB 内存）
+    包 / 压缩包里有几个模型时同时转，快一倍以上，每个大约要 1.5 GB 内存）；**只转换人物**（默认开）：转 VRM 时跳过
+    模型包里常带着的道具（剑、椅子这类认不出人形骨架的）和只有衣服 / 配件的模型（头部或手上没有网格），文件里只有
+    这些时显示「已跳过」
 - 右侧：three-vrm 预览。还没转换的文件点「预览」会先在后台快速转一份临时 VRM；转换完成后显示实际输出。
   PMX（加进来的 PMX 文件、输出里的 PMX、「只转 PMX」的结果）直接原生预览：MMD 的卡通着色、球面贴图、表情，
   MMD 物理（ammo.js）实时模拟，标准骨名（日文 MMD 名或常见英文名）的模型也能做待机 / 走路等动作。

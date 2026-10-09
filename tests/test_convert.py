@@ -850,16 +850,9 @@ class PipelineTest(Base):
         return [(os.path.join(d, fn), os.path.join("包", os.path.relpath(os.path.join(d, fn), src)))
                 for d, _, fs in os.walk(src) for fn in fs]
 
-    # VRChat 风格的英文骨名（FBX 导出会把非 ASCII 的名字换成下划线）
-    _EN = {"センター": "Root", "下半身": "Hips", "上半身": "Spine", "上半身2": "Chest", "首": "Neck", "頭": "Head",
-           "左目": "Eye.L", "右目": "Eye.R", "髪1": "Hair1", "髪2": "Hair2", "髪3": "Hair3"}
-    for _s, _t in (("左", "L"), ("右", "R")):
-        _EN.update({_s + "肩": "Shoulder." + _t, _s + "腕": "Upper_arm." + _t, _s + "ひじ": "Lower_arm." + _t,
-                    _s + "手首": "Hand." + _t, _s + "足": "Upper_leg." + _t, _s + "ひざ": "Lower_leg." + _t,
-                    _s + "足首": "Foot." + _t, _s + "つま先": "Toe." + _t})
-
     def _variant_pmx(self, name, outfit=False):
-        """synth 模型换成英文骨名；outfit=True 时改成「只有衣服」：头部（头骨和头发）的顶点都改挂到上半身。"""
+        """synth 模型换成英文骨名（synth.EN，导出 FBX 后还认得出人形骨架）；outfit=True 时改成「只有衣服」：
+        头部（头骨和头发）的顶点都改挂到上半身。"""
         m = pmxio.read_pmx(self.pmx)
         names = [b["name"] for b in m["bones"]]
         if outfit:
@@ -872,7 +865,7 @@ class PipelineTest(Base):
                 if set(v["wbones"]) & head:
                     v.update(wtype=0, wbones=[spine], wweights=[])
         for b in m["bones"]:
-            b["name"] = b["name_en"] = self._EN.get(b["name"], b["name"])
+            b["name"] = b["name_en"] = synth.EN.get(b["name"], b["name"])
         out = os.path.join(self.tmp, "variant_src", name + ".pmx")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         pmxio.write_pmx(m, out)
@@ -881,9 +874,41 @@ class PipelineTest(Base):
     def _outfit_pmx(self):
         return self._variant_pmx("Outfit", outfit=True)
 
+    def _prop_pmx(self, folder):
+        """道具：一根骨、一个方块（剑、椅子这类）。"""
+        m = pmxio.new_model("剑")
+        m["bones"].append({"name": "センター", "name_en": "center", "pos": (0, 0, 0), "parent": -1,
+                           "layer": 0, "flag": 0x001F, "tail": -1})
+        m["faces"] = synth._box(m, (0, 1, 0), 0.5, 0)
+        m["materials"] = [synth._material("剣", -1, len(m["faces"]))]
+        os.makedirs(folder, exist_ok=True)
+        out = os.path.join(folder, "剑.pmx")
+        pmxio.write_pmx(m, out)
+        return out
+
     def test_not_an_avatar(self):
         self.assertIsNone(pipeline.not_an_avatar(self.pmx))
         self.assertIn("头部", pipeline.not_an_avatar(self._outfit_pmx()))
+        self.assertIn("道具", pipeline.not_an_avatar(self._prop_pmx(os.path.join(self.tmp, "prop_a"))))
+
+    def test_avatar_only(self):
+        """「只转换人物」（默认开）：道具跳过（只有它的文件返回 []），压缩包里只转人物；关掉就都转。"""
+        prop = self._prop_pmx(os.path.join(self.tmp, "prop_b"))
+        logs = []
+        out = os.path.join(self.tmp, "prop_out")
+        self.assertEqual(pipeline.convert_file(prop, {}, out_dir=out, log=lambda m, t=None: logs.append((m, t))), [])
+        self.assertTrue(any(m.startswith("跳过 剑：认不出人形骨架") and t == "warn" for m, t in logs), logs)
+        self.assertEqual(len(pipeline.convert_file(prop, {"avatar_only": False}, out_dir=out)), 1)
+        z = os.path.join(self.tmp, "with_prop.zip")
+        with zipfile.ZipFile(z, "w") as zf:
+            for p, arc in self._pack_files():
+                zf.write(p, arc)
+            zf.write(prop, "包/剑.pmx")
+        stem = os.path.splitext(os.path.basename(self.pmx))[0]
+        outs = pipeline.convert_file(z, {}, out_dir=os.path.join(self.tmp, "with_prop_a"))
+        self.assertEqual([os.path.basename(p) for p in outs], [stem + ".vrm"])
+        outs = pipeline.convert_file(z, {"avatar_only": False}, out_dir=os.path.join(self.tmp, "with_prop_b"))
+        self.assertEqual(sorted(os.path.basename(p) for p in outs), sorted([stem + ".vrm", "剑.vrm"]))
 
     @unittest.skipUnless(textures.available(), "需要 Pillow")
     def test_fbx_texture_stats_reused(self):
@@ -894,7 +919,7 @@ class PipelineTest(Base):
         src = os.path.join(self.tmp, "stats_src")
         shutil.copytree(os.path.join(os.path.dirname(self.pmx), "tex"), os.path.join(src, "tex"))
         fbx = os.path.join(src, "体.fbx")
-        fbxout.export_pmx(self.pmx, fbx, log=lambda *a, **k: None)
+        fbxout.export_pmx(self._variant_pmx("Body"), fbx, log=lambda *a, **k: None)
         with mock.patch.object(vrmio, "png_alpha_stats", wraps=vrmio.png_alpha_stats) as stats:
             a = pipeline.convert_file(fbx, {}, out_dir=os.path.join(self.tmp, "stats_a"))[0]
         self.assertEqual(len(vrmio.read_glb(a)[0]["images"]), 2)
@@ -910,7 +935,7 @@ class PipelineTest(Base):
         import fbxout
         fbx = os.path.join(self.tmp, "fbx_src", "体.fbx")
         os.makedirs(os.path.dirname(fbx), exist_ok=True)
-        fbxout.export_pmx(self.pmx, fbx, log=lambda *a, **k: None)
+        fbxout.export_pmx(self._variant_pmx("Body"), fbx, log=lambda *a, **k: None)
         out = os.path.join(self.tmp, "fbx_out")
         outs = pipeline.convert_file(fbx, {}, out_dir=out)
         self.assertEqual([os.path.basename(p) for p in outs], ["体.vrm"])

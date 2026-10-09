@@ -280,14 +280,21 @@ class Backend:
         self.emit(type="files")
 
     def set_options(self, opts=None, lang=None, ui=None):
+        reopen = []
         with self.lock:
             if opts is not None:
+                was = self.opts.get("avatar_only")
                 self.opts = pipeline.merged(opts)
+                if was and not self.opts["avatar_only"]:
+                    # 关掉「只转换人物」：之前因此跳过的文件回到「待转换」，点开始就会转
+                    reopen = [i for i, f in self.files.items() if f["status"] == "skipped"]
             if lang in LANGS:
                 self.lang = lang
             if ui is not None:
                 self.ui = _clean_ui(dict(self.ui, **ui) if isinstance(ui, dict) else None)
             self._save_settings()
+        for fid in reopen:
+            self._update(fid, status="pending")
 
     def _update(self, fid, **kw):
         with self.lock:
@@ -353,7 +360,7 @@ class Backend:
                 todo.append((fid, f["path"], f["name"], self.edits_for(f)))
         total = len(todo)
         jobs = parallel.jobs_for(total, opts.get("jobs"))
-        st = {"done": 0, "failed": 0, "finished": 0}
+        st = {"done": 0, "failed": 0, "skipped": 0, "finished": 0}
         running, t0 = {}, {}
 
         def progress():
@@ -368,10 +375,13 @@ class Backend:
         def finish(fid, ok, res):
             running.pop(fid, None)
             st["finished"] += 1
-            if ok:
+            if ok and res:
                 self._update(fid, status="done", outputs=self._outputs(res))
                 self.log("完成（%.1f 秒）" % (time.time() - t0[fid]), "ok", fid)
                 st["done"] += 1
+            elif ok:                                 # 里面的模型都被「只转换人物」跳过了（原因在日志里）
+                self._update(fid, status="skipped", outputs=[])
+                st["skipped"] += 1
             else:
                 summary, tb = res
                 self.log(tb or summary, "err", fid)
@@ -406,7 +416,7 @@ class Backend:
         finally:
             with self.lock:
                 self.busy = False
-            self.emit(type="busy", busy=False, done=st["done"], failed=st["failed"])
+            self.emit(type="busy", busy=False, done=st["done"], failed=st["failed"], skipped=st["skipped"])
 
     def stop(self):
         with self.lock:
@@ -464,6 +474,12 @@ class Backend:
                 os.makedirs(out_dir, exist_ok=True)
                 res = pipeline.convert_file(src, opts, log=lambda m, t=None: self.log(m, t, fid),
                                             out_dir=out_dir, edits=self.edits_for(f))
+                if not res and opts.get("avatar_only"):
+                    # 里面没有人物（道具、只有衣服），被「只转换人物」跳过了：预览还是转一份来看
+                    self.log("预览：里面没有人物模型，照样转一份来看", "info", fid)
+                    opts["avatar_only"] = False
+                    res = pipeline.convert_file(src, opts, log=lambda m, t=None: self.log(m, t, fid),
+                                                out_dir=out_dir, edits=self.edits_for(f))
                 vrm = [p for p in res if p.lower().endswith(".vrm")][-1]
                 url = self._outputs([vrm])[0]["url"]
                 with self.lock:

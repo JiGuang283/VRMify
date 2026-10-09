@@ -48,6 +48,15 @@ _BONES += [
     ("髪先", "髪3", (0, 11.8, 1.5)),
 ]
 
+# VRChat 风格的英文骨名（build(english=True)）。FBX 导出（fbxout）会把非 ASCII 的名字换成下划线，
+# 日文骨名的模型导出成 FBX 后就认不出人形骨架了
+EN = {"センター": "Root", "下半身": "Hips", "上半身": "Spine", "上半身2": "Chest", "首": "Neck", "頭": "Head",
+      "左目": "Eye.L", "右目": "Eye.R", "髪1": "Hair1", "髪2": "Hair2", "髪3": "Hair3"}
+for _s, _t in (("左", "L"), ("右", "R")):
+    EN.update({_s + "肩": "Shoulder." + _t, _s + "腕": "Upper_arm." + _t, _s + "ひじ": "Lower_arm." + _t,
+               _s + "手首": "Hand." + _t, _s + "足": "Upper_leg." + _t, _s + "ひざ": "Lower_leg." + _t,
+               _s + "足首": "Foot." + _t, _s + "つま先": "Toe." + _t})
+
 
 def _png(w, h, alpha):
     rows = []
@@ -87,8 +96,8 @@ def _material(name, tex, faces, toon=-1):
             "toon_flag": 1 if toon >= 0 else 0, "toon": toon, "memo": "", "faces": faces}
 
 
-def build(folder, name="合成モデル", tex_size=256, eyes=False):
-    """在 folder 里写出 <name>.pmx 和贴图，返回 PMX 路径。"""
+def build(folder, name="合成モデル", tex_size=256, eyes=False, english=False):
+    """在 folder 里写出 <name>.pmx 和贴图，返回 PMX 路径。english：骨名换成英文（见 EN）。"""
     os.makedirs(os.path.join(folder, "tex"), exist_ok=True)
     with open(os.path.join(folder, "tex", "body.png"), "wb") as f:
         f.write(_png(tex_size, tex_size, alpha=False))
@@ -173,6 +182,9 @@ def build(folder, name="合成モデル", tex_size=256, eyes=False):
                 "move_min": (0, 0, 0), "move_max": (0, 0, 0), "rot_min": (-0.5, -0.5, -0.5),
                 "rot_max": (0.5, 0.5, 0.5), "spring_move": (0, 0, 0), "spring_rot": (10, 10, 10)}
     m["joints"] = [joint("髪1-2", 1, 2, (0, 15.6, 1.2)), joint("髪2-3", 2, 3, (0, 13.7, 1.4))]
+    if english:
+        for b in m["bones"]:
+            b["name"] = b["name_en"] = EN.get(b["name"], b["name"])
 
     path = os.path.join(folder, name + ".pmx")
     pmxio.write_pmx(m, path)

@@ -21,7 +21,7 @@ Unreal（ActorX）导出的 `.psk` / `.pskx` 网格 → MMD 用的 PMX 2.0，纯
 路径带空格或中文，一定要加双引号。
 
 ```powershell
-# 图形界面：把 .psk / .pskx 加进去；只要 PMX 时在「输入格式」页选「只转 PMX」
+# 图形界面：把 .psk / .pskx 加进去；只要 PMX 时在「输出」页选「只转 PMX」
 python ui/app.py
 
 # 命令行
