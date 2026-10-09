@@ -205,6 +205,35 @@ class AlphaStatsTest(unittest.TestCase):
         self.assertIsNone(vrmio.png_alpha_stats(b"not a png"))
 
 
+class DecodeImageTest(unittest.TestCase):
+    """BMP / TGA 转 PNG：装了 Pillow 时走 Pillow，像素要和纯 Python 版一样（32 位 BMP 的第 4 个字节当 alpha）。"""
+
+    @staticmethod
+    def bmp32(w, h, top_down):
+        px = bytes(v for i in range(w * h) for v in (i % 256, 40, 200, (i * 7) % 256))       # BGRA
+        hdr = struct.pack("<IiiHHIIiiII", 40, w, -h if top_down else h, 1, 32, 0, len(px), 0, 0, 0, 0)
+        return b"BM" + struct.pack("<IHHI", 14 + len(hdr) + len(px), 0, 0, 14 + len(hdr)) + hdr + px
+
+    @unittest.skipUnless(textures.available(), "需要 Pillow")
+    def test_pillow_matches_pure_python(self):
+        from PIL import Image
+        src = Image.frombytes("RGBA", (13, 7), bytes((x * 19 + y) % 256 for x in range(13 * 7 * 4) for y in (0,)))
+        cases = {"bmp32": self.bmp32(13, 7, False), "bmp32 自上而下": self.bmp32(13, 7, True)}
+        for name, im, fmt, kw in (("bmp24", src.convert("RGB"), "BMP", {}),
+                                  ("tga32", src, "TGA", {}), ("tga24 rle", src.convert("RGB"), "TGA", {"compression": "tga_rle"})):
+            buf = io.BytesIO()
+            im.save(buf, fmt, **kw)
+            cases[name] = buf.getvalue()
+        for name, data in cases.items():
+            kind = "BMP" if data[:2] == b"BM" else "TGA"
+            fast = vrmio._decode_pil(data, kind)
+            slow = (vrmio._decode_bmp if kind == "BMP" else vrmio._decode_tga)(data)
+            a = Image.open(io.BytesIO(fast)).convert("RGBA")
+            b = Image.open(io.BytesIO(slow)).convert("RGBA")
+            self.assertEqual(a.tobytes(), b.tobytes(), name)
+            self.assertEqual(vrmio.decode_image(data), fast, name)
+
+
 class PmxReadTest(unittest.TestCase):
     """read_pmx：顶点 / UV 表情的偏移整段批量解，和写进去的一样（float 按 float32 取整）。"""
 
@@ -898,7 +927,7 @@ class PipelineTest(Base):
         out = os.path.join(self.tmp, "prop_out")
         self.assertEqual(pipeline.convert_file(prop, {}, out_dir=out, log=lambda m, t=None: logs.append((m, t))), [])
         self.assertTrue(any(m.startswith("跳过 剑：认不出人形骨架") and t == "warn" for m, t in logs), logs)
-        self.assertEqual(len(pipeline.convert_file(prop, {"avatar_only": False}, out_dir=out)), 1)
+        self.assertEqual(len(pipeline.convert_file(prop, {"vrm": {"avatar_only": False}}, out_dir=out)), 1)
         z = os.path.join(self.tmp, "with_prop.zip")
         with zipfile.ZipFile(z, "w") as zf:
             for p, arc in self._pack_files():
@@ -907,7 +936,7 @@ class PipelineTest(Base):
         stem = os.path.splitext(os.path.basename(self.pmx))[0]
         outs = pipeline.convert_file(z, {}, out_dir=os.path.join(self.tmp, "with_prop_a"))
         self.assertEqual([os.path.basename(p) for p in outs], [stem + ".vrm"])
-        outs = pipeline.convert_file(z, {"avatar_only": False}, out_dir=os.path.join(self.tmp, "with_prop_b"))
+        outs = pipeline.convert_file(z, {"vrm": {"avatar_only": False}}, out_dir=os.path.join(self.tmp, "with_prop_b"))
         self.assertEqual(sorted(os.path.basename(p) for p in outs), sorted([stem + ".vrm", "剑.vrm"]))
 
     @unittest.skipUnless(textures.available(), "需要 Pillow")

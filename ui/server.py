@@ -283,9 +283,9 @@ class Backend:
         reopen = []
         with self.lock:
             if opts is not None:
-                was = self.opts.get("avatar_only")
+                was = self.opts["vrm"].get("avatar_only")
                 self.opts = pipeline.merged(opts)
-                if was and not self.opts["avatar_only"]:
+                if was and not self.opts["vrm"]["avatar_only"]:
                     # 关掉「只转换人物」：之前因此跳过的文件回到「待转换」，点开始就会转
                     reopen = [i for i, f in self.files.items() if f["status"] == "skipped"]
             if lang in LANGS:
@@ -474,10 +474,10 @@ class Backend:
                 os.makedirs(out_dir, exist_ok=True)
                 res = pipeline.convert_file(src, opts, log=lambda m, t=None: self.log(m, t, fid),
                                             out_dir=out_dir, edits=self.edits_for(f))
-                if not res and opts.get("avatar_only"):
+                if not res and opts["vrm"].get("avatar_only"):
                     # 里面没有人物（道具、只有衣服），被「只转换人物」跳过了：预览还是转一份来看
                     self.log("预览：里面没有人物模型，照样转一份来看", "info", fid)
-                    opts["avatar_only"] = False
+                    opts["vrm"]["avatar_only"] = False
                     res = pipeline.convert_file(src, opts, log=lambda m, t=None: self.log(m, t, fid),
                                                 out_dir=out_dir, edits=self.edits_for(f))
                 vrm = [p for p in res if p.lower().endswith(".vrm")][-1]

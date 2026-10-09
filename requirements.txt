@@ -1,6 +1,6 @@
 # Optional runtime packages — the converter itself is pure standard library.
 # pywebview: native window for the GUI (drag & drop); without it the UI opens in the browser.
 pywebview>=5
-# Pillow: texture slimming (max size / JPEG) and ~10x faster texture alpha checks; without it textures are
-# embedded as-is and the checks fall back to pure Python.
+# Pillow: texture slimming (max size / JPEG), ~10x faster texture alpha checks and BMP / TGA / DDS decoding;
+# without it textures are embedded as-is and the checks and decoding fall back to pure Python.
 Pillow>=10

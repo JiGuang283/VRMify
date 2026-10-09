@@ -14,17 +14,17 @@ opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEF
     target   "vrm"（默认）| "pmx"（非 PMX 输入只转到 PMX 为止）
     output   {"mode": "app" | "beside" | "folder", "folder": 路径, "subfolder": 是否建「名字_日期_序号」子文件夹}
              app = 程序目录下的 vrm 文件夹（界面用；路径由调用方放在 "app_folder"，没有时同 beside）
-    vrm      {"spec": "1.0" | "0.x", "spring", "spring_skirt", "spring_stiffness", "auto_spring",
+    vrm      {"spec": "1.0" | "0.x", "avatar_only", "spring", "spring_skirt", "spring_stiffness", "auto_spring",
               "morphs", "gaze", "combo_expr", "outline", "keep_pose", "double_sided",
               "tex_max": 0 | 4096 | 2048 | 1024, "tex_jpeg"}
+             avatar_only：只转人物，道具（认不出人形骨架）和只有衣服 / 配件的模型跳过（见 not_an_avatar）；
+             一个文件里的模型全被跳过时 convert_file 返回 []
     meta     VRM 作者 / 许可信息（键见 vrmconv/vrm_ext.build_vrm1），标题用模型文件名
     fbx      {"alpha": "auto" | "keep" | "strip", "auto_facing", "face_180", "morphs", "center", "flip_z"}
     uemodel  {"alpha", "align_ref"}
     psk      {"jp_bones", "ik", "morphs", "alpha"}
     xps      {"jp_bones", "ik", "hide_unused", "double_sided", "edge"}
     jobs     同时转几个（多个文件、或一个包里的几个模型）：0 = 自动（见 parallel.jobs_for），1 = 一个一个转
-    avatar_only  转 VRM 时只转人物：道具（认不出人形骨架）和只有衣服 / 配件的模型跳过（见 not_an_avatar）；
-             一个文件里的模型全被跳过时 convert_file 返回 []
 
 log(msg, tag=None)：tag 为 None / "info" / "ok" / "warn" / "err" / "head"。
 """
@@ -56,9 +56,8 @@ CONVERTIBLE = {"pmx", "fbx", "unitypackage", "uemodel", "psk", "xps"} | ARCHIVES
 DEFAULTS = {
     "target": "vrm",
     "jobs": 0,
-    "avatar_only": True,
     "output": {"mode": "beside", "folder": "", "subfolder": True},
-    "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True, "combo_expr": True,
+    "vrm": {"spec": "1.0", "avatar_only": True, "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True, "combo_expr": True,
             "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
             "tex_max": 0, "tex_jpeg": False},
     "meta": {"author": "", "version": "", "contact": "", "copyright": "", "license_url": "",
@@ -408,9 +407,9 @@ def fbx_to_vrm(fbx, name, out_dir, opts, log, edits=None):
 
 
 def _to_vrm(pmx, out_dir, opts, log, name=None, edits=None, model=None, step=None, **known):
-    """PMX → [VRM 路径]。opts["avatar_only"] 时先看是不是人物（not_an_avatar），不是就跳过、返回 []；
+    """PMX → [VRM 路径]。opts["vrm"]["avatar_only"] 时先看是不是人物（not_an_avatar），不是就跳过、返回 []；
     检查用的模型和顶点权重接着给转换用。step：确定要转时先记一行日志。known 见 pmx_to_vrm。"""
-    if opts.get("avatar_only", True):
+    if opts["vrm"].get("avatar_only", True):
         import pmxio
         from vrmconv import mesh
         if model is None:
@@ -418,7 +417,7 @@ def _to_vrm(pmx, out_dir, opts, log, name=None, edits=None, model=None, step=Non
         weights = mesh.vertex_weights(model["vertices"], len(model["bones"]), {})
         why = not_an_avatar(model, weights)
         if why:
-            log("跳过 %s：%s（要转换的话，在「输出」里关掉「只转换人物」）"
+            log("跳过 %s：%s（要转换的话，在「VRM」页关掉「只转换人物」）"
                 % (name or os.path.splitext(os.path.basename(pmx))[0], why), "warn")
             return []
         known["raw_weights"] = weights

@@ -583,29 +583,72 @@ def _decode_dds(data):
     return None
 
 
+def _bmp_pil(Image, data):
+    """BMP → Pillow 图像。24 / 32 位的像素和 _decode_bmp 一样（32 位的第 4 个字节当 alpha，Pillow 自己
+    打开时会把它当成填充字节丢掉）；纯 Python 版不认的（8 位调色板 / 灰度等）交给 Pillow 自己解。"""
+    off = struct.unpack_from("<I", data, 10)[0]
+    w, h = struct.unpack_from("<ii", data, 18)
+    bpp = struct.unpack_from("<H", data, 28)[0]
+    comp = struct.unpack_from("<I", data, 30)[0]
+    if struct.unpack_from("<I", data, 14)[0] < 40 or bpp not in (24, 32) or comp not in (0, 3):
+        im = Image.open(io.BytesIO(data), formats=["BMP"])
+        im.load()
+        return im
+    if w <= 0 or h == 0:
+        return None
+    stride = ((w * bpp + 31) // 32) * 4
+    size = stride * abs(h)
+    if len(data) < off + size:
+        return None
+    mode, raw = ("RGBA", "BGRA") if bpp == 32 else ("RGB", "BGR")
+    return Image.frombuffer(mode, (w, abs(h)), data[off:off + size], "raw", raw, stride, -1 if h > 0 else 1)
+
+
+def _decode_pil(data, kind):
+    """BMP / TGA / DDS → PNG 字节，用 Pillow（C 解码，比下面的纯 Python 版快几十倍）。
+    没装 Pillow 或它解不了时返回 None，交给纯 Python 版。没有 alpha 的图存成 RGB PNG。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        if kind == "BMP":
+            im = _bmp_pil(Image, data)
+            if im is None:
+                return None
+        else:
+            im = Image.open(io.BytesIO(data), formats=[kind])
+            im.load()
+        if im.mode not in ("RGB", "RGBA"):
+            alpha = im.mode in ("LA", "PA", "La", "RGBa") or "transparency" in im.info
+            im = im.convert("RGBA" if alpha else "RGB")
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        return buf.getvalue()
+    except Exception:  # noqa: BLE001  罕见子格式：纯 Python 版再试
+        return None
+
+
 def decode_image(data):
-    """任意常见贴图字节 → PNG 字节；无法处理时返回 None。"""
+    """任意常见贴图字节 → PNG 字节；无法处理时返回 None。BMP / TGA / DDS 装了 Pillow 时用 Pillow 解。"""
     if not data:
         return None
     if data[:8] == b"\x89PNG\r\n\x1a\n":
         return data
     if data[:3] == b"\xff\xd8\xff":
         return data                                # JPEG 直接透传
-    if data[:2] == b"BM":
-        try:
-            return _decode_bmp(data)
-        except Exception:
-            return None
-    if data[:4] == b"DDS ":
-        try:
-            return _decode_dds(data)
-        except Exception:
-            return None
-    if len(data) > 18 and data[2] in (2, 3, 10, 11) and data[1] in (0, 1):
-        try:
-            return _decode_tga(data)
-        except Exception:
-            return None
+    for kind, ok, pure in (
+            ("BMP", data[:2] == b"BM", _decode_bmp),
+            ("DDS", data[:4] == b"DDS ", _decode_dds),
+            ("TGA", len(data) > 18 and data[2] in (2, 3, 10, 11) and data[1] in (0, 1), _decode_tga)):
+        if ok:
+            out = _decode_pil(data, kind)
+            if out:
+                return out
+            try:
+                return pure(data)
+            except Exception:
+                return None
     return None
 
 

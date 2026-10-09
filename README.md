@@ -75,7 +75,7 @@ every save starts from them.
 - **Python 3.10+** (the converter itself is standard library only, and noticeably faster with Pillow installed; without pywebview the file dialogs use tkinter,
   included in the official Windows installer)
 - **Optional** (`pip install -r requirements.txt`): `pywebview` (native window with drag & drop; otherwise the system browser is
-  used), `Pillow` (texture slimming)
+  used), `Pillow` (texture slimming; much faster texture checks and BMP / TGA / DDS decoding)
 
 ---
 
@@ -95,15 +95,15 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
 - Left: add files / folders (PMX, VRM, archives, FBX, unitypackage, uemodel, psk, xps) and click "Start conversion" at the bottom
   ("Convert again" once everything is done).
   Settings have four tabs:
-  - **VRM**: version, physics, expressions, outline, texture max size and JPEG
+  - **VRM**: version; **Characters only** (on by default): props (swords, chairs — no recognizable humanoid skeleton)
+    and outfit / accessory-only models (no mesh on the head or hands), which model packs often include, are skipped,
+    and a file with nothing else in it shows as "Skipped"; physics, expressions, outline, texture max size and JPEG
   - **Inputs**: options for FBX, uemodel, psk and xps
   - **Metadata**: author and usage license (the name defaults to the model file name)
   - **Output**: convert non-PMX formats to VRM (default, via PMX) or stop at PMX; save to the app folder (default: a `vrm`
     folder next to the program) / next to the source / a chosen folder, optional per-run subfolder; how many to convert at
     once (Auto / 1 / 2 / 4: several files, or several models in one package or archive, convert in parallel — about twice
-    as fast or more, ~1.5 GB of memory each); **Characters only** (on by default): when converting to VRM, props (swords,
-    chairs — no recognizable humanoid skeleton) and outfit / accessory-only models (no mesh on the head or hands), which
-    model packs often include, are skipped; a file with nothing else in it shows as "Skipped"
+    as fast or more, ~1.5 GB of memory each)
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names

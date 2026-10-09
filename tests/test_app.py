@@ -114,7 +114,7 @@ class SkippedStatusTest(unittest.TestCase):
                 self.assertEqual(b.files[fid]["status"], "skipped")
                 end = [e for _, e in b.events if e["type"] == "busy" and not e["busy"]][-1]
                 self.assertEqual((end["done"], end["skipped"], end["failed"]), (0, 1, 0))
-                b.set_options(dict(b.opts, avatar_only=False))
+                b.set_options(dict(b.opts, vrm=dict(b.opts["vrm"], avatar_only=False)))
                 self.assertEqual(b.files[fid]["status"], "pending")
             finally:
                 b.close()
