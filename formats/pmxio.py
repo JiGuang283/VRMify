@@ -66,7 +66,7 @@ class _R:
             raise ValueError(
                 self._fail(what)
                 + "读取「%s」时越过文件末尾（偏移 %d / 文件 %d 字节）。"
-                  "多半是某一段的结构和写入方不一致，请反馈这个模型文件。"
+                  "可能是某一段的结构与写入程序不一致，请反馈此模型文件。"
                 % (what, self.p, len(self.d)))
 
     def i32(self, what="int"):
@@ -432,7 +432,7 @@ def read_pmx(path):
     if m["consumed"] != m["filesize"]:
         raise ValueError(
             "PMX 解析后仍有 %d 字节未读完（已读 %d / 共 %d），"
-            "说明某段的结构与写入方不一致。请反馈这个模型文件。"
+            "说明某一段的结构与写入程序不一致，请反馈此模型文件。"
             % (m["filesize"] - m["consumed"], m["consumed"], m["filesize"]))
     return m
 
@@ -846,7 +846,7 @@ def convert_encoding(src, dst=None, enc=MMD_ENC, verbose=True):
     back = read_pmx(tmp)
     if back["name"] != model["name"] or back["consumed"] != back["filesize"]:
         os.remove(tmp)
-        raise ValueError("改写后回读校验失败，已放弃：%s" % src)
+        raise ValueError("改写后回读校验失败，未写入：%s" % src)
     os.replace(tmp, dst)
     if verbose:
         print("%-40s 编码 %d(%s) -> %d(%s)  %.2f MB" % (

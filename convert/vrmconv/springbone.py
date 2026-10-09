@@ -550,7 +550,7 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
 
     if not springs:
         if skipped_lower:
-            _log("SpringBone：%d 条下半身物理链按设置跳过，没有可写的链"
+            _log("SpringBone：按设置跳过 %d 条下半身物理链，没有可输出的链"
                  % skipped_lower)
         return None
     # 平移 / 缩小出来的碰撞体里，有些随后又被它自己的缩小副本取代、没有组在用：删掉并重排序号
@@ -567,16 +567,20 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
     if skipped_lower:
         _log("SpringBone：按设置跳过 %d 条下半身物理链（裙摆等）" % skipped_lower)
     if n_tiny[0]:
-        _log("SpringBone：%d 条短链不转换（不足 %.0f cm，四肢上的不足 %.0f cm）：只会高频颤动"
+        _log("SpringBone：%d 条短链（不足 %.0f cm，四肢上不足 %.0f cm）不转换，以免末端高频抖动"
              % (n_tiny[0], min_chain_len * 100, limb_min_len * 100))
     _log("SpringBone：MMD 物理骨 %d 根 → SpringBone 关节 %d 个（头发等每节至少 %.0f cm、"
-         "裙摆 %.0f cm，中间的骨刚性跟随）"
+         "裙摆至少 %.0f cm，中间的骨骼刚性跟随）"
          % (n_joints_mmd, n_joints_vrm, seg_min * 100, seg_min_lower * 100))
     if n_virtual:
-        _log("SpringBone：%d 条链尾没有子骨，已补 tail 节点" % n_virtual)
-    if n_dropped[0] or n_shrunk[0]:
-        _log("SpringBone：静止姿势下与碰撞体重叠——%d 处取消该链与碰撞体的碰撞、"
-             "%d 个节点缩小碰撞半径" % (n_dropped[0], n_shrunk[0]))
+        _log("SpringBone：%d 条链的末端没有子骨骼，已补充末端节点" % n_virtual)
+    fixes = []
+    if n_dropped[0]:
+        fixes.append("取消 %d 处链与碰撞体的碰撞" % n_dropped[0])
+    if n_shrunk[0]:
+        fixes.append("缩小 %d 个节点的碰撞半径" % n_shrunk[0])
+    if fixes:
+        _log("SpringBone：静止姿势下与碰撞体重叠，已" + "、".join(fixes))
     cross = 0
     for j in joints:
         a, b = j["rb_a"], j["rb_b"]
@@ -586,11 +590,11 @@ def _build_springs(model, parents, alias, human_b, glob, bpos, scale, xf,
                     and parents[bb] != ba and parents[ba] != bb:
                 cross += 1
     if cross:
-        _log("提示：%d 个链间横向关节（裙摆等）在 SpringBone 里无法表达，已舍弃%s"
-             % (cross, "；裙摆碰腿的方向已按裙片朝向修正（%d 处），裙片不容易被腿从中间劈开"
+        _log("SpringBone：%d 个链间横向关节（裙摆等）无法表达，已舍弃%s"
+             % (cross, "；已按裙片朝向修正 %d 处裙摆与腿的碰撞方向，减少裙片被腿分开"
                 % n_proxy[0] if n_proxy[0] else ""), "warn")
     elif n_proxy[0]:
-        _log("SpringBone：裙摆碰腿的方向按裙片朝向修正 %d 处" % n_proxy[0])
+        _log("SpringBone：已按裙片朝向修正 %d 处裙摆与腿的碰撞方向" % n_proxy[0])
     ext = {"specVersion": "1.0", "springs": springs}
     if colliders:
         ext["colliders"] = colliders

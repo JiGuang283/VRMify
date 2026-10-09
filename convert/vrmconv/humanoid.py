@@ -395,21 +395,21 @@ def _fix_humanoid_hierarchy(human, parents, bones, required, log):
         a, c = human[anc], human[h]
         if a == c:
             del human[h]
-            log("提示：%s 与 %s 映射到同一根骨，已忽略 %s" % (h, anc, h), "warn")
+            log("骨骼：%s 与 %s 对应同一根骨骼，已忽略 %s" % (h, anc, h), "warn")
             continue
         if _is_ancestor(parents, a, c):
             continue
         old = parents[c]
         if _reparent(parents, c, a):
-            log("骨骼层级：%s（%s）不在 %s（%s）下面，已改挂过去（原父骨 %s）"
+            log("骨骼层级：%s（%s）不在 %s（%s）之下，已移至其下（原父骨骼 %s）"
                 % (h, bones[c]["name"], anc, bones[a]["name"],
                    bones[old]["name"] if old >= 0 else "无"))
         elif h not in required:
             del human[h]
-            log("提示：%s（%s）的层级无法修正，已从 humanoid 中移除"
+            log("骨骼层级：%s（%s）无法修正，已从 humanoid 中移除"
                 % (h, bones[c]["name"]), "warn")
         else:
-            log("警告：%s（%s）的层级无法修正，部分软件可能拒绝加载"
+            log("骨骼层级：%s（%s）无法修正，部分软件可能无法加载"
                 % (h, bones[c]["name"]), "warn")
 
 

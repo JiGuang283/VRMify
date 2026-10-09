@@ -472,7 +472,7 @@ def find_align_offset(part, ref, log=None):
         votes.setdefault(k, []).append((pw[i], target, nm))
 
     if not votes:
-        _l("对齐：部件 %d 根骨里没找到与参考模型同名/近名的骨，放弃"
+        _l("对齐：部件的 %d 根骨骼中没有与参考模型同名或相近的骨骼，已跳过对齐"
            % len(pn), "warn")
         return None, 0, len(pn)
     best_key = max(votes.items(), key=lambda kv: len(kv[1]))[0]
@@ -486,7 +486,7 @@ def find_align_offset(part, ref, log=None):
             + abs(t[1][2] - t[0][2] - avg[2])) for t in lst]
     spread = max(res) if res else 9e9
     if len(lst) < 3 or spread > 0.05:
-        _l("对齐：最高票只有 %d 根（共匹配 %d 根 · 最大残差 %.4f cm），不够可信，跳过"
+        _l("对齐：位置一致的骨骼只有 %d 根（共匹配 %d 根 · 最大残差 %.4f cm），结果不可靠，已跳过"
            % (len(lst), n_matched, spread), "warn")
         return None, len(lst), len(pn)
 
@@ -503,18 +503,14 @@ def find_align_offset(part, ref, log=None):
     p_spread = _bone_spread(part)
     r_spread = _bone_spread(ref)
     if p_spread > 0 and r_spread < p_spread * 0.8:
-        _l("对齐：参考模型的骨架铺开 %.1f cm，比本文件 %.1f cm 还小 —— "
-           "参考本身就是个局部空间部件（多半是把方向选反了），跳过对齐"
+        _l("对齐：参考模型的骨架跨度 %.1f cm，小于本文件的 %.1f cm，"
+           "参考模型本身可能是部件（参考与部件可能选反了），已跳过对齐"
            % (r_spread, p_spread), "warn")
         return None, len(lst), len(pn)
 
-    _l("对齐：匹配 %d 根骨 · 其中 %d 根落在同一刚性位置（残差 ≤ %.4f cm）"
+    _l("对齐：匹配 %d 根骨骼，其中 %d 根位置一致（残差 ≤ %.4f cm）"
        % (n_matched, len(lst), spread))
-    _l("      平移 (%.4f, %.4f, %.4f) cm" % avg)
-    for t in lst[:8]:
-        _l("      %-22s 部件(%8.3f,%8.3f,%8.3f) → 参考(%8.3f,%8.3f,%8.3f)"
-           % (t[2], t[0][0], t[0][1], t[0][2],
-              t[1][0], t[1][1], t[1][2]), "info")
+    _l("对齐：平移 (%.4f, %.4f, %.4f) cm" % avg)
     return avg, len(lst), len(pn)
 
 
@@ -536,7 +532,7 @@ def convert(path, out_path, scale_mode="fixed", lod_index=0, log=None,
        % (m.version, m.name or os.path.basename(path),
           len(m.skeleton.bones), len(m.lods)))
     if not m.lods:
-        raise ValueError("这个 .uemodel 里没有 LOD 数据")
+        raise ValueError("此 .uemodel 中没有 LOD 数据")
 
     # 选 LOD：越界就退到最后一个（LOD 号越大越粗）
     if lod_index < 0 or lod_index >= len(m.lods):
@@ -580,7 +576,7 @@ def convert(path, out_path, scale_mode="fixed", lod_index=0, log=None,
     else:
         scale = float(scale_mode)
     src_h = hi_y - lo_y
-    _l("缩放：源高 %.2f cm × %.6f → %.2f（fixed=1/8 cm，mmd=归一到 20）"
+    _l("缩放：源高 %.2f cm × %.6f → %.2f"
        % (src_h, scale, src_h * scale))
 
     # ---- 部件对齐：把本文件（头发/皮肤等）放回参考模型的世界位置。
@@ -597,12 +593,12 @@ def convert(path, out_path, scale_mode="fixed", lod_index=0, log=None,
                 # 居中基准也要取自参考模型（否则各自居中 = 又错位）
                 if ref.lods:
                     align_ref_pts = ref.lods[0].vertices
-                _l("已按 %s 对齐（源坐标整体平移）"
+                _l("对齐：已按 %s 对齐（源坐标整体平移）"
                    % os.path.basename(align_to), "ok")
             else:
-                _l("对齐失败（命中 %d/%d），按自身原点导出" % (hit, tot), "warn")
+                _l("对齐失败（匹配 %d / %d），按模型自身原点导出" % (hit, tot), "warn")
         except Exception as e:
-            _l("对齐失败：%s（按自身原点导出）" % e, "warn")
+            _l("对齐失败：%s（按模型自身原点导出）" % e, "warn")
 
     if align_off != (0.0, 0.0, 0.0):
         aoff = xf(align_off)

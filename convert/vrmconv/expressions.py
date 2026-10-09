@@ -430,7 +430,7 @@ def report(expr_preset, blend_groups, is1, log):
         if len(names) == len(ws):
             src = " + ".join(n if abs(w - 1) < 1e-6 else "%s×%g" % (n, round(w, 3)) for n, w in zip(names, ws))
         got.append("%s ← %s" % (p, src))
-    log("表情预设：" + "；".join(got) + ("" if not miss else "　· 模型里找不到：" + "、".join(miss)),
+    log("表情预设：" + ("；".join(got) or "无") + ("" if not miss else " · 未找到：" + "、".join(miss)),
         "warn" if {"blink", "aa"} & set(miss) else None)
 
 
@@ -607,11 +607,11 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
         log("表情：导出 %d 个 morph target（%s存储）"
             % (len(target_names), "稀疏" if sparse_morphs else "密集"))
     if n_mat_expr:
-        log("表情：%d 个含材质变化（材质表情 → materialColorBinds）" % n_mat_expr)
+        log("表情：%d 个包含材质变化（转为材质颜色绑定）" % n_mat_expr)
     if n_uv_expr:
-        log("表情：%d 个 UV 表情 → 贴图偏移（textureTransformBinds）" % n_uv_expr)
+        log("表情：%d 个 UV 表情转为贴图偏移" % n_uv_expr)
     if n_uv_bad:
-        log("表情：%d 处 UV 表情不是整个材质一起平移 / 缩放，VRM 表示不了，已跳过" % n_uv_bad, "warn")
+        log("表情：%d 处 UV 表情不是整个材质统一平移 / 缩放，VRM 无法表示，已跳过" % n_uv_bad, "warn")
 
     for p, parts in recipes.items():
         label = "+".join(n for n, _, _ in parts)

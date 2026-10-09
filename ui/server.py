@@ -388,7 +388,7 @@ class Backend:
             st["finished"] += 1
             if ok and res:
                 self._update(fid, status="done", outputs=self._outputs(res))
-                self.log("完成（%.1f 秒）" % (time.time() - t0[fid]), "ok", fid)
+                self.log("完成，用时 %.1f 秒" % (time.time() - t0[fid]), "ok", fid)
                 st["done"] += 1
             elif ok:                                 # 里面的模型都被「只转换人物」跳过了（原因在日志里）
                 self._update(fid, status="skipped", outputs=[])
@@ -423,7 +423,7 @@ class Backend:
                     except Exception as e:  # noqa: BLE001  一个文件失败不影响其它
                         finish(fid, False, ("%s: %s" % (type(e).__name__, e), traceback.format_exc()))
             if st["finished"] < total:
-                self.log("已停止（%d 个没有转换）" % (total - st["finished"]), "warn")
+                self.log("已停止，%d 个文件未转换" % (total - st["finished"]), "warn")
         finally:
             with self.lock:
                 self.busy = False
@@ -487,7 +487,7 @@ class Backend:
                                             out_dir=out_dir, edits=self.edits_for(f))
                 if not res and opts["vrm"].get("avatar_only"):
                     # 里面没有人物（道具、只有衣服），被「只转换人物」跳过了：预览还是转一份来看
-                    self.log("预览：里面没有人物模型，照样转一份来看", "info", fid)
+                    self.log("预览：未找到人物模型，忽略「只转换人物」生成预览", "info", fid)
                     opts["vrm"]["avatar_only"] = False
                     res = pipeline.convert_file(src, opts, log=lambda m, t=None: self.log(m, t, fid),
                                                 out_dir=out_dir, edits=self.edits_for(f))
@@ -556,9 +556,9 @@ class Backend:
                 vrm_edit.apply(p, edits)
                 applied.append(p)
             except Exception as e:  # noqa: BLE001
-                self.log("调整没能写进 %s：%s" % (os.path.basename(p), e), "err", fid)
+                self.log("调整写入 %s 失败：%s" % (os.path.basename(p), e), "err", fid)
         if applied:
-            self.log("已把调整写进 %s" % "、".join(os.path.basename(p) for p in applied), "ok", fid)
+            self.log("调整已写入 %s" % "、".join(os.path.basename(p) for p in applied), "ok", fid)
         self._update(fid)
         return {"ok": True, "applied": len(applied)}
 

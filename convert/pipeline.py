@@ -354,7 +354,7 @@ def _unpack_fbxs(path, log):
     log("解包 %s：%d 个文件，%d 个 FBX" % (os.path.basename(path), n, len(fbxs)), "info")
     if not fbxs:
         shutil.rmtree(dest, ignore_errors=True)
-        raise RuntimeError("包里没有找到 FBX")
+        raise RuntimeError("包中没有 FBX 文件")
     fbxs.sort(key=lambda p: -os.path.getsize(p))
     return fbxs, dest
 
@@ -385,8 +385,6 @@ def _fbx_to_pmx(fbx, out, name, o, log):
                              alpha_mode=o["alpha"], auto_facing=o["auto_facing"],
                              face_180=o["face_180"], threads=parallel.threads())
     w.flush()
-    if st.get("facing_reason"):
-        log("朝向：%s" % st["facing_reason"], None)
     return st
 
 
@@ -426,7 +424,7 @@ def _to_vrm(pmx, out_dir, opts, log, name=None, edits=None, model=None, step=Non
         weights = mesh.vertex_weights(model["vertices"], len(model["bones"]), {})
         why = not_an_avatar(model, weights)
         if why:
-            log("跳过 %s：%s（要转换的话，在「VRM」页关掉「只转换人物」）"
+            log("跳过 %s：%s（如需转换，请在「转换」页关闭「只转换人物」）"
                 % (name or os.path.splitext(os.path.basename(pmx))[0], why), "warn")
             return []
         known["raw_weights"] = weights
@@ -443,7 +441,7 @@ def _fbxs_to_vrm(fbxs, out_dir, opts, log, edits=None, name=None):
         return fbx_to_vrm(fbxs[0], names[0], out_dir, opts, log, edits=edits)
     return _convert_each([(fbx_to_vrm, (fbx, names[i], out_dir, opts), {"edits": edits})
                           for i, fbx in enumerate(fbxs)], names, [os.path.getsize(f) for f in fbxs], opts, log,
-                         "包里")
+                         "包中")
 
 
 SMALL_MODEL = 1 << 20      # 输入文件小于 1 MB 的模型（道具、配件）转得比开子进程还快，不为它们并行
@@ -493,7 +491,7 @@ def _convert_each(tasks, names, sizes, opts, log, where):
     jobs = parallel.jobs_for(big, opts.get("jobs"), [_model_gb(s) for s in sizes if s >= SMALL_MODEL]) if big > 1 else 1
     keyed = [(i,) + tuple(t) for i, t in enumerate(tasks)]
     if jobs > 1:
-        log("%s有 %d 个模型，同时转 %d 个" % (where, len(tasks), jobs), "info")
+        log("%s共有 %d 个模型，同时转换 %d 个" % (where, len(tasks), jobs), "info")
         results = parallel.run(keyed, jobs, lambda i: (lambda m, t=None: log("[%s] %s" % (names[i], m), t)))
     else:
         results = {}
@@ -540,7 +538,7 @@ def pmx_to_vrm(pmx, out_dir, opts, log, name=None, edits=None, **known):
         import vrm_edit
         if not vrm_edit.is_empty(edits):
             n = vrm_edit.apply(out, edits)
-            log("已套用界面里的调整（%d 项）" % n, "info")
+            log("已应用保存的调整（%d 项）" % n, "info")
     return out
 
 
@@ -551,7 +549,7 @@ def convert_file(path, opts=None, log=None, out_dir=None, edits=None):
     log = log or (lambda m, t=None: None)
     kind = classify(path)
     if kind not in CONVERTIBLE:
-        raise ValueError("不能转换这个文件：%s" % os.path.basename(path))
+        raise ValueError("无法转换此文件：%s" % os.path.basename(path))
     out_dir = out_dir or output_dir(path, opts)
     log("→ %s" % os.path.basename(path), "head")
     log("输出目录：%s" % out_dir, "info")
@@ -581,16 +579,16 @@ def _convert_archive(path, kind, out_dir, opts, log, edits=None):
                 inner += [q for q in find_inputs(sub) if classify(q) in CONVERTIBLE - ARCHIVES]
         pmx = [p for p in inner if classify(p) == "pmx"]
         todo = pmx or inner          # 有 PMX 就只转 PMX（同包里的 FBX 等通常是同一个模型）
-        log("解压 %d 个文件，找到 %d 个模型：%s" % (n, len(todo), "、".join(
+        log("解压出 %d 个文件，其中模型 %d 个：%s" % (n, len(todo), "、".join(
             os.path.relpath(p, tmp) for p in todo)), "info")
         if not todo:
-            raise RuntimeError("压缩包里没有可转换的模型（PMX / FBX / uemodel / psk / xps）")
+            raise RuntimeError("压缩包中没有可转换的模型（PMX / FBX / uemodel / psk / xps）")
         names = _unique_names(todo)
         # 只转 PMX 时几个模型的贴图都写进输出目录的同一个 textures 文件夹：一个一个转
         each = dict(opts, jobs=1) if opts["target"] == "pmx" else opts
         return _convert_each([(_convert_inner, (p, os.path.relpath(p, tmp), out_dir, opts),
                                {"edits": edits, "name": names[i]}) for i, p in enumerate(todo)],
-                             names, [os.path.getsize(p) for p in todo], each, log, "压缩包里")
+                             names, [os.path.getsize(p) for p in todo], each, log, "压缩包中")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -655,13 +653,13 @@ def not_an_avatar(model, weights=None):
         return out
 
     if "head" not in human or "hips" not in human:
-        return "认不出人形骨架，看起来是道具"
+        return "未识别到人形骨架，可能是道具"
     if weights is None:
         weights = mesh.vertex_weights(m["vertices"], len(m["bones"]), {})
     used = {b for wl in weights for b, w in wl if w > 0.3}
     if not used & subtree(human["head"]):
-        return "头部没有网格，看起来只有衣服或配件"
+        return "头部没有网格，可能只有服装或配件"
     hands = [human[h] for h in ("leftHand", "rightHand") if h in human]
     if len(hands) == 2 and not used & (subtree(hands[0]) | subtree(hands[1])):
-        return "手上没有网格，看起来只有衣服或配件"
+        return "手部没有网格，可能只有服装或配件"
     return None

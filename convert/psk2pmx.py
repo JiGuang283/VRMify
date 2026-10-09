@@ -216,10 +216,10 @@ def _warn_anchor_collision(out_path, log):
              if os.path.isfile(os.path.join(d, f))]
     if not clash:
         return
-    log("提示：同目录有同名的 %s。PmxEditor 打开这个 PMX 时会把它当成"
-        "「アンカーデータ」（锚点/权重数据）去加载，然后弹"
-        "「アンカーデータの読み込みに失敗しました。」—— 点确定即可，不影响模型。"
-        "想彻底不弹：把 PMX 挪到别的文件夹 / 改个名 / 在 PmxEditor 里关掉"
+    log("提示：同一目录下有同名的 %s。PmxEditor 打开此 PMX 时会尝试将其作为"
+        "「アンカーデータ」（锚点 / 权重数据）加载，并提示"
+        "「アンカーデータの読み込みに失敗しました。」，点击确定即可，不影响模型。"
+        "如需避免，可移动或重命名 PMX，或在 PmxEditor 中关闭"
         "[ファイル]→[アンカーデータの自動読み込み／保存]。"
         % " / ".join(clash), "warn")
 
@@ -238,12 +238,12 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
        % (kind, len(m.points), len(m.wedges), len(m.faces),
           len(m.materials), len(m.bones), len(m.weights)))
     if not m.points or not m.wedges:
-        raise ValueError("这个文件里没有网格数据（PNTS / VTXW 为空）")
+        raise ValueError("此文件中没有网格数据（PNTS / VTXW 为空）")
     if not m.faces:
-        raise ValueError("这个文件里没有面数据（FACE 块为空）")
-    _l("表情 %d 个 · 附加 UV %d 套 · 法线 %s"
+        raise ValueError("此文件中没有面数据（FACE 块为空）")
+    _l("表情 %d 个 · 附加 UV %d 套 · %s"
        % (len(m.morphs), len(m.extra_uvs),
-          "有" if m.normals else "无（将自动计算）"))
+          "含法线" if m.normals else "不含法线（将自动计算）"))
 
     # ---- 坐标变换
     #
@@ -279,7 +279,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
             bad_wedge += 1
         raw_pos.append(m.points[pi])
     if bad_wedge:
-        _l("提示：%d 个楔的点索引越界，已回退到第 0 个点" % bad_wedge, "warn")
+        _l("网格：%d 个楔的点索引越界，已改用第 0 个点" % bad_wedge, "warn")
 
     pts = [xf(p) for p in raw_pos]
     ys = [p[1] for p in pts]
@@ -288,7 +288,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
         scale = 20.0 / max(hi_y, 1e-6)
         if hi_y <= 0:
             scale = 20.0 / max(abs(lo_y), 1e-6)
-        _l("缩放：源高 %.2f 单位 × %.6f → %.2f（MMD 常规 20）"
+        _l("缩放：源高 %.2f 单位 × %.6f → %.2f（MMD 标准身高 20）"
            % (hi_y, scale, hi_y * scale))
     elif scale_mode in ("raw", "none", 1, 1.0):
         # 与 fbx2pmx 的 --scale raw 对齐：保持源尺寸不动。
@@ -398,8 +398,8 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
         bk["flag"] = flag
     _l("骨骼：%d 根%s"
        % (len(pmx_bones),
-          "" if not jp_bones else "（其中 %d 根用了 MMD 标准日文名，"
-                                  "英文原名写在英文名里）" % n_renamed))
+          "" if not jp_bones else "（其中 %d 根改为 MMD 标准日文名，"
+                                  "原英文名保留在英文名中）" % n_renamed))
 
     # ---- 足 IK（MMD 摆姿势几乎必用；源骨架没有，这里补标准的一套）
     def find_bone(jp_name):
@@ -457,10 +457,10 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
                 })
                 ik_made += 1
         if ik_made:
-            _l("足 IK：补了 %d 根（足ＩＫ / つま先ＩＫ，父级 センター）" % ik_made,
+            _l("足 IK：已补充 %d 根（足ＩＫ / つま先ＩＫ，父骨骼 センター）" % ik_made,
                "info")
         else:
-            _l("提示：源骨架里找不到完整的腿部骨链，没补 IK 骨", "info")
+            _l("足 IK：源骨架中没有完整的腿部骨链，未补充 IK 骨", "info")
 
     # ---- 面：按材质排序，保证 PMX 材质吃连续的面段
     nmats = max(1, len(m.materials))
@@ -496,7 +496,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
                % (ag, dis, "需要反转" if need_flip else "保持不变"))
         else:
             need_flip = True
-            _l("绕序：没有法线数据，按换轴反射一律反转（保持正面朝外）", "info")
+            _l("绕序：缺少法线数据，按坐标轴反射统一反转（保持正面朝外）", "info")
     else:
         need_flip = bool(flip_winding)
 
@@ -548,9 +548,9 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
                           "add_uv": add, "wtype": wtype, "wbones": wbones,
                           "wweights": wweights, "sdef": None, "edge": 1.0})
     if no_weight:
-        _l("提示：%d 个顶点没有权重，已挂到第 0 根骨骼" % no_weight, "warn")
+        _l("权重：%d 个顶点没有权重，已绑定到第 0 根骨骼" % no_weight, "warn")
     if n_dropped:
-        _l("提示：%d 条第 5 及以后的骨骼权重被丢弃（PMX 最多 4 根）"
+        _l("权重：已丢弃 %d 条第 5 根及以后的骨骼权重（PMX 每个顶点最多 4 根）"
            % n_dropped, "info")
 
     # ---- 材质 + 贴图
@@ -632,7 +632,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
         x["faces"] = int(x["faces"]) * 3
     _l("材质：%d 个 · 关联到贴图 %d 个%s"
        % (len(pmx_materials), n_linked,
-          "" if n_linked else "（源目录里没找到同名贴图，导出的是白模）"))
+          "" if n_linked else "（源目录中没有同名贴图，导出为无贴图模型）"))
 
     # ---- 表情：MRPH 的位移是按「点」索引的，要摊到该点对应的所有楔上
     point_to_wedges = {}

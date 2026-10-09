@@ -64,8 +64,8 @@ def fix_facing(model, log):
             mo["offsets"] = [(i, rot(t_), q_) for i, t_, q_ in mo["offsets"]]   # 骨骼表情的平移
     deg = quarter * 90
     if log:
-        log("朝向：模型%s，已绕 Y 轴转 %d° 摆正（左右肩 / 胯不在 X 轴上）"
-            % ("背对" if quarter == 2 else "侧着", deg), "warn")
+        log("朝向：模型%s，已绕 Y 轴旋转 %d° 校正（左右肩 / 胯不在 X 轴上）"
+            % ("背向前方" if quarter == 2 else "朝向侧面", deg), "warn")
     return deg
 
 
@@ -238,7 +238,7 @@ class NodeTree:
         for r in required:
             if r not in human:
                 ensure(r)
-                log("提示：模型缺少 %s，已自动生成占位骨骼" % r, "warn")
+                log("骨骼：模型缺少 %s，已生成占位骨骼" % r, "warn")
         return human
 
     def lower_hips(self, human, log):
@@ -260,7 +260,7 @@ class NodeTree:
             return
         old = self.wpos[h]
         self.wpos[h] = (old[0], leg_y + 0.43 * gap, old[2])
-        log("hips 移到骨盆：下移 %.1f cm（原来和 spine 相距 %.1f mm）"
+        log("hips：已移至骨盆，下移 %.1f cm（原与 spine 相距 %.1f mm）"
             % ((old[1] - self.wpos[h][1]) * 100, abs(self.wpos[s][1] - old[1]) * 1000))
 
     def gltf_nodes(self):

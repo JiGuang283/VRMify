@@ -416,17 +416,18 @@ class MaterialBuilder:
 
     def log_summary(self, log):
         modes = [m["alphaMode"] for m in self.materials]
-        log("材质透明模式：不透明 %d · 裁剪(MASK) %d · 半透明(BLEND) %d"
+        log("材质透明模式：不透明 %d · 裁剪（MASK）%d · 半透明（BLEND）%d"
             % (modes.count("OPAQUE"), modes.count("MASK"), modes.count("BLEND")))
         if self.is1:
             nmc = sum(1 for m in self.materials if "matcapTexture" in
                       m["extensions"]["VRMC_materials_mtoon"])
-            log("材质：MToon（VRMC_materials_mtoon）· 加算球面贴图 → matcap %d 个" % nmc)
+            if nmc:
+                log("材质：%d 个加算球面贴图转为 MToon 的 matcap" % nmc)
         if self.tex_opt is not None:
             if not self.tex_opt.active and (self.tex_opt.max_size or self.tex_opt.jpeg):
-                log("提示：没有安装 Pillow，贴图瘦身（缩小 / JPEG）未生效", "warn")
+                log("贴图：未安装 Pillow，缩小贴图和 JPEG 存储未生效", "warn")
             elif self.tex_opt.summary():
                 log(self.tex_opt.summary())
         if self.sph_skipped:
-            log("提示：%d 个材质的乘算球面贴图（.sph）在 MToon 里没有对应项，已忽略"
+            log("材质：%d 个材质的乘算球面贴图（.sph）在 MToon 中没有对应项，已忽略"
                 % self.sph_skipped, "warn")

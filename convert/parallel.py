@@ -174,7 +174,7 @@ def run(tasks, jobs, log_for, start=None, done=None, should_stop=None):
                 break
             log = log_for(key)
             if key == pending[0][0]:
-                log("没法同时转换（子进程开不起来），改成一个一个转", "warn")
+                log("无法启动子进程，改为逐个转换", "warn")
             if start and key not in started:
                 start(key)
             try:

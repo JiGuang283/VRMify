@@ -162,6 +162,6 @@ def synthesize(model, parents, alias, human_b, log=None):
                        _rot_for_dir(d)))
         n_col += 1
     if log and dyn:
-        log("物理：模型没有物理刚体，按骨骼名 / 结构自动补了 %d 根摆动骨（头发、裙摆、袖子、飘带等）"
+        log("物理：模型不含物理刚体，已按骨骼名和骨架结构自动添加 %d 根摆动骨（头发、裙摆、袖子、飘带等）"
             "和 %d 个身体碰撞体" % (len(dyn), n_col))
     return len(dyn), n_col

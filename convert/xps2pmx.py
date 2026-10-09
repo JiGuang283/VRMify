@@ -269,7 +269,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
     m = xpsio.read_xps(path, log=_l)
     kind = "XPS" if m.is_generic2 else "XNALara"
     if not m.meshes:
-        raise ValueError("这个文件里没有网格数据")
+        raise ValueError("此文件中没有网格数据")
     _l("读取 %s：骨骼 %d 根 · 网格 %d 个 · 顶点 %d · 三角面 %d"
        % (kind, len(m.bones), len(m.meshes), m.n_vertices, m.n_triangles))
 
@@ -305,7 +305,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
 
     if scale_mode in ("mmd", "auto", None):
         scale = 20.0 / height
-        _l("缩放：源高 %.3f 单位 × %.6f → %.2f（MMD 常规 20）"
+        _l("缩放：源高 %.3f 单位 × %.6f → %.2f（MMD 标准身高 20）"
            % (height, scale, height * scale))
     elif scale_mode in ("raw", "none", 1, 1.0):
         scale = 1.0
@@ -418,8 +418,8 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
         bk["flag"] = flag
     _l("骨骼：%d 根%s%s"
        % (len(pmx_bones),
-          "" if not jp_bones else "（其中 %d 根用了 MMD 标准日文名，"
-                                  "英文原名写在英文名里）" % n_renamed,
+          "" if not jp_bones else "（其中 %d 根改为 MMD 标准日文名，"
+                                  "原英文名保留在英文名中）" % n_renamed,
           "；%d 根 unused 占位骨单独放进 unused 表示枠" % n_unused
           if n_unused else ""))
 
@@ -481,10 +481,10 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
                 })
                 ik_made += 1
         if ik_made:
-            _l("足 IK：补了 %d 根（足ＩＫ / つま先ＩＫ，父级 センター）" % ik_made,
+            _l("足 IK：已补充 %d 根（足ＩＫ / つま先ＩＫ，父骨骼 センター）" % ik_made,
                "info")
         else:
-            _l("提示：源骨架里找不到完整的腿部骨链，没补 IK 骨", "info")
+            _l("足 IK：源骨架中没有完整的腿部骨链，未补充 IK 骨", "info")
 
     # ---- 面：按网格（= 材质）排序，保证 PMX 材质吃连续的面段
     nmats = len(m.meshes)
@@ -520,7 +520,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
             ln = (ax * ax + ay * ay + az * az) ** 0.5 or 1.0
             fill = (ax / ln, ay / ln, az / ln)
             nrm_vote = [n if n is not None else fill for n in nrm_t]
-            _l("提示：%d 个顶点没有法线，绕序投票时按平均法线处理"
+            _l("绕序：%d 个顶点没有法线，判定时使用平均法线"
                % (len(raw_nrm) - n_has), "info")
         else:
             nrm_vote = nrm_t
@@ -530,7 +530,7 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
     else:
         # Z 取反是一次反射，几何绕序必然翻面；没有法线时一律反转
         need_flip = True
-        _l("绕序：法线数据不全，按换轴反射一律反转（保持正面朝外）", "info")
+        _l("绕序：法线数据不完整，按坐标轴反射统一反转（保持正面朝外）", "info")
 
     pmx_faces = []
     for _mi, a, b, c in tri:
@@ -566,9 +566,9 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
                           "add_uv": [], "wtype": wtype, "wbones": wbones,
                           "wweights": wweights, "sdef": None, "edge": 1.0})
     if no_weight:
-        _l("提示：%d 个顶点没有权重，已挂到第 0 根骨骼" % no_weight, "warn")
+        _l("权重：%d 个顶点没有权重，已绑定到第 0 根骨骼" % no_weight, "warn")
     if n_dropped:
-        _l("提示：%d 条第 5 及以后的骨骼权重被丢弃（PMX 最多 4 根）"
+        _l("权重：已丢弃 %d 条第 5 根及以后的骨骼权重（PMX 每个顶点最多 4 根）"
            % n_dropped, "info")
 
     # ---- 材质 + 贴图
@@ -655,9 +655,9 @@ def convert(path, out_path, scale_mode="mmd", log=None, name=None,
         x["faces"] = int(x["faces"]) * 3
     _l("材质：%d 个 · 关联到贴图 %d 个%s"
        % (len(pmx_materials), n_linked,
-          "" if n_linked else "（源目录里没找到同名贴图，导出的是白模）"))
+          "" if n_linked else "（源目录中没有同名贴图，导出为无贴图模型）"))
     if n_missing:
-        _l("提示：这些贴图在源目录里没找到 → %s"
+        _l("贴图：源目录中未找到 %s"
            % " / ".join(n_missing[:8]), "warn")
 
     # ---- 表示枠：主干骨进 Root，unused 占位骨单独一枠，表情一枠

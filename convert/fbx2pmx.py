@@ -167,17 +167,15 @@ def _detect_forward_by_toe(scene, bones):
         if len(hit) < 4:
             hit.append(m.name)
     if n == 0:
-        return None, "no toe bone"
+        return None, "未找到脚尖骨骼"
     mx = sx / n
     mz = sz / n
-    names = ", ".join(hit)
+    names = "、".join(hit)
     if abs(mx) > abs(mz):
         # 朝 ±X（侧身 / 特殊摆位），180° 旋转修不了，只能交给用户
-        return None, ("toe bones point along X (%s), a 180 turn cannot fix it"
-                      % names)
+        return None, "脚尖骨骼（%s）朝向 X 轴，旋转 180° 无法修正" % names
     need = mz < 0.0
-    return need, ("toe bones %s -> front %s"
-                  % (names, "+Z (no turn)" if not need else "-Z (needs 180)"))
+    return need, "按脚尖骨骼（%s）判定正面朝 %s" % (names, "-Z" if need else "+Z")
 
 
 def _detect_forward_by_face_meshes(scene):
@@ -210,15 +208,14 @@ def _detect_forward_by_face_meshes(scene):
                 face_z += p[2]
                 face_n += 1
     if face_n < 8 or all_n < 8:
-        return None, "face meshes found=%d (too few)" % face_n
+        return None, "脸部网格过少"
     dz = face_z / face_n - all_z / all_n
     width = (right - left) if (left is not None and right is not None) else 0.0
     if width > 0.0 and abs(dz) < width * 0.02:
         # 偏得太少就等于没偏，别硬判（正面对称的模型、裙摆很大的模型都可能这样）
-        return None, "face meshes not clearly offset (dz=%.4f)" % dz
+        return None, "脸部网格前后偏移不明显"
     need = dz < 0.0
-    return need, ("face meshes offset dz=%.4f -> front %s"
-                  % (dz, "+Z (no turn)" if not need else "-Z (needs 180)"))
+    return need, "按脸部网格的位置判定正面朝 %s" % ("-Z" if need else "+Z")
 
 
 def detect_forward_turn(scene, bones=None):
@@ -240,7 +237,7 @@ def detect_forward_turn(scene, bones=None):
     if need is not None:
         return need, why
     need2, why2 = _detect_forward_by_face_meshes(scene)
-    return need2, why + " / " + why2
+    return need2, why + "；" + why2
 
 
 # ------------------------------------------------------------------ math ----
@@ -1648,22 +1645,18 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
 
     if verbose and tex_list:
         if stats["copied"]:
-            print("  textures: copied %d / %d image file(s) into textures/"
-                  % (stats["copied"], len(tex_list)))
+            print("贴图：已复制 %d / %d 个文件到 textures 文件夹" % (stats["copied"], len(tex_list)))
         if alpha_mode == ALPHA_KEEP:
             pass
         elif alpha_mode == ALPHA_STRIP:
-            print("  textures: 去除透明通道 %d 张（已成不透明 RGB）"
-                  % stats["stripped"])
+            print("贴图：已去除 %d 张贴图的透明通道" % stats["stripped"])
         else:
-            print("  textures: alpha 自动判定 —— 去掉 %d 张 / 保留 %d 张"
-                  "（原本就不透明的 %d 张）"
+            print("贴图透明通道：去除 %d 张，保留 %d 张，%d 张本身不透明"
                   % (stats["stripped"], stats["kept"], stats["opaque"]))
             if stats["failed"]:
-                print("  textures: %d 张去 alpha 失败，已回退用原图" % stats["failed"])
+                print("贴图：%d 张去除透明通道失败，已使用原图" % stats["failed"])
         if stats["missing"]:
-            print("  textures: %d referenced but not found on disk "
-                  "(drop them into textures/ later)" % stats["missing"])
+            print("贴图：%d 个引用的文件未找到（可稍后放入 textures 文件夹）" % stats["missing"])
     return stats["out_names"], stats
 
 
@@ -1718,14 +1711,12 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
         turn, facing_reason = detect_forward_turn(scene, bones)
         if turn is None:
             turn = bool(face_180)
-            facing_reason += " -> manual setting used (%s)" % (
-                "180" if turn else "none")
+            facing_reason += "，无法自动判定，按设置%s" % ("旋转 180°" if turn else "不旋转")
     else:
         turn = bool(face_180)
-        facing_reason = "auto-detect off -> manual setting (%s)" % (
-            "180" if turn else "none")
+        facing_reason = "未启用自动判定，按设置%s" % ("旋转 180°" if turn else "不旋转")
     if verbose:
-        print("  facing: %s -> %s" % (facing_reason, "turn 180" if turn else "keep"))
+        print("朝向：%s%s" % (facing_reason, "，旋转 180°" if turn else ""))
 
     # ---- per-mesh data
     mesh_data = []
@@ -1742,8 +1733,7 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
         if skip_untextured and _mesh_has_no_material(g, model, scene, mats):
             skipped_untextured.append((model.name, len(tris)))
             if verbose:
-                print("  skip    %-22s tris=%-6d (no material / effect sheet)"
-                      % (model.name, len(tris)))
+                print("跳过无材质的网格 %s（%d 个三角面，通常是特效面片）" % (model.name, len(tris)))
             continue
         uv = sample_uv(g.get("LayerElementUV"), pvi)
         nrm = sample_normals(g.get("LayerElementNormal"), pvi)
@@ -1809,10 +1799,6 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
     uv_by_mat = {}          # 材质节点 id -> 该材质实际用到的 UV 角点（MMD 口径）
 
     weights_of_geo = {}
-    if verbose:
-        print("links: geo->model=%d geo->skin=%d cluster->skin=%d cluster->bone=%d"
-              % (len(scene.geometry_model), len(scene.geometry_skin),
-                 len(scene.cluster_skin), len(scene.cluster_bone)))
     for gid in geo_ids:
         skin = scene.geometry_skin.get(gid)
         acc = {}
@@ -1912,11 +1898,6 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
             start = len(pmx_tris)
             pmx_tris.extend(grp)
             segments.append((mi_idx, start, len(grp), model.name))
-        if verbose:
-            print("  %-22s verts=%-6d tris=%-6d mats=%d skin=%s"
-                  % (model.name, len(pmx_verts) - vbase,
-                     len(pmx_tris) - tri_before, len(mats),
-                     "yes" if acc else "no"))
         if len(pmx_verts) > vbase:
             ps = [pv[0] for pv in pmx_verts[vbase:]]
             mesh_records.append({
@@ -1930,7 +1911,7 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
     hidden_segs = {s for _, alts in alt_groups for a in alts for s in a["segs"]}
     if verbose and alt_groups:
         for prim, alts in alt_groups:
-            print("  alternates: %s 显示；%s 默认隐藏，做成切换表情"
+            print("替换网格：显示 %s，%s 默认隐藏并做成切换表情"
                   % (prim["name"], "、".join(a["name"] for a in alts)))
 
     # ---- winding check: geometric face normal must agree with the vertex
@@ -1948,8 +1929,7 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
     if flipped:
         pmx_tris = [(a, c, b) for a, b, c in pmx_tris]
     if verbose:
-        print("  winding: face/vertex normal agreement=%.1f -> %s"
-              % (agree, "reversed" if flipped else "kept"))
+        print("绕序：%s" % ("与顶点法线相反，已反转" if flipped else "与顶点法线一致"))
 
     # ---- textures: collect one diffuse texture per material, build global list
     tex_list = []                 # ordered unique basenames
@@ -2037,7 +2017,7 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
             x, y, z = bpos[k]
             bpos[k] = (x + off[0], y + off[1], z + off[2])
         if verbose:
-            print("  centered: offset=(%.2f, %.2f, %.2f)" % off)
+            print("居中：偏移 (%.2f, %.2f, %.2f)" % off)
 
     model_name = (name or os.path.splitext(os.path.basename(out_path))[0]).strip()
     if not model_name:
@@ -2230,12 +2210,10 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
             morph_list.append(merged[nm])
         if max_morphs is not None and len(morph_list) > max_morphs:
             if verbose:
-                print("  morphs: capping %d -> %d (max_morphs)"
-                      % (len(morph_list), max_morphs))
+                print("表情：共 %d 个，按上限只导出前 %d 个" % (len(morph_list), max_morphs))
             morph_list = morph_list[:max_morphs]
         if verbose:
-            print("  morphs: wrote %d vertex morph(s) from %d blend shape(s)"
-                  % (len(morph_list), len(scene.morphs)))
+            print("表情：由 %d 个 BlendShape 生成 %d 个顶点表情" % (len(scene.morphs), len(morph_list)))
     if morphs and alt_groups:
         # 材质表情（kind 8）：替换网格的 alpha +1（显示），主网格的 alpha ×0（隐藏）
         show = [0.0] * 3 + [1.0] + [0.0] * 24
@@ -2333,8 +2311,8 @@ def main():
     a = ap.parse_args()
 
     scene = Scene(a.fbx)
-    print("FBX version %d, %d objects" % (scene.ver, len(scene.objects)))
-    print("models=%d (bones=%d)  geometry=%d  materials=%d"
+    print("FBX 版本 %d · 对象 %d 个" % (scene.ver, len(scene.objects)))
+    print("模型 %d 个（其中骨骼 %d）· 几何体 %d · 材质 %d"
           % (len(scene.models),
              sum(1 for m in scene.models.values() if m.cls == "LimbNode"),
              sum(1 for n in scene.objects if n.name == "Geometry"),
@@ -2358,15 +2336,15 @@ def main():
                  auto_facing=not a.no_auto_facing, face_180=a.face_180,
                  skip_untextured=not a.keep_untextured_meshes,
                  name=os.path.splitext(os.path.basename(a.fbx))[0])
-    print("\nwrote %s" % out)
-    print("  vertices=%d  triangles=%d  bones=%d  materials=%d  morphs=%d  scale=%.4f"
+    print("\n已写出 %s" % out)
+    print("顶点 %d · 三角面 %d · 骨骼 %d · 材质 %d · 表情 %d · 缩放 %.4f"
           % (st["verts"], st["tris"], st["bones"], st["materials"],
              st["morphs"], st["scale"]))
     if st["skipped_untextured"]:
-        print("  skipped %d mesh(es) with no material: %s"
+        print("跳过无材质的网格 %d 个：%s"
               % (len(st["skipped_untextured"]),
-                 ", ".join("%s(%d tris)" % (n, t) for n, t in st["skipped_untextured"])))
-    print("  size=%.2f MB  (vertex index width %d bytes)"
+                 "、".join("%s（%d 个三角面）" % (n, t) for n, t in st["skipped_untextured"])))
+    print("大小 %.2f MB（顶点索引 %d 字节）"
           % (st["bytes"] / 1048576, st["vi_size"]))
     return 0
 

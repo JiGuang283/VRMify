@@ -877,7 +877,7 @@ class OtherNamingTest(Base):
         rep = [s for s, t in logs if s.startswith("表情预设：")]
         self.assertEqual(len(rep), 1)
         self.assertIn("surprised ← browInnerUp×0.7", rep[0])
-        self.assertIn("模型里找不到：", rep[0])
+        self.assertIn("未找到：", rep[0])
 
 
 class SkeletonTest(Base):
@@ -1108,7 +1108,7 @@ class PipelineTest(Base):
         logs = []
         out = os.path.join(self.tmp, "prop_out")
         self.assertEqual(pipeline.convert_file(prop, {}, out_dir=out, log=lambda m, t=None: logs.append((m, t))), [])
-        self.assertTrue(any(m.startswith("跳过 剑：认不出人形骨架") and t == "warn" for m, t in logs), logs)
+        self.assertTrue(any(m.startswith("跳过 剑：未识别到人形骨架") and t == "warn" for m, t in logs), logs)
         self.assertEqual(len(pipeline.convert_file(prop, {"vrm": {"avatar_only": False}}, out_dir=out)), 1)
         z = os.path.join(self.tmp, "with_prop.zip")
         with zipfile.ZipFile(z, "w") as zf:
@@ -1198,7 +1198,7 @@ class PipelineTest(Base):
         self.assertEqual(sorted(os.path.basename(p) for p in outs), sorted([stem + ".vrm", stem + "_2.vrm"]))
         for p in outs:
             self.assertValid(p)
-        self.assertIn("压缩包里有 2 个模型，同时转 2 个", logs)
+        self.assertIn("压缩包中共有 2 个模型，同时转换 2 个", logs)
 
     def test_archive_kinds(self):
         for name, kind in (("a.zip", "zip"), ("a.7z", "7z"), ("a.7z.001", "7z"), ("a.7z.002", None),

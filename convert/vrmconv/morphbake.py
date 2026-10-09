@@ -202,15 +202,15 @@ def eye_look_range(model, vweights, parents, eyes):
         r = sum(far) / len(far)
         width = max(xs) - min(xs)
         if span and (width > 0.8 * span or r > 1.5 * span):
-            return None, ("眼骨上挂的顶点不像一只眼睛（宽 %.2f、支点到表面 %.2f，两眼相距 %.2f），用默认 10°"
+            return None, ("眼骨上的顶点不像一只眼睛（宽 %.2f、支点到表面 %.2f，两眼相距 %.2f），使用默认值 10°"
                           % (width, r, span))
         if r > 1e-6 and width > 1e-6:
             angles.append(math.degrees(math.atan(LOOK_TRAVEL * width / r)))
     if not angles:
-        return None, "眼骨上没有找到瞳孔顶点，用默认 10°"
+        return None, "眼骨上没有瞳孔顶点，使用默认值 10°"
     raw = sum(angles) / len(angles)
     h = min(20.0, max(8.0, raw))
-    note = "按眼球几何，瞳孔走到约 %d%% 瞳孔宽度" % round(LOOK_TRAVEL * 100)
+    note = "按眼球结构计算，瞳孔最多移动约 %d%% 瞳孔宽度" % round(LOOK_TRAVEL * 100)
     if h != raw:
         note += "；算出 %.1f°，限制到 %.0f°" % (raw, h)
     return {"lookLeft": h, "lookRight": h, "lookDown": round(h * 0.7, 2), "lookUp": round(h * 0.5, 2)}, note

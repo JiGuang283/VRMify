@@ -157,9 +157,9 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     else:
         reverse_winding = bool(reverse_winding)
 
-    _log("缩放 %.5f（MMD 单位 → 米）· 手性修正 %s · 绕序%s"
+    _log("缩放：%.5f（MMD 单位 → 米）· 手性修正：%s · 绕序：%s"
          % (scale,
-            ("z 取反" if is1 else "x 取反") if (mx, mz) != (1.0, 1.0) else "无",
+            ("Z 轴取反" if is1 else "X 轴取反") if (mx, mz) != (1.0, 1.0) else "无",
             "反转" if reverse_winding else "保持不变"))
 
     # ---- 骨骼 → glTF 节点；humanoid 缺的必需骨位补占位
@@ -180,7 +180,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             set_parent=tree.set_parent, cloth=(vnrm, vweights, xf_dir), log=_log,
             **(spring_opts or {}))
     elif spring and model.get("rigid_bodies"):
-        _log("提示：VRM 0.x 暂不转换 SpringBone（物理），头发/裙摆不会摆动", "warn")
+        _log("物理：VRM 0.x 不支持 SpringBone，头发和裙摆不会摆动", "warn")
     nodes, top_nodes = tree.gltf_nodes()
 
     # ---- 视线转角：按眼球几何算（lookAt 和补的视线表情都用它）
@@ -209,10 +209,10 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     mats.prefetch(threads)
     prims, mat_gidx = mesh.build_primitives(model, xf, xf_dir, vpos, vnrm, vweights,
                                             reverse_winding, mats.make)
-    _log("网格：%d 个 primitive（材质）" % len(prims))
+    _log("网格：按材质分为 %d 个部分" % len(prims))
     mats.log_summary(_log)
     if not prims:
-        raise RuntimeError("这个 PMX 没有可用的面数据")
+        raise RuntimeError("此 PMX 没有可用的面数据")
     mesh.write_accessors(gb, prims)
 
     # ---- 表情 → morph target + VRM expression
@@ -227,8 +227,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     gltf_meshes, where = mesh.build_meshes(gb, prims, groups, target_names,
                                            model["name"] or "body", sparse_morphs)
     if len(gltf_meshes) > 1:
-        _log("网格：按表情分成 %d 个（%s）" % (len(gltf_meshes), " / ".join(
-            "%s %d" % (m["name"], len(m.get("extras", {}).get("targetNames", ()))) for m in gltf_meshes)))
+        _log("网格：按表情分为 %d 个（%s）" % (len(gltf_meshes), "、".join(
+            "%s：%d 个表情" % (m["name"], len(m.get("extras", {}).get("targetNames", ()))) for m in gltf_meshes)))
 
     inv = []
     for i in range(len(bones)):
@@ -329,7 +329,7 @@ def _gaze(model, human_b, is1, enabled, log, look=None):
     out = [(n, offs) for n, offs in morphbake.gaze_offsets(human_b["leftEye"], human_b["rightEye"], deg)
            if n not in have]
     if out:
-        log("表情：补视线表情 %s（转眼骨烘焙；lookAt 仍用骨骼）" % " / ".join(n for n, _ in out))
+        log("表情：补充视线表情 %s（由转动眼骨烘焙，lookAt 仍使用骨骼）" % " / ".join(n for n, _ in out))
     return out
 
 

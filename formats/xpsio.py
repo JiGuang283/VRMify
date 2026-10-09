@@ -172,7 +172,7 @@ class _R(object):
 
     def need(self, k):
         if self.o + k > self.n:
-            raise ValueError("文件在偏移 %d 处就结束了（还要 %d 字节，只剩 %d）"
+            raise ValueError("文件在偏移 %d 处提前结束（还需 %d 字节，仅剩 %d）"
                              % (self.o, k, self.n - self.o))
 
     def u8(self):
@@ -326,11 +326,8 @@ def _read_meshes(r, has_bones, has_tangent, variable_bone_count, log):
                 tris.append((a, b, c))
             mesh.triangles = tris
             if bad and log:
-                log("   网格 %d 有 %d 个越界三角面，已跳过" % (mi, bad), "warn")
+                log("网格 %d 有 %d 个三角面索引越界，已跳过" % (mi, bad), "warn")
         meshes.append(mesh)
-        if log:
-            log("   mesh[%d] %s：顶点 %d · 三角面 %d · UV %d 层 · 贴图 %d"
-                % (mi, name or "(无名)", nv, len(mesh.triangles), nuv, ntex))
     return meshes
 
 
@@ -362,7 +359,7 @@ def read_xps(path, log=None):
         m.version_major = 1
         has_bones = True
         if log:
-            log("旧版 XNALara 二进制格式（无 Generic Item 2 头）", "info")
+            log("XPS 格式：旧版 XNALara 二进制格式（无 Generic Item 2 头）", "info")
 
     # 切线：只有旧版 XNALara 且 majorVersion < 2 才有
     has_tangent = (not m.is_generic2) and m.version_major < 2
@@ -371,20 +368,18 @@ def read_xps(path, log=None):
 
     if log:
         if m.is_generic2:
-            log("XPS Generic Item 2 · 版本 %d.%d · 作者 %s"
+            log("XPS 格式：Generic Item 2 · 版本 %d.%d · 作者 %s"
                 % (m.version_major, m.version_minor, m.author or "?"), "info")
         if has_tangent:
-            log("旧版格式带切线数据（转换时会跳过）", "info")
+            log("XPS 格式：旧版格式含切线数据（转换时忽略）", "info")
 
     m.bones = _read_bones(r)
     if not m.bones:
-        raise ValueError("文件里没有骨骼数据")
-    if log:
-        log("骨骼 %d 根" % len(m.bones), "info")
+        raise ValueError("文件中没有骨骼数据")
     m.meshes = _read_meshes(r, has_bones, has_tangent, variable_bone_count, log)
     m.tail = data[r.o:]
     if not m.meshes:
-        raise ValueError("文件里没有网格数据")
+        raise ValueError("文件中没有网格数据")
     return m
 
 
