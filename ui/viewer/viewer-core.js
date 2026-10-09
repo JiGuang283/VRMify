@@ -112,6 +112,13 @@ export class Viewer {
     this.controls = new OrbitControls(this.camera, r.domElement);
     this.controls.target.set(0, 0.9, 0);
     this.controls.enableDamping = true;
+    this.controls.zoomToCursor = true;            // the wheel zooms toward the point under the pointer
+    this.controls.minDistance = 0.03;
+    // double-click: that point of the model (or the bone under the pointer) becomes the orbit centre
+    r.domElement.addEventListener('dblclick', (e) => {
+      const p = this.pointAt(e.clientX, e.clientY);
+      if (p) this.focusOn(p);
+    });
 
     this.ambient = new THREE.AmbientLight(0xffffff, 0.6);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -336,7 +343,56 @@ export class Viewer {
       back: [[0, cy + E * 0.08, -E * 2.2], [0, cy + E * 0.03, 0]],
     };
     const [pos, tgt] = presets[kind] || presets.body;
+    this._focus = null;
     this.camera.position.set(...pos); this.controls.target.set(...tgt); this.controls.update();
+  }
+
+  // the point of the model under the pointer (client coordinates): a bone of the skeleton overlay when one is
+  // within a few pixels, else the first surface hit (skinned and morphed as shown). null when nothing is there
+  pointAt(x, y) {
+    if (!this.loaded) return null;
+    const b = this._boneGfx ? this.boneAt(x, y, 8) : null;
+    if (b) return this._bonePos[b.index].clone();
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2((x - r.left) / r.width * 2 - 1, -(y - r.top) / r.height * 2 + 1), this.camera);
+    const hit = ray.intersectObject(this.vrm ? this.vrm.scene : this.mmd.mesh, true).find((h) => h.object.isMesh);
+    return hit ? hit.point.clone() : null;
+  }
+
+  // move the orbit centre to p (world), keeping the viewing direction and distance; eased over ~0.3 s
+  focusOn(p) {
+    this._focus = { from: this.controls.target.clone(), to: p.clone(), t: 0 };
+  }
+
+  // the orbit centre onto a SpringBone chain (its joint nodes), a little closer when far away
+  focusChain(nodes) {
+    const byNode = this.vrm ? this._nodes() : null;
+    if (!byNode || !nodes || !nodes.length) return;
+    this.scene.updateMatrixWorld();
+    const c = new THREE.Vector3(), p = new THREE.Vector3(), box = new THREE.Box3();
+    let n = 0;
+    for (const i of nodes) {
+      const o = byNode.get(i);
+      if (!o) continue;
+      p.setFromMatrixPosition(o.matrixWorld); c.add(p); box.expandByPoint(p); n++;
+    }
+    if (!n) return;
+    c.divideScalar(n);
+    const size = Math.max(0.15, box.getSize(p).length());
+    const off = this.camera.position.clone().sub(this.controls.target);
+    if (off.length() > size * 3) this.camera.position.copy(this.controls.target).add(off.setLength(size * 3));
+    this.focusOn(c);
+  }
+
+  _stepFocus(dt) {
+    const f = this._focus;
+    f.t = Math.min(1, f.t + dt / 0.3);
+    const k = 1 - Math.pow(1 - f.t, 3);
+    const tgt = f.from.clone().lerp(f.to, k), d = tgt.clone().sub(this.controls.target);
+    this.controls.target.add(d);
+    this.camera.position.add(d);
+    if (f.t >= 1) this._focus = null;
   }
 
   // ------------------------------------------------------------- lights --
@@ -716,6 +772,7 @@ export class Viewer {
       this._applyMotionPmx(this.t);
       this.mmd.helper.update(dt * this.speed);      // MMD physics only (no animation clip → no IK)
     }
+    if (this._focus) this._stepFocus(dt);
     this.controls.update();
     if (this._boneGfx || this._chainGfx) this.scene.updateMatrixWorld();
     if (this._boneGfx) this._updateBones();

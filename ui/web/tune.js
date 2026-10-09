@@ -200,8 +200,15 @@ function renderLook(sec) {
 }
 
 // ---- physics (VRM 1.0 SpringBone): overall multipliers, then each chain (collapsed by default)
+// the chain kept shown in the preview (pin button), per file; hovering another chain shows that one meanwhile
+let pinned = null;                 // { fid, key, nodes }
+const pinnedNodes = () => (pinned && pinned.fid === T.fid ? pinned.nodes : null);
+const ICON_EYE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/></svg>';
+const ICON_AIM = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg>';
+
 function renderPhysics(sec) {
-  viewer.highlightChain(null);
+  if (pinned && (pinned.fid !== T.fid || !T.info.springs.some((c) => c.key === pinned.key))) pinned = null;
+  viewer.highlightChain(pinnedNodes());
   const sp = T.edits.spring = T.edits.spring || {};
   sp.chains = sp.chains || {};
   const live = () => { viewer.setSpringParams(springParams()); markDirty(); };
@@ -218,15 +225,31 @@ function renderPhysics(sec) {
     const e = sp.chains[c.key] || {};
     const get = () => (sp.chains[c.key] = sp.chains[c.key] || {});
     const row = document.createElement('div'); row.className = 'chain' + (e.off ? ' off' : ''); row.dataset.name = c.name.toLowerCase();
+    const nodes = c.joints.map((j) => j.node);
+    row.classList.toggle('pinned', !!pinned && pinned.fid === T.fid && pinned.key === c.key);
+    const head = document.createElement('div'); head.className = 'chain-head';
+    const pin = document.createElement('button'); pin.className = 'ibtn' + (row.classList.contains('pinned') ? ' on' : '');
+    pin.innerHTML = ICON_EYE; pin.title = t('pinChain'); pin.setAttribute('aria-label', t('pinChain'));
+    pin.onclick = () => {
+      const on = !row.classList.contains('pinned');
+      list.querySelectorAll('.chain.pinned').forEach((r) => { r.classList.remove('pinned'); r.querySelector('.ibtn').classList.remove('on'); });
+      pinned = on ? { fid: T.fid, key: c.key, nodes } : null;
+      row.classList.toggle('pinned', on); pin.classList.toggle('on', on);
+      viewer.highlightChain(on ? nodes : null);
+    };
+    const aim = document.createElement('button'); aim.className = 'ibtn';
+    aim.innerHTML = ICON_AIM; aim.title = t('focusChain'); aim.setAttribute('aria-label', t('focusChain'));
+    aim.onclick = () => viewer.focusChain(nodes);
     const sw = document.createElement('label'); sw.className = 'switch';
     sw.innerHTML = `<input type="checkbox" ${e.off ? '' : 'checked'}><span title="${esc(c.name)}">${esc(c.name)} · ${c.joints.length}</span>`;
     sw.querySelector('input').addEventListener('change', (ev) => { get().off = !ev.target.checked; row.classList.toggle('off', !ev.target.checked); live(); });
-    row.append(sw,
+    head.append(sw, pin, aim);
+    row.append(head,
       slider(t('stiffMul'), num(e.stiffness, 1), 0.2, 3, 0.05, (v) => { get().stiffness = v; live(); }, fmtMul),
       slider(t('gravAdd'), num(e.gravity, 0), 0, 1, 0.02, (v) => { get().gravity = v; live(); }, fmtAdd));
     // hovering a chain shows it in the preview (joints, hit radius, its colliders)
-    row.addEventListener('pointerenter', () => viewer.highlightChain(c.joints.map((j) => j.node)));
-    row.addEventListener('pointerleave', () => viewer.highlightChain(null));
+    row.addEventListener('pointerenter', () => viewer.highlightChain(nodes));
+    row.addEventListener('pointerleave', () => viewer.highlightChain(pinnedNodes()));
     list.append(row);
   }
   flt.querySelector('input').addEventListener('input', (ev) => {

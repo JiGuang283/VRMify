@@ -127,6 +127,17 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .pv-tip { position: absolute; padding: 4px 8px; border-radius: 4px; background: #000c; color: #fff; font-size: 12px;
   line-height: 1.5; pointer-events: none; white-space: nowrap; transform: translate(12px, 12px); }
 .pv-tip .k { opacity: 0.75; }
+.pv-hint { position: absolute; right: 10px; bottom: 8px; color: #fff; opacity: 0.6; font-size: 11px;
+  text-shadow: 0 1px 2px #0009; pointer-events: none; }
+/* tune panel: chain rows with keep-shown / focus buttons */
+.chain-head { display: flex; align-items: center; gap: 2px; }
+.chain-head .switch { flex: 1; min-width: 0; }
+.ibtn { flex: none; width: 24px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 4px;
+  background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.ibtn:hover { background: var(--accent-soft); color: var(--accent); }
+.ibtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.ibtn svg { width: 15px; height: 15px; }
+.chain.pinned { box-shadow: inset 3px 0 0 var(--accent); padding-left: 4px; }
 .spinner { width: 18px; height: 18px; border: 2px solid #fff6; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* side column next to the preview (one panel at a time) */

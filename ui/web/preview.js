@@ -40,6 +40,7 @@ export async function loadModel(url, name, keepView) {
     await viewer.loadUrl(url, name);
     modelUrl = url;
     $('pvEmpty').hidden = true;
+    $('pvHint').hidden = false;
     $('pvTitle').textContent = name;
   } catch (e) { toast(t('pvFailed', { err: e.message })); }
   showBusy(null);
