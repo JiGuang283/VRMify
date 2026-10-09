@@ -22,6 +22,7 @@ opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEF
     uemodel  {"alpha", "align_ref"}
     psk      {"jp_bones", "ik", "morphs", "alpha"}
     xps      {"jp_bones", "ik", "hide_unused", "double_sided", "edge"}
+    jobs     同时转几个（多个文件、或一个包里的几个模型）：0 = 自动（见 parallel.jobs_for），1 = 一个一个转
 
 log(msg, tag=None)：tag 为 None / "info" / "ok" / "warn" / "err" / "head"。
 """
@@ -34,6 +35,7 @@ import shutil
 import sys
 import tempfile
 import time
+import traceback
 import zipfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +44,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
         sys.path.insert(0, _p)
 
 import archive  # noqa: E402
+import parallel  # noqa: E402
 
 KINDS = {".pmx": "pmx", ".vrm": "vrm", ".fbx": "fbx", ".unitypackage": "unitypackage",
          ".uemodel": "uemodel", ".psk": "psk", ".pskx": "psk", ".xps": "xps", ".zip": "zip"}
@@ -50,6 +53,7 @@ CONVERTIBLE = {"pmx", "fbx", "unitypackage", "uemodel", "psk", "xps"} | ARCHIVES
 
 DEFAULTS = {
     "target": "vrm",
+    "jobs": 0,
     "output": {"mode": "beside", "folder": "", "subfolder": True},
     "vrm": {"spec": "1.0", "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True, "combo_expr": True,
             "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
@@ -297,22 +301,7 @@ def to_pmx(path, kind, out_dir, opts, log):
     # 有的转换器只在拷贝贴图时才建输出目录：没有贴图的模型（白模）写 PMX 时目录还不存在
     os.makedirs(out_dir, exist_ok=True)
     if kind in ("fbx", "unitypackage"):
-        dest = None
-        if kind == "unitypackage":
-            # 解到临时目录（几百个资源文件，转完就删），只有 PMX 和它的贴图写进 out_dir
-            from unitypackage_unpack import unpack
-            dest = tempfile.mkdtemp(prefix="model2vrm_unitypackage_")
-            with contextlib.redirect_stdout(_LogWriter(log)):
-                unpack(path, dest, verbose=False)
-            n = sum(len(fs) for _, _, fs in os.walk(dest))
-            fbxs = [p for p in find_files(dest, ".fbx") if os.path.getsize(p) > 1024]
-            log("解包 %s：%d 个文件，%d 个 FBX" % (os.path.basename(path), n, len(fbxs)), "info")
-            if not fbxs:
-                shutil.rmtree(dest, ignore_errors=True)
-                raise RuntimeError("包里没有找到 FBX")
-            fbxs.sort(key=lambda p: -os.path.getsize(p))
-        else:
-            fbxs = [path]
+        fbxs, dest = _unpack_fbxs(path, log) if kind == "unitypackage" else ([path], None)
         try:
             return _fbxs_to_pmx(fbxs, out_dir, opts["fbx"], log)
         finally:
@@ -343,30 +332,109 @@ def to_pmx(path, kind, out_dir, opts, log):
     return [out]
 
 
-def _fbxs_to_pmx(fbxs, out_dir, o, log):
-    """FBX → PMX（写进 out_dir，贴图在 out_dir/textures），返回 PMX 路径列表。"""
-    import fbx2pmx
-    outs, used = [], set()
+def _unpack_fbxs(path, log):
+    """unitypackage 解到临时目录（几百个资源文件，转完就删）→ ([FBX，大的在前], 临时目录)。"""
+    from unitypackage_unpack import unpack
+    dest = tempfile.mkdtemp(prefix="model2vrm_unitypackage_")
+    with contextlib.redirect_stdout(_LogWriter(log)):
+        unpack(path, dest, verbose=False)
+    n = sum(len(fs) for _, _, fs in os.walk(dest))
+    fbxs = [p for p in find_files(dest, ".fbx") if os.path.getsize(p) > 1024]
+    log("解包 %s：%d 个文件，%d 个 FBX" % (os.path.basename(path), n, len(fbxs)), "info")
+    if not fbxs:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise RuntimeError("包里没有找到 FBX")
+    fbxs.sort(key=lambda p: -os.path.getsize(p))
+    return fbxs, dest
+
+
+def _fbx_names(fbxs):
+    """每个 FBX 的输出名；包里不同文件夹下的同名 FBX 加 _2、_3。"""
+    names, used = [], set()
     for fbx in fbxs:
-        name = os.path.splitext(os.path.basename(fbx))[0]
+        base = name = os.path.splitext(os.path.basename(fbx))[0]
         k = 2
-        while name.lower() in used:            # 包里不同文件夹下的同名 FBX
-            name = "%s_%d" % (os.path.splitext(os.path.basename(fbx))[0], k)
+        while name.lower() in used:
+            name = "%s_%d" % (base, k)
             k += 1
         used.add(name.lower())
+        names.append(name)
+    return names
+
+
+def _fbx_to_pmx(fbx, out, name, o, log):
+    import fbx2pmx
+    log("读取 FBX：%s" % os.path.basename(fbx), "info")
+    w = _LogWriter(log)
+    with contextlib.redirect_stdout(w):
+        scene = fbx2pmx.Scene(fbx)
+        st = fbx2pmx.convert(scene, out, scale_mode="auto", flip_z=o["flip_z"],
+                             name=name, center=o["center"], morphs=o["morphs"],
+                             alpha_mode=o["alpha"], auto_facing=o["auto_facing"],
+                             face_180=o["face_180"])
+    w.flush()
+    if st.get("facing_reason"):
+        log("朝向：%s" % st["facing_reason"], None)
+
+
+def _fbxs_to_pmx(fbxs, out_dir, o, log):
+    """FBX → PMX（写进 out_dir，贴图在 out_dir/textures），返回 PMX 路径列表。"""
+    outs = []
+    for fbx, name in zip(fbxs, _fbx_names(fbxs)):
         out = os.path.join(out_dir, name + ".pmx")
-        log("读取 FBX：%s" % os.path.basename(fbx), "info")
-        w = _LogWriter(log)
-        with contextlib.redirect_stdout(w):
-            scene = fbx2pmx.Scene(fbx)
-            st = fbx2pmx.convert(scene, out, scale_mode="auto", flip_z=o["flip_z"],
-                                 name=name, center=o["center"], morphs=o["morphs"],
-                                 alpha_mode=o["alpha"], auto_facing=o["auto_facing"],
-                                 face_180=o["face_180"])
-        w.flush()
-        if st.get("facing_reason"):
-            log("朝向：%s" % st["facing_reason"], None)
+        _fbx_to_pmx(fbx, out, name, o, log)
         outs.append(out)
+    return outs
+
+
+def fbx_to_vrm(fbx, name, out_dir, opts, log, edits=None, check_avatar=False):
+    """一个 FBX → VRM；中间的 PMX 和贴图放自己的临时目录。check_avatar（包里有几个模型时）：
+    只有衣服 / 配件的跳过。→ [VRM 路径] 或 []。并行时在子进程里跑（parallel.run）。"""
+    work = tempfile.mkdtemp(prefix="model2vrm_work_")
+    try:
+        pmx = os.path.join(work, name + ".pmx")
+        _fbx_to_pmx(fbx, pmx, name, opts["fbx"], log)
+        if check_avatar:
+            why = not_an_avatar(pmx)
+            if why:
+                log("跳过 %s：%s（主体模型里通常已经带着；要转换可以单独添加这个文件）" % (name, why), "warn")
+                return []
+        log("PMX → VRM：%s.pmx" % name, "info")
+        return [pmx_to_vrm(pmx, out_dir, opts, log, edits=edits)]
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _fbxs_to_vrm(fbxs, out_dir, opts, log, edits=None):
+    """几个 FBX（unitypackage 里常有好几套服装）→ VRM：能并行时同时转，各自的日志前面带上模型名。
+    包里某个模型失败不影响其它的，都失败才报错。"""
+    names = _fbx_names(fbxs)
+    multi = len(fbxs) > 1
+    tasks = [(i, fbx_to_vrm, (fbx, names[i], out_dir, opts), {"edits": edits, "check_avatar": multi})
+             for i, fbx in enumerate(fbxs)]
+    jobs = parallel.jobs_for(len(tasks), opts.get("jobs"))
+    if not multi:
+        return fbx_to_vrm(fbxs[0], names[0], out_dir, opts, log, edits=edits)
+    if jobs > 1:
+        log("包里有 %d 个模型，同时转 %d 个" % (len(tasks), jobs), "info")
+        results = parallel.run(tasks, jobs, lambda i: (lambda m, t=None: log("[%s] %s" % (names[i], m), t)))
+    else:
+        results = {}
+        for i, func, args, kw in tasks:
+            try:
+                results[i] = (True, func(*args, log=log, **kw))
+            except Exception as e:  # noqa: BLE001  一个模型失败不影响其它的
+                results[i] = (False, ("%s: %s" % (type(e).__name__, e), traceback.format_exc()))
+    outs, errors = [], []
+    for i in range(len(tasks)):
+        ok, r = results.get(i, (False, ("没有执行", "")))
+        if ok:
+            outs += r
+        else:
+            errors.append(r[0])
+            log("%s 转换失败：%s" % (names[i], r[1] or r[0]), "err")
+    if errors and not outs:
+        raise RuntimeError(errors[0])
     return outs
 
 
@@ -457,20 +525,18 @@ def _convert_model(path, kind, out_dir, opts, log, edits=None):
             log("已写出 %s" % os.path.basename(p), "ok")
         return pmxs
     # 转 VRM 时中间的 PMX 和它的贴图只是过渡：放临时目录，转完删掉，输出目录只留 VRM
+    if kind in ("fbx", "unitypackage"):
+        fbxs, dest = _unpack_fbxs(path, log) if kind == "unitypackage" else ([path], None)
+        try:
+            return _fbxs_to_vrm(fbxs, out_dir, opts, log, edits)
+        finally:
+            if dest:
+                shutil.rmtree(dest, ignore_errors=True)
     work = tempfile.mkdtemp(prefix="model2vrm_work_")
     try:
         pmxs = to_pmx(path, kind, work, opts, log)
-        outs = []
-        for p in pmxs:
-            if len(pmxs) > 1:
-                why = not_an_avatar(p)
-                if why:
-                    log("跳过 %s：%s（主体模型里通常已经带着；要转换可以单独添加这个文件）"
-                        % (os.path.basename(p)[:-4], why), "warn")
-                    continue
-            log("PMX → VRM：%s" % os.path.basename(p), "info")
-            outs.append(pmx_to_vrm(p, out_dir, opts, log, edits=edits))
-        return outs
+        log("PMX → VRM：%s" % os.path.basename(pmxs[0]), "info")
+        return [pmx_to_vrm(p, out_dir, opts, log, edits=edits) for p in pmxs]
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

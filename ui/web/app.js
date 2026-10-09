@@ -38,7 +38,7 @@ async function loadState() {
 }
 
 function handleEvent(ev) {
-  if (ev.type === 'log') appendLog(ev.msg, ev.tag);
+  if (ev.type === 'log') appendLog(ev.msg, ev.tag, ev.file);
   else if (ev.type === 'file') {
     const i = S.files.findIndex((f) => f.id === ev.file.id);
     const was = i >= 0 ? S.files[i].status : null;

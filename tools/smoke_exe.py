@@ -167,19 +167,25 @@ def run(exe, inputs, tmp, report, timeout):
         seq = c.json("/api/state")["seq"]
         if not c.json("/api/convert", {"ids": []}).get("started"):
             raise Failed("/api/convert 没有开始")
-        errors, t0, finished = [], time.time(), None
+        errors, msgs, t0, finished = [], [], time.time(), None
         while finished is None:
             if time.time() - t0 > timeout:
                 raise Failed("%d 秒内没转完" % timeout)
             for ev in c.json("/api/events?after=%d" % seq, timeout=30)["events"]:
                 seq = max(seq, ev["seq"])
-                if ev.get("type") == "log" and ev.get("tag") == "err":
-                    errors.append(ev["msg"])
+                if ev.get("type") == "log":
+                    msgs.append(ev["msg"])
+                    if ev.get("tag") == "err":
+                        errors.append(ev["msg"])
                 if ev.get("type") == "busy" and ev.get("busy") is False:
                     finished = ev
         report("转换 %.1f 秒：成功 %s、失败 %s" % (time.time() - t0, finished.get("done"), finished.get("failed")))
         if errors:
             raise Failed("日志里有错误：\n" + "\n".join(errors)[-3000:])
+        # 几个文件会同时转：子进程也是这个 exe（靠 ui/app.py 的 freeze_support）；退回一个一个转说明多进程坏了
+        if any("没法同时转换" in m for m in msgs):
+            raise Failed("打包后的 exe 开不起转换子进程（退回了一个一个转）")
+        report(next((m for m in msgs if m.startswith("同时转换")), "一个一个转（这台机器的 CPU / 内存只够一个）"))
 
         validators, why = check_vrm.load_validators()
         if why:

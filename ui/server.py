@@ -89,6 +89,7 @@ for _p in ("convert", "formats"):
 # Unity 资源包解出的深层目录树超过 260 字符时 open / makedirs 才不会报 FileNotFoundError
 import longpath  # noqa: E402,F401
 import pipeline  # noqa: E402
+import parallel  # noqa: E402
 import vrm_edit  # noqa: E402
 from version import __version__  # noqa: E402
 from vrmconv import textures  # noqa: E402
@@ -341,35 +342,71 @@ class Backend:
         return True
 
     def _run(self, ids, opts):
+        """转换 ids 里的文件。几个文件时按 parallel.jobs_for 同时转（子进程），一个文件就在本进程里转。
+        「停止」：已经在转的转完，还没开始的不再开始。"""
         self.emit(type="busy", busy=True, total=len(ids))
-        done = failed = 0
+        todo = []
+        for fid in ids:
+            with self.lock:
+                f = self.files.get(fid)
+            if f:
+                todo.append((fid, f["path"], f["name"], self.edits_for(f)))
+        total = len(todo)
+        jobs = parallel.jobs_for(total, opts.get("jobs"))
+        st = {"done": 0, "failed": 0, "finished": 0}
+        running, t0 = {}, {}
+
+        def progress():
+            self.emit(type="progress", index=st["finished"], total=total, name="、".join(running.values()))
+
+        def start(fid):
+            t0[fid] = time.time()
+            running[fid] = next(n for i, _, n, _ in todo if i == fid)
+            self._update(fid, status="running", error=None)
+            progress()
+
+        def finish(fid, ok, res):
+            running.pop(fid, None)
+            st["finished"] += 1
+            if ok:
+                self._update(fid, status="done", outputs=self._outputs(res))
+                self.log("完成（%.1f 秒）" % (time.time() - t0[fid]), "ok", fid)
+                st["done"] += 1
+            else:
+                summary, tb = res
+                self.log(tb or summary, "err", fid)
+                self._update(fid, status="error", error=summary)
+                st["failed"] += 1
+            progress()
+
+        def stopped():
+            with self.lock:
+                return self.stop_flag
+
         try:
-            for n, fid in enumerate(ids):
-                with self.lock:
-                    f = self.files.get(fid)
-                    stop = self.stop_flag
-                if stop:
-                    self.log("已停止", "warn")
-                    break
-                if not f:
-                    continue
-                self._update(fid, status="running", error=None)
-                self.emit(type="progress", index=n, total=len(ids), name=f["name"])
-                t0 = time.time()
-                try:
-                    outs = pipeline.convert_file(f["path"], opts, log=lambda m, t=None: self.log(m, t, fid),
-                                                 edits=self.edits_for(f))
-                    self._update(fid, status="done", outputs=self._outputs(outs))
-                    self.log("完成（%.1f 秒）" % (time.time() - t0), "ok", fid)
-                    done += 1
-                except Exception as e:  # noqa: BLE001  一个文件失败不影响其它
-                    self.log(traceback.format_exc(), "err", fid)
-                    self._update(fid, status="error", error="%s: %s" % (type(e).__name__, e))
-                    failed += 1
+            if jobs > 1:
+                self.log("同时转换 %d 个文件（共 %d 个）" % (jobs, total), "info")
+                parallel.run([(fid, pipeline.convert_file, (path, opts), {"edits": edits})
+                              for fid, path, _, edits in todo], jobs,
+                             lambda fid: (lambda m, t=None: self.log(m, t, fid)),
+                             start=start, done=finish, should_stop=stopped)
+            else:
+                for fid, path, _, edits in todo:
+                    if stopped():
+                        break
+                    start(fid)
+                    try:
+                        outs = pipeline.convert_file(path, opts, log=lambda m, t=None, fid=fid: self.log(m, t, fid),
+                                                     edits=edits)
+                        finish(fid, True, outs)
+                    except Exception as e:  # noqa: BLE001  一个文件失败不影响其它
+                        finish(fid, False, ("%s: %s" % (type(e).__name__, e), traceback.format_exc()))
+            if st["finished"] < total:
+                self.log("已停止（%d 个没有转换）" % (total - st["finished"]), "warn")
         finally:
             with self.lock:
                 self.busy = False
-            self.emit(type="busy", busy=False, done=done, failed=failed)
+            self.emit(type="busy", busy=False, done=st["done"], failed=st["failed"])
 
     def stop(self):
         with self.lock:

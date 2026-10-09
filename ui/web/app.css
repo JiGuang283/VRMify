@@ -105,6 +105,7 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .log { margin: 8px 0 0; max-height: 260px; overflow: auto; font: 11.5px/1.5 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; word-break: break-all; }
 .log .ok { color: var(--ok); } .log .warn { color: var(--warn); } .log .err { color: var(--err); }
 .log .head { font-weight: 700; } .log .info { color: var(--muted); }
+.log .file-mark { color: var(--accent); margin-top: 2px; }
 
 /* preview */
 .pv-toolbar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }

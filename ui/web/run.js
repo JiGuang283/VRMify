@@ -21,8 +21,16 @@ export function renderStatus() {
   renderFiles();
 }
 
-export function appendLog(msg, tag) {
+let lastFile = null;
+// fid: the file this line belongs to. When several files convert at once their lines interleave, so a short
+// "· name" line marks each switch (a file's own first line "→ name" already says it)
+export function appendLog(msg, tag, fid) {
   const log = $('log');
+  if (fid && fid !== lastFile && !msg.startsWith('→')) {
+    const f = S.files.find((x) => x.id === fid);
+    if (f) { const h = document.createElement('div'); h.className = 'file-mark'; h.textContent = '· ' + f.name; log.append(h); }
+  }
+  lastFile = fid || lastFile;
   const line = document.createElement('div');
   if (tag) line.className = tag;
   line.textContent = msg;

@@ -140,4 +140,8 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # 同时转换几个文件时开的子进程（convert/parallel.py）：打包的 exe 里它们也是这个 exe，
+    # 要先在这里接住，不然每个子进程都会再开一个程序窗口
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()
