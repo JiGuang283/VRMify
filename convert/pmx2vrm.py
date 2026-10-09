@@ -45,7 +45,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             spring=True, spring_skirt=True, spring_stiffness=1.0,
             spring_gravity=0.0, spring_gravity_skirt=0.1, spring_center=True,
             spring_opts=None, tex_max=0, tex_jpeg=False, auto_spring=True, gaze=True,
-            combo_expr=True, collapse_bones=False, model=None, raw_weights=None, tex_alpha=None,
+            combo_expr=True, collapse_bones=True, model=None, raw_weights=None, tex_alpha=None,
             threads=4):
     """PMX → VRM，返回统计 dict。log(msg, tag=None) 用于输出进度。
 
@@ -59,7 +59,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     combo_expr：情绪预设（happy / angry / sad / relaxed / surprised）组合眉、眼、嘴的表情，
         像 VRoid 一样整张脸一起变（见 vrmconv/expressions.COMBO）；False 时每个预设只对应一个表情。
     collapse_bones：没有权重的中间骨（全ての親 / センター / グルーブ / 腰 / 肩P 之类）也去掉，
-        层级像 VRoid（Root > Hips）。IK、合并掉的付与骨、末端骨这类完全不起作用的骨总会去掉（见 _prune_nodes）。
+        层级像 VRoid（Root > Hips）；False 时留着它们（连接保留骨所需的祖先）。IK、合并掉的付与骨、末端骨这类完全不起作用的骨总会去掉（见 _prune_nodes）。
     meta：title / author / version / contact / copyright / license_url / avatar_permission /
         commercial_usage / credit_notation / allow_redistribution / modification（见 vrm_ext）。
     model / raw_weights / tex_alpha：调用方已经有的，省得再算一遍——读好的 PMX（pmxio.read_pmx，
@@ -420,8 +420,8 @@ def main(argv=None):
                     help="模型没有物理刚体时不自动补（默认按骨骼名给头发、裙摆、袖子等加 SpringBone）")
     ap.add_argument("--no-combo-expr", action="store_true",
                     help="情绪预设不组合眉 / 眼 / 嘴（默认组合，像 VRoid；关掉时每个预设只对应一个 PMX 表情）")
-    ap.add_argument("--collapse-bones", action="store_true",
-                    help="去掉没有权重的中间骨（全ての親 / センター / グルーブ / 腰 等），层级像 VRoid")
+    ap.add_argument("--keep-control-bones", action="store_true",
+                    help="保留没有权重的中间骨（全ての親 / センター / グルーブ / 腰 等；默认去掉，层级像 VRoid）")
     ap.add_argument("--no-gaze", action="store_true",
                     help="不补视线表情（默认有左右眼骨时补 lookUp / lookDown / lookLeft / lookRight）")
     ap.add_argument("--no-spring-center", action="store_true",
@@ -460,7 +460,7 @@ def main(argv=None):
                  spring_center=not a.no_spring_center, auto_spring=not a.no_auto_spring,
                  sparse_morphs=not a.dense_morphs,
                  tex_max=a.tex_max, tex_jpeg=a.tex_jpeg, gaze=not a.no_gaze, combo_expr=not a.no_combo_expr,
-                 collapse_bones=a.collapse_bones,
+                 collapse_bones=not a.keep_control_bones,
                  log=lambda msg, tag=None: print(msg))
     print("完成：%s（%.2f MB）" % (out, st["bytes"] / 1048576.0))
     return 0

@@ -55,6 +55,7 @@ export function showPanel(id) {
     $(btn).setAttribute('aria-pressed', p === id);
   }
   $('side').hidden = !id;
+  if (id !== 'tunePanel') viewer.highlightChain(null);
   $('splitSide').hidden = !id;
   $('side').classList.toggle('wide', id === 'tunePanel');
 }

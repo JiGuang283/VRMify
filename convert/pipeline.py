@@ -59,7 +59,7 @@ DEFAULTS = {
     "output": {"mode": "beside", "folder": "", "subfolder": True},
     "vrm": {"spec": "1.0", "avatar_only": True, "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True, "combo_expr": True,
             "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
-            "collapse_bones": False, "tex_max": 0, "tex_jpeg": False},
+            "collapse_bones": True, "tex_max": 0, "tex_jpeg": False},
     "meta": {"author": "", "version": "", "contact": "", "copyright": "", "license_url": "",
              "avatar_permission": "everyone", "commercial_usage": "personalNonProfit",
              "credit_notation": "required", "allow_redistribution": False,
@@ -534,7 +534,7 @@ def pmx_to_vrm(pmx, out_dir, opts, log, name=None, edits=None, **known):
                     tex_max=int(o.get("tex_max") or 0), tex_jpeg=bool(o.get("tex_jpeg")),
                     auto_spring=bool(o.get("auto_spring", True)), gaze=bool(o.get("gaze", True)),
                     combo_expr=bool(o.get("combo_expr", True)),
-                    collapse_bones=bool(o.get("collapse_bones")), threads=parallel.threads(), **known)
+                    collapse_bones=bool(o.get("collapse_bones", True)), threads=parallel.threads(), **known)
     if edits:
         import vrm_edit
         if not vrm_edit.is_empty(edits):

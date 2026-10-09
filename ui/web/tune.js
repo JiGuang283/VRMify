@@ -201,6 +201,7 @@ function renderLook(sec) {
 
 // ---- physics (VRM 1.0 SpringBone): overall multipliers, then each chain (collapsed by default)
 function renderPhysics(sec) {
+  viewer.highlightChain(null);
   const sp = T.edits.spring = T.edits.spring || {};
   sp.chains = sp.chains || {};
   const live = () => { viewer.setSpringParams(springParams()); markDirty(); };
@@ -223,6 +224,9 @@ function renderPhysics(sec) {
     row.append(sw,
       slider(t('stiffMul'), num(e.stiffness, 1), 0.2, 3, 0.05, (v) => { get().stiffness = v; live(); }, fmtMul),
       slider(t('gravAdd'), num(e.gravity, 0), 0, 1, 0.02, (v) => { get().gravity = v; live(); }, fmtAdd));
+    // hovering a chain shows it in the preview (joints, hit radius, its colliders)
+    row.addEventListener('pointerenter', () => viewer.highlightChain(c.joints.map((j) => j.node)));
+    row.addEventListener('pointerleave', () => viewer.highlightChain(null));
     list.append(row);
   }
   flt.querySelector('input').addEventListener('input', (ev) => {

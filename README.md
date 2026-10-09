@@ -44,8 +44,8 @@ unzip it and run `VRMify.exe`. Nothing to install; delete the folder to uninstal
   lighting, expression sliders and screenshots, plus a skeleton overlay (coloured by humanoid / weighted / physics /
   unused, with bone name and parent on hover). PMX files preview natively with MMD shading and physics.
 - **Tuning after conversion**: change the name, thumbnail, which morph each preset uses and its strength, gaze range,
-  and physics stiffness / gravity / per-chain switches without converting again; saving writes straight into the
-  VRM. Tuning is remembered per source file and reapplied the next time it converts.
+  and physics stiffness / gravity / per-chain switches without converting again (hovering a chain shows it and the
+  colliders it hits in the preview); saving writes straight into the VRM. Tuning is remembered per source file and reapplied the next time it converts.
 - English / Chinese interface.
 
 ## Usage

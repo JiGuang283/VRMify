@@ -177,6 +177,8 @@ export class Viewer {
     this.vrm = null; this.mmd = null; this.info = null; this.springManager = null; this.name = ''; this.gltf = null;
     this._jointsByNode = null; this._removedJoints = new Set();
     if (this._boneGfx) this.setBonesVisible(false, true);
+    this.highlightChain(null);
+    this._byNode = null;
     this._boneList = null; this._bonePos = null; this.boneHover = -1;
   }
 
@@ -465,8 +467,7 @@ export class Viewer {
     let objs = [], kind = new Map(), mark = (o, k) => { if (o && !kind.has(o)) kind.set(o, k); };
     const skinned = [];
     if (this.vrm) {
-      const json = this.gltf.parser.json, byNode = new Map(), ext = json.extensions || {};
-      for (const [o, a] of this.gltf.parser.associations) if (o.isObject3D && a && a.nodes != null && !byNode.has(a.nodes)) byNode.set(a.nodes, o);
+      const json = this.gltf.parser.json, byNode = this._nodes(), ext = json.extensions || {};
       const roots = new Set((json.scenes || [])[json.scene || 0]?.nodes || []);
       (json.nodes || []).forEach((n, i) => { if (n.mesh == null && !roots.has(i) && byNode.get(i)) objs.push(byNode.get(i)); });
       const node = (i) => byNode.get(i);
@@ -511,6 +512,101 @@ export class Viewer {
     }
     for (const b of list) b.kind = b.kind || 'unused';
     return (this._boneList = list);
+  }
+
+  // glTF node index → Object3D
+  _nodes() {
+    if (this._byNode) return this._byNode;
+    const m = new Map();
+    for (const [o, a] of this.gltf.parser.associations) if (o.isObject3D && a && a.nodes != null && !m.has(a.nodes)) m.set(a.nodes, o);
+    return (this._byNode = m);
+  }
+
+  // one SpringBone chain (VRM 1.0), picked by its joint nodes: the chain, each joint's hit radius and the
+  // colliders it collides with, drawn over the model and following it. null clears it.
+  highlightChain(nodes) {
+    if (this._chainGfx) {
+      this.scene.remove(this._chainGfx);
+      this._chainGfx.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+      this._chainGfx = null;
+    }
+    const sb = this.vrm && this.gltf.parser.json.extensions?.VRMC_springBone;
+    if (!nodes || !nodes.length || !sb) return;
+    const spring = (sb.springs || []).find((sp) => sp.joints[0] && sp.joints[0].node === nodes[0]);
+    if (!spring) return;
+    const byNode = this._nodes(), over = { depthTest: false, depthWrite: false, transparent: true };
+    const g = new THREE.Group(), items = [];
+    // a ball = three great circles (a full wireframe sphere hides the model under dozens of colliders)
+    const ring = [];
+    for (let k = 0; k < 3; k++) {
+      for (let i = 0; i < 32; i++) {
+        for (const a of [i / 32 * Math.PI * 2, (i + 1) / 32 * Math.PI * 2]) {
+          const c = Math.cos(a), s = Math.sin(a);
+          ring.push(k === 0 ? [c, s, 0] : k === 1 ? [c, 0, s] : [0, c, s]);
+        }
+      }
+    }
+    const ringGeo = new THREE.BufferGeometry().setFromPoints(ring.map((q) => new THREE.Vector3(...q)));
+    const sphere = (color, opacity) => new THREE.LineSegments(ringGeo, new THREE.LineBasicMaterial({ ...over, color, opacity }));
+    // the chain: a line through the joints and a sphere of hitRadius on each
+    const js = spring.joints.map((j) => ({ obj: byNode.get(j.node), r: j.hitRadius || 0 })).filter((j) => j.obj);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(js.map(() => new THREE.Vector3())),
+      new THREE.LineBasicMaterial({ ...over, color: 0xffe14d }));
+    g.add(line);
+    for (const j of js) {
+      const m = sphere(0xffe14d, 0.9);
+      g.add(m);
+      items.push({ mesh: m, obj: j.obj, offset: new THREE.Vector3(), r: Math.max(j.r, 0.004) });
+    }
+    // its colliders: sphere = one ball; capsule = balls at both ends joined by lines
+    const ids = new Set((spring.colliderGroups || []).flatMap((gi) => (sb.colliderGroups || [])[gi]?.colliders || []));
+    const caps = [];
+    for (const ci of ids) {
+      const c = sb.colliders[ci], obj = byNode.get(c.node);
+      if (!obj) continue;
+      const sh = c.shape.sphere || c.shape.capsule;
+      const off = new THREE.Vector3(...(sh.offset || [0, 0, 0]));
+      const a = sphere(0x40e0ff, 0.5); g.add(a);
+      items.push({ mesh: a, obj, offset: off, r: sh.radius });
+      if (c.shape.capsule) {
+        const tail = new THREE.Vector3(...(sh.tail || [0, 0, 0]));
+        const b = sphere(0x40e0ff, 0.5); g.add(b);
+        items.push({ mesh: b, obj, offset: tail, r: sh.radius });
+        const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 8 }, () => new THREE.Vector3())),
+          new THREE.LineBasicMaterial({ ...over, color: 0x40e0ff, opacity: 0.6 }));
+        g.add(l);
+        caps.push({ line: l, a: items[items.length - 2], b: items[items.length - 1] });
+      }
+    }
+    g.children.forEach((o) => { o.renderOrder = 1000; o.frustumCulled = false; });
+    this._chainGfx = g;
+    this._chain = { line, joints: js, items, caps };
+    this.scene.add(g);
+    this._updateChain();
+  }
+
+  _updateChain() {
+    const { line, joints, items, caps } = this._chain, p = new THREE.Vector3();
+    const lp = line.geometry.attributes.position;
+    joints.forEach((j, i) => { p.setFromMatrixPosition(j.obj.matrixWorld); lp.setXYZ(i, p.x, p.y, p.z); });
+    lp.needsUpdate = true;
+    for (const it of items) {
+      it.mesh.position.copy(it.offset).applyMatrix4(it.obj.matrixWorld);
+      it.mesh.scale.setScalar(it.r);
+    }
+    // capsule sides: four lines between the end balls, offset by the radius across the axis
+    const d = new THREE.Vector3(), u = new THREE.Vector3(), v = new THREE.Vector3();
+    for (const c of caps) {
+      const A = c.a.mesh.position, B = c.b.mesh.position, r = c.a.r, cp = c.line.geometry.attributes.position;
+      d.subVectors(B, A).normalize();
+      u.set(Math.abs(d.y) < 0.9 ? 0 : 1, Math.abs(d.y) < 0.9 ? 1 : 0, 0).cross(d).normalize();
+      v.crossVectors(d, u);
+      [u, v, u.clone().negate(), v.clone().negate()].forEach((w, k) => {
+        cp.setXYZ(k * 2, A.x + w.x * r, A.y + w.y * r, A.z + w.z * r);
+        cp.setXYZ(k * 2 + 1, B.x + w.x * r, B.y + w.y * r, B.z + w.z * r);
+      });
+      cp.needsUpdate = true;
+    }
   }
 
   // bone counts by role (the info panel)
@@ -591,9 +687,10 @@ export class Viewer {
 
   // centre square of the current view, scaled to size×size (VRM thumbnails are square)
   snapshotSquare(size = 1024) {
-    if (this._boneGfx) this._boneGfx.visible = false;        // a thumbnail never shows the skeleton
+    const gfx = [this._boneGfx, this._chainGfx].filter(Boolean);   // a thumbnail never shows the overlays
+    gfx.forEach((o) => { o.visible = false; });
     this.renderer.render(this.scene, this.camera);
-    if (this._boneGfx) this._boneGfx.visible = true;
+    gfx.forEach((o) => { o.visible = true; });
     const src = this.renderer.domElement, s = Math.min(src.width, src.height);
     const c = document.createElement('canvas'); c.width = c.height = size;
     c.getContext('2d').drawImage(src, (src.width - s) / 2, (src.height - s) / 2, s, s, 0, 0, size, size);
@@ -620,7 +717,9 @@ export class Viewer {
       this.mmd.helper.update(dt * this.speed);      // MMD physics only (no animation clip → no IK)
     }
     this.controls.update();
-    if (this._boneGfx) { this.scene.updateMatrixWorld(); this._updateBones(); }
+    if (this._boneGfx || this._chainGfx) this.scene.updateMatrixWorld();
+    if (this._boneGfx) this._updateBones();
+    if (this._chainGfx) this._updateChain();
     this.renderer.render(this.scene, this.camera);
   }
 }

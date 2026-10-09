@@ -1045,7 +1045,7 @@ class PruneTest(Base):
         return out
 
     def test_prune(self):
-        out = self.convert("prune")
+        out = self.convert("prune", collapse_bones=False)
         self.assertValid(out)
         g, b = vrmio.read_glb(out)
         names = [n["name"] for n in g["nodes"]]
