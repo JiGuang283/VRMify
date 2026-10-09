@@ -155,6 +155,7 @@ body.resizing .pv canvas { pointer-events: none; }
 .dim { opacity: .45; }
 .hint.warn { color: var(--warn); }
 .tab-body[data-panel=meta] .field > label { width: 80px; }
+.tab-body[data-panel=main] .field > label { width: 72px; }
 /* settings: Advanced fold, per-format sections, options that only apply to one target */
 details.adv { border-top: 1px solid var(--line); border-bottom: none; margin-top: 10px; padding-bottom: 0; }
 details.adv > summary { font-weight: 600; color: var(--text); }
