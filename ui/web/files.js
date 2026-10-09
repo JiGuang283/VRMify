@@ -1,6 +1,5 @@
 // File list: add / remove, per-file status and outputs, drag & drop.
 import { $, S, api, esc, t, toast } from './core.js';
-import { syncFormats } from './options.js';
 import { loadModel, previewFile } from './preview.js';
 import { leaveTune, loadTune } from './tune.js';
 
@@ -46,7 +45,6 @@ export function renderFiles() {
   $('startLabel').textContent = t(todo || !n ? 'start' : 'restart');
   $('startCount').textContent = n ? `(${n})` : '';
   $('start').disabled = S.busy || !n;
-  syncFormats();
 }
 
 $('addFiles').onclick = () => api('/api/pick', { folder: false });

@@ -59,22 +59,8 @@ export function syncDependents() {
   $('texHint').classList.toggle('warn', !pil);
   renderUeRef();
   renderOutFolder();
-  syncFormats();
 }
 
-// "Other formats" tab: only the sections for kinds in the file list; archives may hold any of them
-let showAllFormats = false;
-export function syncFormats() {
-  const kinds = new Set(S.files.map((f) => f.kind));
-  const any = ['zip', '7z', 'rar', 'tar'].some((k) => kinds.has(k)) || showAllFormats;
-  let shown = 0;
-  document.querySelectorAll('.fmt').forEach((sec) => {
-    const on = any || sec.dataset.kinds.split(' ').some((k) => kinds.has(k));
-    sec.hidden = !on; shown += on;
-  });
-  $('inputNone').hidden = shown > 0;
-}
-$('inputAll').onclick = () => { showAllFormats = true; syncFormats(); };
 
 function renderUeRef() {
   const f = getOpt('uemodel.align_ref');

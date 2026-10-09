@@ -59,7 +59,7 @@ Settings tabs:
 | Tab | Contents |
 |---|---|
 | Convert | Convert to VRM 1.0 / VRM 0.x / PMX only; characters only; physics, expressions; file size (smaller textures, often halving the file); where to save. Physics and expression details, fixes for display problems and how many to convert at once sit under "Advanced" |
-| Other formats | Options for the formats in the list (FBX, uemodel, psk, xps): facing, texture alpha… |
+| Other formats | Options for FBX, uemodel, psk and xps: facing, texture alpha… |
 | Metadata | Author, model version and license, set once for every model; defaults to the most restrictive terms (credit required, no redistribution, no modification) |
 
 **Archives**: zip uses the built-in extractor and restores GBK / Shift-JIS file names from old archives; 7z / rar use

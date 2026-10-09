@@ -161,7 +161,6 @@ details.adv { border-top: 1px solid var(--line); border-bottom: none; margin-top
 details.adv > summary { font-weight: 600; color: var(--text); }
 details.adv h3:first-of-type { margin-top: 6px; }
 .settings-card.pmx .vrm-only, .settings-card:not(.pmx) .pmx-only, .settings-card.pmx .pmx-hidden { display: none; }
-.fmt[hidden] { display: none; }
 .fmt h3 { margin-top: 10px; }
 #metaReset { margin-top: 10px; }
 
