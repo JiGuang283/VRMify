@@ -99,7 +99,10 @@
           <label class="switch"><input type="checkbox" data-opt="vrm.double_sided"><span data-i18n="doubleSided"></span></label>
           <div class="hint" data-i18n="doubleSidedHint"></div>
           <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.outline"><span data-i18n="outline"></span></label>
+          <h3 class="vrm-only" data-i18n="advBones"></h3>
           <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.keep_pose"><span data-i18n="keepPose"></span></label>
+          <label class="switch vrm-only"><input type="checkbox" data-opt="vrm.collapse_bones"><span data-i18n="collapseBones"></span></label>
+          <div class="hint vrm-only" data-i18n="collapseBonesHint"></div>
           <h3 class="vrm-only" data-i18n="texTitle"></h3>
           <div class="field vrm-only">
             <label data-i18n="texMax"></label>
@@ -242,6 +245,7 @@
         <button data-motion="legRaise" data-i18n="legRaise"></button><button data-motion="turn" data-i18n="turn"></button>
       </div>
       <label class="switch small"><input type="checkbox" id="pvSpring" checked><span data-i18n="physics"></span></label>
+      <label class="switch small"><input type="checkbox" id="pvBones"><span data-i18n="pvBones"></span></label>
       <span class="spacer"></span>
       <button class="btn small" id="lightBtn" data-i18n="light"></button>
       <button class="btn small" id="exprBtn" data-i18n="expressions"></button>
@@ -253,6 +257,8 @@
       <div class="pv" id="pv">
         <div class="pv-empty" id="pvEmpty"><span data-i18n="pvEmpty"></span></div>
         <div class="pv-busy" id="pvBusy" hidden><div class="spinner"></div><span id="pvBusyText"></span></div>
+        <div class="pv-legend" id="pvLegend" hidden></div>
+        <div class="pv-tip" id="pvTip" hidden></div>
       </div>
       <!-- side column: one panel at a time; the preview narrows instead of being covered -->
       <div class="splitter" id="splitSide" role="separator" aria-orientation="vertical" data-i18n-title="dragResize" hidden></div>

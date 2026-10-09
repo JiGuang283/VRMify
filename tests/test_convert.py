@@ -1010,6 +1010,68 @@ class SkeletonTest(Base):
                 self.assertAlmostEqual(-m[16 * k + 12 + a], w[a], places=5)
 
 
+class PruneTest(Base):
+    """不起作用的骨（IK、末端骨）去掉；collapse_bones 时没有权重的中间骨（全ての親 / センター）也去掉。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = pmxio.read_pmx(cls.pmx)
+        B = m["bones"]
+        idx = {b["name"]: i for i, b in enumerate(B)}
+        for v in m["vertices"]:                       # センター 不带顶点
+            v["wbones"] = [idx["下半身"] if b == idx["センター"] else b for b in v["wbones"]]
+        B.append({"name": "全ての親", "name_en": "", "pos": (0, 0, 0), "parent": -1, "layer": 0,
+                  "flag": 0x001F, "tail": -1})
+        B[idx["センター"]]["parent"] = len(B) - 1
+        B.append({"name": "左足ＩＫ", "name_en": "", "pos": (0.9, 1.2, 0), "parent": len(B) - 1, "layer": 0,
+                  "flag": 0x001F, "tail": -1})
+        B.append({"name": "左手先", "name_en": "", "pos": (5.5, 12, 0), "parent": idx["左手首"], "layer": 0,
+                  "flag": 0x0001 | 0x0002 | 0x0008 | 0x0010, "tail": -1})
+        cls.pmx = os.path.join(cls.tmp, "src", "prune.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+
+    def bone_weights(self, g, b):
+        """骨名 → 挂在上面的权重之和（和节点序号无关，比较两种输出用）。"""
+        J, out = g["skins"][0]["joints"], {}
+        for m in g["meshes"]:
+            for pr in m["primitives"]:
+                jn = vrmio.read_accessor(g, b, pr["attributes"]["JOINTS_0"])
+                wt = vrmio.read_accessor(g, b, pr["attributes"]["WEIGHTS_0"])
+                for j, w in zip(jn, wt):
+                    if w > 0:
+                        nm = g["nodes"][J[j]]["name"]
+                        out[nm] = round(out.get(nm, 0) + w, 4)
+        return out
+
+    def test_prune(self):
+        out = self.convert("prune")
+        self.assertValid(out)
+        g, b = vrmio.read_glb(out)
+        names = [n["name"] for n in g["nodes"]]
+        self.assertNotIn("左足ＩＫ", names)
+        self.assertNotIn("左手先", names)
+        self.assertIn("全ての親", names)                # センター → 下半身 之间的祖先留着
+        self.assertIn("センター", names)
+        J = g["skins"][0]["joints"]
+        self.assertEqual(len(J), len(set(J)))
+        out2 = self.convert("collapse", collapse_bones=True)
+        self.assertValid(out2)
+        g2, b2 = vrmio.read_glb(out2)
+        names2 = [n["name"] for n in g2["nodes"]]
+        self.assertFalse({"全ての親", "センター", "左足ＩＫ"} & set(names2))
+        hips = g2["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"]["hips"]["node"]
+        root = g2["scenes"][0]["nodes"][0]
+        self.assertIn(hips, g2["nodes"][root]["children"])
+        self.assertEqual(self.bone_weights(g, b), self.bone_weights(g2, b2))
+        # 节点世界坐标不变
+        w1 = {g["nodes"][j]["name"]: SkeletonTest.world(self, g, j) for j in J}
+        for j in g2["skins"][0]["joints"]:
+            nm = g2["nodes"][j]["name"]
+            for a, c in zip(SkeletonTest.world(self, g2, j), w1[nm]):
+                self.assertAlmostEqual(a, c, places=5)
+
+
 class SkirtTest(Base):
     """左腿后面一片后裙：两条链分在腿轴两侧（A 在内侧、B 在外侧），裙片朝后。"""
 

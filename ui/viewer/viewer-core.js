@@ -38,6 +38,15 @@ const MMD_BONES = {
   leftLowerArm: ['左ひじ'], rightLowerArm: ['右ひじ'], head: ['頭'], chest: ['上半身2', '上半身'],
 };
 
+// standard MMD bones: the PMX counterpart of humanoid bones in the skeleton overlay
+const MMD_STANDARD = new Set(['センター', '下半身', '上半身', '上半身2', '上半身3', '首', '頭', '両目', '左目', '右目',
+  ...['肩', '腕', 'ひじ', '手首', '足', 'ひざ', '足首', 'つま先', '足先EX',
+    '親指０', '親指１', '親指２', '人指１', '人指２', '人指３', '中指１', '中指２', '中指３',
+    '薬指１', '薬指２', '薬指３', '小指１', '小指２', '小指３'].flatMap((n) => ['左' + n, '右' + n])]);
+
+// skeleton overlay colours by bone role (see Viewer.bones)
+export const BONE_COLORS = { humanoid: '#ffb020', weighted: '#4fc3f7', spring: '#ff6fb5', control: '#b0b8c4', unused: '#ff4040' };
+
 // English bone names (PMX converted from FBX / psk / xps keeps them) — the same rules as
 // convert/vrmconv/humanoid.py _en_bone, reduced to the bones the preview motions drive.
 const EN_LIMB = { arm: 'UpperArm', upperarm: 'UpperArm', shoulder: 'UpperArm', forearm: 'LowerArm', lowerarm: 'LowerArm',
@@ -167,6 +176,8 @@ export class Viewer {
     }
     this.vrm = null; this.mmd = null; this.info = null; this.springManager = null; this.name = ''; this.gltf = null;
     this._jointsByNode = null; this._removedJoints = new Set();
+    if (this._boneGfx) this.setBonesVisible(false, true);
+    this._boneList = null; this._bonePos = null; this.boneHover = -1;
   }
 
   _setModel(gltf, v, name) {
@@ -197,6 +208,7 @@ export class Viewer {
     this._applyMotion(0);
     if (this.springManager) this.springManager.reset();
     this.info = this._info(gltf, v);
+    if (this.showBones) this.setBonesVisible(true);
     if (this.onLoad) this.onLoad(this.info);
   }
 
@@ -256,6 +268,8 @@ export class Viewer {
       rigidBodies: (mmd.rigidBodies || []).length, constraints: (mmd.constraints || []).length, physics,
       expressions: Object.keys(mesh.morphTargetDictionary || {}).map((n) => ({ name: n, preset: false })),
     };
+    this.info.bones = this.boneStats();
+    if (this.showBones) this.setBonesVisible(true);
     if (this.onLoad) this.onLoad(this.info);
     return this.info;
   }
@@ -306,6 +320,7 @@ export class Viewer {
       colliders: sb ? (sb.colliders || []).length : 0,
       expressions: em ? em.expressions.map((e) => ({ name: e.expressionName, preset: presets.has(e.expressionName) }))
         .sort((a, b) => (b.preset - a.preset)) : [],
+      bones: this.boneStats(),
     };
   }
 
@@ -437,11 +452,148 @@ export class Viewer {
     return true;
   }
 
+  // ------------------------------------------------------------- bones --
+  // Every bone of the loaded model and its role:
+  //   humanoid  humanoid bone (PMX: a standard MMD bone)
+  //   weighted  moves vertices
+  //   spring    SpringBone joint / collider (PMX: a bone driven by a physics rigid body)
+  //   control   moves nothing itself, but bones below it do (PMX: IK bones too)
+  //   unused    none of the above: an empty node
+  // → [{ obj, name, parent (index or -1), kind }], cached per model
+  bones() {
+    if (this._boneList) return this._boneList;
+    let objs = [], kind = new Map(), mark = (o, k) => { if (o && !kind.has(o)) kind.set(o, k); };
+    const skinned = [];
+    if (this.vrm) {
+      const json = this.gltf.parser.json, byNode = new Map(), ext = json.extensions || {};
+      for (const [o, a] of this.gltf.parser.associations) if (o.isObject3D && a && a.nodes != null && !byNode.has(a.nodes)) byNode.set(a.nodes, o);
+      const roots = new Set((json.scenes || [])[json.scene || 0]?.nodes || []);
+      (json.nodes || []).forEach((n, i) => { if (n.mesh == null && !roots.has(i) && byNode.get(i)) objs.push(byNode.get(i)); });
+      const node = (i) => byNode.get(i);
+      const hb = ext.VRMC_vrm ? Object.values(ext.VRMC_vrm.humanoid.humanBones).map((b) => b.node)
+        : ext.VRM ? ext.VRM.humanoid.humanBones.map((b) => b.node) : [];
+      hb.forEach((i) => mark(node(i), 'humanoid'));
+      const sb = ext.VRMC_springBone, sa = ext.VRM && ext.VRM.secondaryAnimation;
+      if (sb) {
+        for (const s of sb.springs || []) for (const j of s.joints) mark(node(j.node), 'spring');
+        for (const c of sb.colliders || []) mark(node(c.node), 'spring');
+      }
+      if (sa) {
+        for (const g of sa.boneGroups || []) for (const r of g.bones || []) node(r)?.traverse((o) => mark(o, 'spring'));
+        for (const g of sa.colliderGroups || []) mark(node(g.node), 'spring');
+      }
+      this.vrm.scene.traverse((o) => { if (o.isSkinnedMesh) skinned.push(o); });
+    } else if (this.mmd) {
+      const { mesh } = this.mmd, mmd = mesh.geometry.userData.MMD || {}, B = mesh.skeleton.bones;
+      objs = B.slice();
+      B.forEach((b) => { if (MMD_STANDARD.has(b.name)) mark(b, 'humanoid'); });
+      for (const r of mmd.rigidBodies || []) if (r.type !== 0 && r.boneIndex >= 0) mark(B[r.boneIndex], 'spring');
+      for (const ik of mmd.iks || []) mark(B[ik.target], 'ik');
+      skinned.push(mesh);
+    }
+    for (const m of skinned) {
+      const si = m.geometry.attributes.skinIndex, sw = m.geometry.attributes.skinWeight, bs = m.skeleton.bones;
+      if (!si || !sw) continue;
+      const hit = new Uint8Array(bs.length);
+      for (let k = 0; k < sw.array.length; k++) if (sw.array[k] > 0) hit[si.array[k]] = 1;
+      hit.forEach((h, i) => { if (h) mark(bs[i], 'weighted'); });
+    }
+    const index = new Map(objs.map((o, i) => [o, i]));
+    const list = objs.map((o) => {
+      let p = o.parent;
+      while (p && !index.has(p)) p = p.parent;
+      return { obj: o, name: o.name, parent: p ? index.get(p) : -1, kind: kind.get(o) === 'ik' ? 'control' : kind.get(o) || null };
+    });
+    // control: no role of its own, but something below has one
+    for (const b of list) {
+      if (!b.kind || b.kind === 'control') continue;
+      for (let p = b.parent; p >= 0 && !list[p].kind; p = list[p].parent) list[p].kind = 'control';
+    }
+    for (const b of list) b.kind = b.kind || 'unused';
+    return (this._boneList = list);
+  }
+
+  // bone counts by role (the info panel)
+  boneStats() {
+    const s = { total: 0, humanoid: 0, weighted: 0, spring: 0, control: 0, unused: 0 };
+    for (const b of this.bones()) { s.total++; s[b.kind]++; }
+    return s;
+  }
+
+  // skeleton overlay: a line to the parent and a dot per bone, coloured by role, drawn over the model
+  setBonesVisible(on, keep = false) {
+    if (!keep) this.showBones = on;
+    if (this._boneGfx) { this.scene.remove(this._boneGfx); this._boneGfx.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); }); this._boneGfx = null; }
+    if (!on || !this.loaded) return;
+    const list = this.bones(), n = list.length;
+    const col = (k) => new THREE.Color(BONE_COLORS[k]);
+    const lines = new THREE.BufferGeometry(), dots = new THREE.BufferGeometry();
+    const lc = new Float32Array(n * 6), dc = new Float32Array(n * 3);
+    list.forEach((b, i) => {
+      const c = col(b.kind);
+      c.toArray(dc, i * 3); c.toArray(lc, i * 6); c.toArray(lc, i * 6 + 3);
+    });
+    lines.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+    lines.setAttribute('color', new THREE.BufferAttribute(lc, 3));
+    dots.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    dots.setAttribute('color', new THREE.BufferAttribute(dc, 3));
+    const over = { depthTest: false, depthWrite: false, transparent: true, vertexColors: true };
+    const g = new THREE.Group();
+    g.add(new THREE.LineSegments(lines, new THREE.LineBasicMaterial({ ...over, opacity: 0.85 })));
+    g.add(new THREE.Points(dots, new THREE.PointsMaterial({ ...over, size: 5, sizeAttenuation: false })));
+    const hl = new THREE.BufferGeometry();
+    hl.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+    const hp = new THREE.Points(hl, new THREE.PointsMaterial({ depthTest: false, transparent: true, size: 11, sizeAttenuation: false, color: 0xffffff }));
+    hp.visible = false;
+    g.add(hp);
+    g.children.forEach((o) => { o.renderOrder = 999; o.frustumCulled = false; });
+    this._boneGfx = g;
+    this.scene.add(g);
+    this._updateBones();
+  }
+
+  _updateBones() {
+    const g = this._boneGfx;
+    if (!g) return;
+    const list = this.bones(), [ls, ds, hp] = g.children;
+    const lp = ls.geometry.attributes.position, dp = ds.geometry.attributes.position, v = new THREE.Vector3();
+    this._bonePos = this._bonePos || list.map(() => new THREE.Vector3());
+    list.forEach((b, i) => this._bonePos[i].setFromMatrixPosition(b.obj.matrixWorld));
+    list.forEach((b, i) => {
+      const p = this._bonePos[i], q = b.parent >= 0 ? this._bonePos[b.parent] : p;
+      dp.setXYZ(i, p.x, p.y, p.z);
+      lp.setXYZ(i * 2, p.x, p.y, p.z); lp.setXYZ(i * 2 + 1, q.x, q.y, q.z);
+    });
+    lp.needsUpdate = dp.needsUpdate = true;
+    hp.visible = this.boneHover != null && this.boneHover >= 0;
+    if (hp.visible) { v.copy(this._bonePos[this.boneHover]); hp.geometry.attributes.position.setXYZ(0, v.x, v.y, v.z); hp.geometry.attributes.position.needsUpdate = true; }
+  }
+
+  // bone under the pointer (client coordinates), within `px` pixels → { index, name, kind, parent } or null;
+  // highlights it in the overlay
+  boneAt(x, y, px = 10) {
+    if (!this._boneGfx || !this._bonePos) return null;
+    const r = this.renderer.domElement.getBoundingClientRect(), v = new THREE.Vector3();
+    let best = -1, bd = px * px, bz = Infinity;
+    this._bonePos.forEach((p, i) => {
+      v.copy(p).project(this.camera);
+      if (v.z > 1) return;
+      const dx = (v.x + 1) / 2 * r.width + r.left - x, dy = (1 - v.y) / 2 * r.height + r.top - y, d = dx * dx + dy * dy;
+      if (d < bd - 1e-6 || (Math.abs(d - bd) < 1e-6 && v.z < bz)) { best = i; bd = d; bz = v.z; }
+    });
+    this.boneHover = best;
+    if (best < 0) return null;
+    const list = this.bones(), b = list[best];
+    return { index: best, name: b.name, kind: b.kind, parent: b.parent >= 0 ? list[b.parent].name : null };
+  }
+
   snapshot() { this.renderer.render(this.scene, this.camera); return this.renderer.domElement.toDataURL('image/png'); }
 
   // centre square of the current view, scaled to size×size (VRM thumbnails are square)
   snapshotSquare(size = 1024) {
+    if (this._boneGfx) this._boneGfx.visible = false;        // a thumbnail never shows the skeleton
     this.renderer.render(this.scene, this.camera);
+    if (this._boneGfx) this._boneGfx.visible = true;
     const src = this.renderer.domElement, s = Math.min(src.width, src.height);
     const c = document.createElement('canvas'); c.width = c.height = size;
     c.getContext('2d').drawImage(src, (src.width - s) / 2, (src.height - s) / 2, s, s, 0, 0, size, size);
@@ -468,6 +620,7 @@ export class Viewer {
       this.mmd.helper.update(dt * this.speed);      // MMD physics only (no animation clip → no IK)
     }
     this.controls.update();
+    if (this._boneGfx) { this.scene.updateMatrixWorld(); this._updateBones(); }
     this.renderer.render(this.scene, this.camera);
   }
 }

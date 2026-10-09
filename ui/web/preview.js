@@ -1,5 +1,5 @@
 // 3D preview (viewer-core.js), its toolbar and the side column (light / expressions / tune / info).
-import { Viewer } from '/viewer/viewer-core.js';
+import { BONE_COLORS, Viewer } from '/viewer/viewer-core.js';
 import { $, S, api, esc, t, toast } from './core.js';
 import { renderFiles } from './files.js';
 import { flushOpts } from './options.js';
@@ -10,6 +10,7 @@ export let modelUrl = null;
 
 viewer.onLoad = (info) => {
   fillPreviewPanels(info);
+  fillLegend();
   // reload after saving tune edits keeps the camera
   if (S.keepView) { viewer.camera.position.copy(S.keepView.pos); viewer.controls.target.copy(S.keepView.tgt); viewer.controls.update(); S.keepView = null; }
   else viewer.frame(document.querySelector('[data-frame].on').dataset.frame);
@@ -77,6 +78,7 @@ export function fillPreviewPanels(info) {
       [t('iTris'), info.triangles.toLocaleString()], [t('iMats'), info.materials], [t('iTex'), info.textures],
       [t('iExpr'), info.expressions.length], ['SpringBone', info.springs ? t('iChains', { n: info.springs, j: info.joints }) : '—'],
       [t('iColliders'), info.colliders]];
+  if (info.bones) rows.splice(info.spec === 'PMX' ? 1 : 2, 0, [t('iBones'), t('iBonesV', { n: info.bones.total, u: info.bones.unused })]);
   $('infoList').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const box = $('exprList'); box.innerHTML = '';
   for (const e of info.expressions) {
@@ -104,6 +106,31 @@ segClick('frameSeg', 'data-frame', (k) => viewer.frame(k));
 segClick('motionSeg', 'data-motion', (m) => viewer.setMotion(m));
 segClick('bgSeg', 'data-bg', (c) => viewer.setBackground(c));
 $('pvSpring').addEventListener('change', () => viewer.setSpring($('pvSpring').checked));
+
+// ---- skeleton overlay: bones coloured by role, legend with counts, name + parent of the bone under the pointer
+const BONE_KINDS = ['humanoid', 'weighted', 'spring', 'control', 'unused'];
+const kindLabel = (k) => t({ humanoid: viewer.kind === 'pmx' ? 'bHumanoidPmx' : 'bHumanoid', weighted: 'bWeighted',
+  spring: 'bSpring', control: 'bControl', unused: 'bUnused' }[k]);
+function fillLegend() {
+  const on = $('pvBones').checked && viewer.loaded;
+  $('pvLegend').hidden = !on;
+  $('pvTip').hidden = true;
+  if (!on) return;
+  const s = viewer.boneStats();
+  $('pvLegend').innerHTML = BONE_KINDS.filter((k) => s[k]).map((k) =>
+    `<div><i style="background:${BONE_COLORS[k]}"></i>${esc(kindLabel(k))}<b>${s[k]}</b></div>`).join('');
+}
+$('pvBones').addEventListener('change', () => { viewer.setBonesVisible($('pvBones').checked); fillLegend(); });
+$('pv').addEventListener('pointermove', (e) => {
+  if (!$('pvBones').checked || e.buttons) { $('pvTip').hidden = true; viewer.boneHover = -1; return; }
+  const b = viewer.boneAt(e.clientX, e.clientY), tip = $('pvTip');
+  tip.hidden = !b;
+  if (!b) return;
+  const r = $('pv').getBoundingClientRect();
+  tip.innerHTML = `<div>${esc(b.name)}</div><div class="k">${esc(kindLabel(b.kind))} · ${esc(t('bParent', { p: b.parent || t('bRoot') }))}</div>`;
+  tip.style.left = (e.clientX - r.left) + 'px'; tip.style.top = (e.clientY - r.top) + 'px';
+});
+$('pv').addEventListener('pointerleave', () => { $('pvTip').hidden = true; viewer.boneHover = -1; });
 
 function updateLight() {
   viewer.setLight({ az: +$('lAz').value, el: +$('lEl').value, intensity: +$('lI').value, ambient: +$('lAmb').value, shadow: $('lShadow').checked });

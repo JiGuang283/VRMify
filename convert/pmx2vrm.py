@@ -45,7 +45,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             spring=True, spring_skirt=True, spring_stiffness=1.0,
             spring_gravity=0.0, spring_gravity_skirt=0.1, spring_center=True,
             spring_opts=None, tex_max=0, tex_jpeg=False, auto_spring=True, gaze=True,
-            combo_expr=True, model=None, raw_weights=None, tex_alpha=None, threads=4):
+            combo_expr=True, collapse_bones=False, model=None, raw_weights=None, tex_alpha=None,
+            threads=4):
     """PMX → VRM，返回统计 dict。log(msg, tag=None) 用于输出进度。
 
     各阶段在 vrmconv/ 里：skeleton（骨骼、T-pose、节点）→ springbone（物理）→
@@ -57,6 +58,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         见 vrmconv/morphbake；模型自己有对应表情时不补）。
     combo_expr：情绪预设（happy / angry / sad / relaxed / surprised）组合眉、眼、嘴的表情，
         像 VRoid 一样整张脸一起变（见 vrmconv/expressions.COMBO）；False 时每个预设只对应一个表情。
+    collapse_bones：没有权重的中间骨（全ての親 / センター / グルーブ / 腰 / 肩P 之类）也去掉，
+        层级像 VRoid（Root > Hips）。IK、合并掉的付与骨、末端骨这类完全不起作用的骨总会去掉（见 _prune_nodes）。
     meta：title / author / version / contact / copyright / license_url / avatar_permission /
         commercial_usage / credit_notation / allow_redistribution / modification（见 vrm_ext）。
     model / raw_weights / tex_alpha：调用方已经有的，省得再算一遍——读好的 PMX（pmxio.read_pmx，
@@ -186,6 +189,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             **(spring_opts or {}))
     elif spring and model.get("rigid_bodies"):
         _log("物理：VRM 0.x 不支持 SpringBone，头发和裙摆不会摆动", "warn")
+    human = _prune_nodes(tree, bones, vweights, human, spring_ext, collapse_bones, _log)
     nodes, top_nodes = tree.gltf_nodes()
 
     # ---- 视线转角：按眼球几何算（lookAt 和补的视线表情都用它）
@@ -214,6 +218,9 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     mats.prefetch(threads)
     prims, mat_gidx = mesh.build_primitives(model, xf, xf_dir, vpos, vnrm, vweights,
                                             reverse_winding, mats.make)
+    # skin.joints 只放留下的骨；JOINTS_0 从 PMX 骨序号换成在 joints 里的位置
+    joint_bones = [i for i in range(len(bones)) if tree.bone_node(i) is not None]
+    mesh.remap_joints(prims, {b: k for k, b in enumerate(joint_bones)})
     _log("网格：按材质分为 %d 个部分" % len(prims))
     mats.log_summary(_log)
     if not prims:
@@ -236,7 +243,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             "%s：%d 个表情" % (m["name"], len(m.get("extras", {}).get("targetNames", ()))) for m in gltf_meshes)))
 
     inv = []
-    for i in range(len(bones)):
+    for i in joint_bones:
         p = tree.node_pos(tree.bone_node(i))      # 节点位置（hips 下移过）
         inv.extend([1.0, 0.0, 0.0, 0.0,
                     0.0, 1.0, 0.0, 0.0,
@@ -258,7 +265,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     nodes.append({"name": "root",
                   "children": list(top_nodes) + mesh_nodes})
 
-    joints = [tree.bone_node(i) for i in range(len(bones))]
+    joints = [tree.bone_node(i) for i in joint_bones]
     if not joints:
         joints = [0]
 
@@ -313,6 +320,36 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     return {"nodes": len(nodes), "primitives": len(prims), "meshes": len(gltf_meshes),
             "morphs": len(target_names), "bytes": size, "scale": scale,
             "vertices": sum(p["vcount"] for p in prims)}
+
+
+def _prune_nodes(tree, bones, vweights, human, spring_ext, collapse, log):
+    """去掉不起作用的节点，返回新的 humanoid 骨位 → 节点。
+
+    留下：humanoid 骨、有权重的骨、SpringBone 关节和碰撞体，以及连接它们的祖先（collapse 时祖先不留）。
+    MMD 模型里 IK、合并进主骨的付与骨（足D 等）、末端骨（先）、操作中心之类的骨不带动任何顶点，
+    在 VRM 里只是空节点，Blender / Unity 里看起来像一堆挂错位置的碎骨头。
+    """
+    if not bones:
+        return human
+    core = set(human.values())
+    for wl in vweights:
+        for b, w in wl:
+            if w > 0:
+                core.add(tree.bone_node(b))
+    refs = []
+    if spring_ext:
+        refs = [j for sp in spring_ext["springs"] for j in sp["joints"]] + spring_ext.get("colliders", [])
+        core.update(o["node"] for o in refs)
+    before = len(tree.names)
+    new = tree.prune(core, collapse)
+    for o in refs:
+        o["node"] = new[o["node"]]
+    if before > len(tree.names):
+        log("骨骼：已去掉 %d 个不起作用的节点（%s），保留 %d 个"
+            % (before - len(tree.names),
+               "无权重且不属于 humanoid、物理的骨，包括中间的控制骨" if collapse
+               else "IK、末端骨、已合并的付与骨等无权重且不属于 humanoid、物理的骨", len(tree.names)))
+    return {k: new[v] for k, v in human.items()}
 
 
 # -------------------------------------------------------------------- cli --
@@ -383,6 +420,8 @@ def main(argv=None):
                     help="模型没有物理刚体时不自动补（默认按骨骼名给头发、裙摆、袖子等加 SpringBone）")
     ap.add_argument("--no-combo-expr", action="store_true",
                     help="情绪预设不组合眉 / 眼 / 嘴（默认组合，像 VRoid；关掉时每个预设只对应一个 PMX 表情）")
+    ap.add_argument("--collapse-bones", action="store_true",
+                    help="去掉没有权重的中间骨（全ての親 / センター / グルーブ / 腰 等），层级像 VRoid")
     ap.add_argument("--no-gaze", action="store_true",
                     help="不补视线表情（默认有左右眼骨时补 lookUp / lookDown / lookLeft / lookRight）")
     ap.add_argument("--no-spring-center", action="store_true",
@@ -421,6 +460,7 @@ def main(argv=None):
                  spring_center=not a.no_spring_center, auto_spring=not a.no_auto_spring,
                  sparse_morphs=not a.dense_morphs,
                  tex_max=a.tex_max, tex_jpeg=a.tex_jpeg, gaze=not a.no_gaze, combo_expr=not a.no_combo_expr,
+                 collapse_bones=a.collapse_bones,
                  log=lambda msg, tag=None: print(msg))
     print("完成：%s（%.2f MB）" % (out, st["bytes"] / 1048576.0))
     return 0

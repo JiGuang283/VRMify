@@ -119,6 +119,14 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .pv-empty, .pv-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px;
   color: #fff; text-shadow: 0 1px 3px #0008; pointer-events: none; font-size: 14px; }
 .pv-busy { background: #0003; }
+/* skeleton overlay: legend (bone roles with counts) and the hovered bone */
+.pv-legend { position: absolute; left: 10px; bottom: 10px; padding: 6px 10px; border-radius: 6px; background: #000a; color: #fff;
+  font-size: 12px; line-height: 1.7; pointer-events: none; }
+.pv-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.pv-legend b { font-weight: 600; margin-left: 6px; }
+.pv-tip { position: absolute; padding: 4px 8px; border-radius: 4px; background: #000c; color: #fff; font-size: 12px;
+  line-height: 1.5; pointer-events: none; white-space: nowrap; transform: translate(12px, 12px); }
+.pv-tip .k { opacity: 0.75; }
 .spinner { width: 18px; height: 18px; border: 2px solid #fff6; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* side column next to the preview (one panel at a time) */

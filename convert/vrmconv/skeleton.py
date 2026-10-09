@@ -268,6 +268,36 @@ class NodeTree:
         log("hips：已移至骨盆，下移 %.1f cm（原与 spine 相距 %.1f mm）"
             % ((old[1] - self.wpos[h][1]) * 100, abs(self.wpos[s][1] - old[1]) * 1000))
 
+    def prune(self, core, collapse=False):
+        """只留 core 里的节点和连接它们所需的祖先，其余（IK、合并掉的付与骨、末端骨等）删掉。
+
+        collapse：祖先也不留——没有权重的中间节点（MMD 的 全ての親 / センター / グルーブ / 腰 / 肩P 之类）
+        一并去掉，子节点挂到最近的保留祖先上，层级像 VRoid（Root > Hips）。
+        节点位置是世界坐标，删掉中间节点不改变其余节点的位置。返回 旧序号 → 新序号（删掉的不在里面）。
+        """
+        keep = set(core)
+        if not collapse:
+            for n in core:
+                p = self.parent[n]
+                while p is not None and p not in keep:
+                    keep.add(p)
+                    p = self.parent[p]
+        order = [i for i in range(len(self.names)) if i in keep]
+        new = {o: k for k, o in enumerate(order)}
+
+        def up(i):
+            p = self.parent[i]
+            while p is not None and p not in new:
+                p = self.parent[p]
+            return None if p is None else new[p]
+
+        self.parent = [up(i) for i in order]
+        self.names = [self.names[i] for i in order]
+        self.wpos = [self.wpos[i] for i in order]
+        self._of_bone = [new.get(n) for n in self._of_bone]
+        self._name_set = None
+        return new
+
     def gltf_nodes(self):
         """→ (glTF nodes 列表, 没有父节点的节点序号)。translation 按父节点换算成局部值。"""
         nodes = []

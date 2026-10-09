@@ -148,8 +148,7 @@ def build_primitives(model, xf, xf_dir, vpos, vnrm, vweights, reverse_winding, m
             normals.extend(n)
             uvs.extend(v["uv"])
             # JOINTS_0 的值是「skin.joints 数组的下标」，不是 glTF 节点号！
-            # 我们的 joints 数组按 PMX 骨序排（joints[i] = 第 i 根骨的节点），
-            # 所以这里直接写 PMX 骨索引 b。以前错写成节点号 bone_node(b)，
+            # 这里先写 PMX 骨索引 b，去掉无用节点后由 remap_joints 换成 joints 里的位置。以前错写成节点号 bone_node(b)，
             # 拓扑排序一旦重排骨骼（remap 非恒等）权重就整体串位——
             # 症状是 Blender 里动某根骨头、别处的顶点跟着跑。
             wl = list(vweights[vi])
@@ -179,6 +178,19 @@ def build_primitives(model, xf, xf_dir, vpos, vnrm, vweights, reverse_winding, m
                       "uv": uvs, "jn": joints, "wt": weights,
                       "mat": mat_gidx[mi_], "mat_name": mat.get("name") or "", "tmap": {}})
     return prims, mat_gidx
+
+
+def remap_joints(prims, slot):
+    """JOINTS_0 里的 PMX 骨序号 → skin.joints 里的位置（slot：PMX 骨 → 位置）。
+
+    不在 slot 里的骨（去掉的节点）只会以权重 0 出现（凑满 4 个的占位），换成本顶点第一根骨。
+    """
+    for pr in prims:
+        jn = pr["jn"]
+        for k in range(0, len(jn), 4):
+            first = slot.get(jn[k], 0)
+            for q in range(k, k + 4):
+                jn[q] = slot.get(jn[q], first)
 
 
 def write_accessors(gb, prims):

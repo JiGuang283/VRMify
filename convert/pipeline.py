@@ -15,7 +15,7 @@ opts 是纯 JSON 可序列化的 dict（界面直接存取），缺的键用 DEF
     output   {"mode": "app" | "beside" | "folder", "folder": 路径, "subfolder": 是否建「名字_日期_序号」子文件夹}
              app = 程序目录下的 vrm 文件夹（界面用；路径由调用方放在 "app_folder"，没有时同 beside）
     vrm      {"spec": "1.0" | "0.x", "avatar_only", "spring", "spring_skirt", "spring_stiffness", "auto_spring",
-              "morphs", "gaze", "combo_expr", "outline", "keep_pose", "double_sided",
+              "morphs", "gaze", "combo_expr", "outline", "keep_pose", "double_sided", "collapse_bones",
               "tex_max": 0 | 4096 | 2048 | 1024, "tex_jpeg"}
              avatar_only：只转人物，道具（认不出人形骨架）和只有衣服 / 配件的模型跳过（见 not_an_avatar）；
              一个文件里的模型全被跳过时 convert_file 返回 []
@@ -59,7 +59,7 @@ DEFAULTS = {
     "output": {"mode": "beside", "folder": "", "subfolder": True},
     "vrm": {"spec": "1.0", "avatar_only": True, "spring": True, "spring_skirt": True, "spring_stiffness": 1.0, "auto_spring": True, "gaze": True, "combo_expr": True,
             "morphs": True, "outline": False, "keep_pose": False, "double_sided": False,
-            "tex_max": 0, "tex_jpeg": False},
+            "collapse_bones": False, "tex_max": 0, "tex_jpeg": False},
     "meta": {"author": "", "version": "", "contact": "", "copyright": "", "license_url": "",
              "avatar_permission": "everyone", "commercial_usage": "personalNonProfit",
              "credit_notation": "required", "allow_redistribution": False,
@@ -533,7 +533,8 @@ def pmx_to_vrm(pmx, out_dir, opts, log, name=None, edits=None, **known):
                     spring_stiffness=float(o["spring_stiffness"]),
                     tex_max=int(o.get("tex_max") or 0), tex_jpeg=bool(o.get("tex_jpeg")),
                     auto_spring=bool(o.get("auto_spring", True)), gaze=bool(o.get("gaze", True)),
-                    combo_expr=bool(o.get("combo_expr", True)), threads=parallel.threads(), **known)
+                    combo_expr=bool(o.get("combo_expr", True)),
+                    collapse_bones=bool(o.get("collapse_bones")), threads=parallel.threads(), **known)
     if edits:
         import vrm_edit
         if not vrm_edit.is_empty(edits):
