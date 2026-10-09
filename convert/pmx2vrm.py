@@ -45,7 +45,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             spring=True, spring_skirt=True, spring_stiffness=1.0,
             spring_gravity=0.0, spring_gravity_skirt=0.1, spring_center=True,
             spring_opts=None, tex_max=0, tex_jpeg=False, auto_spring=True, gaze=True,
-            combo_expr=True):
+            combo_expr=True, model=None, raw_weights=None, tex_alpha=None, threads=4):
     """PMX → VRM，返回统计 dict。log(msg, tag=None) 用于输出进度。
 
     各阶段在 vrmconv/ 里：skeleton（骨骼、T-pose、节点）→ springbone（物理）→
@@ -59,6 +59,10 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
         像 VRoid 一样整张脸一起变（见 vrmconv/expressions.COMBO）；False 时每个预设只对应一个表情。
     meta：title / author / version / contact / copyright / license_url / avatar_permission /
         commercial_usage / credit_notation / allow_redistribution / modification（见 vrm_ext）。
+    model / raw_weights / tex_alpha：调用方已经有的，省得再算一遍——读好的 PMX（pmxio.read_pmx，
+        会被改动）、不带付与别名的顶点权重（mesh.vertex_weights(..., {})）、贴图透明统计
+        {normcase 绝对路径: vrmio.png_alpha_stats 的结果}（FBX 转换判断透明时已经解过贴图）。
+    threads：同时处理几张贴图（解码、瘦身）。
 
     reverse_winding:
         "auto"（默认）——用「几何面法线 vs 顶点法线」投票自动判定；
@@ -85,7 +89,8 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             except TypeError:
                 log(msg)
 
-    model = pmxio.read_pmx(pmx_path)
+    if model is None:
+        model = pmxio.read_pmx(pmx_path)
     skeleton.fix_facing(model, _log)
     base_dir = os.path.dirname(os.path.abspath(pmx_path))
     verts = model["vertices"]
@@ -133,7 +138,10 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
 
     # ---- 骨骼预处理（都在 PMX 坐标里做，最后统一过 xf）：付与骨合并、humanoid、T-pose
     bs = skeleton.prepare_bones(bones, is1, _log)
-    vweights = mesh.vertex_weights(verts, len(bones), bs.alias)
+    # 骨骼表情烘焙用不带别名的权重，网格用带别名的：先算前者，后者只重算挂在别名骨上的顶点
+    if raw_weights is None:
+        raw_weights = mesh.vertex_weights(verts, len(bones), {})
+    vweights = mesh.vertex_weights(verts, len(bones), bs.alias, base=raw_weights)
     glob, bpos, vpos, vnrm, vmat = skeleton.apply_tpose(verts, bones, bs, vweights, tpose, _log)
 
     # ---- 缠绕顺序自动判定：必须用「镜像后」的数据投票。
@@ -190,14 +198,15 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     gb = vrmio.GLBBuilder()
     gb.samplers.append(vrmio.default_sampler())
     gaze_extra = _gaze(model, bs.human_b, is1, gaze, _log, look)
-    flat = expressions._flatten_morphs(model["morphs"], model, gaze_extra)
+    flat = expressions._flatten_morphs(model["morphs"], model, gaze_extra, weights=raw_weights)
     gaze_split = morphbake.split_gaze(flat, {n for n, _ in gaze_extra})
     # max_morphs: None = 全部；0 = 不导出；n = 只取前 n 个
     if max_morphs is not None and max_morphs >= 0:
         flat = flat[:int(max_morphs)]
     mats = MaterialBuilder(model, base_dir, gb, is1, flat, outline=outline,
                            force_double_sided=force_double_sided,
-                           tex_opt=textures.Optimizer(tex_max, tex_jpeg))
+                           tex_opt=textures.Optimizer(tex_max, tex_jpeg), known_alpha=tex_alpha)
+    mats.prefetch(threads)
     prims, mat_gidx = mesh.build_primitives(model, xf, xf_dir, vpos, vnrm, vweights,
                                             reverse_winding, mats.make)
     _log("网格：%d 个 primitive（材质）" % len(prims))

@@ -44,15 +44,17 @@ def _scale_rot(m, rate):
 class BoneBaker:
     """骨骼表情 → {顶点: (dx, dy, dz)}（PMX 坐标）。"""
 
-    def __init__(self, model):
+    def __init__(self, model, weights=None):
+        """weights：已经算好的不带付与别名的顶点权重（mesh.vertex_weights(..., {})），没给时用到再算。"""
         self.bones = model["bones"]
         self.verts = model["vertices"]
-        self._weights = None
+        self._weights = weights
         self._users = None
 
     def _vertex_weights(self):
-        if self._weights is None:
-            self._weights = vertex_weights(self.verts, len(self.bones), {})
+        if self._users is None:
+            if self._weights is None:
+                self._weights = vertex_weights(self.verts, len(self.bones), {})
             users = {}
             for vi, wl in enumerate(self._weights):
                 for b, _ in wl:

@@ -3,10 +3,12 @@
 
 不需要真实模型（Unity 酱、Query 酱实测中发现的问题都在这里留了用例）。
 """
+import io
 import math
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -17,6 +19,7 @@ for _p in (os.path.join(ROOT, "convert"), os.path.join(ROOT, "formats")):
         sys.path.insert(0, _p)
 import fbx2pmx  # noqa: E402
 import unityasset  # noqa: E402
+import unitypackage_unpack  # noqa: E402
 from vrmconv.expressions import _preset_en  # noqa: E402
 from vrmconv.humanoid import _en_bone, _map_humanoid  # noqa: E402
 
@@ -185,6 +188,42 @@ class UnityAssetTest(unittest.TestCase):
 
     def test_root(self):
         self.assertEqual(os.path.basename(unityasset.find_root(self.models)), "Assets")
+
+
+class UnitypackageTest(unittest.TestCase):
+    """unitypackage 解包（流式读一遍）：一个资源的成员挨着放，pathname 在 asset 前后都行。"""
+
+    def test_unpack(self):
+        tmp = tempfile.mkdtemp(prefix="m2v_up_")
+        try:
+            pkg = os.path.join(tmp, "a.unitypackage")
+            with tarfile.open(pkg, "w:gz") as tf:
+                for name, data in (
+                        ("a1/asset", b"FBX"), ("a1/asset.meta", b"m1"), ("a1/pathname", b"Assets/Chara/model.fbx"),
+                        ("a1/preview.png", b"png"),
+                        ("b2/pathname", b"Assets/Chara/tex.png"), ("b2/asset", b"PNG"),     # pathname 在前
+                        ("c3/asset.meta", b"m3"), ("c3/pathname", b"Assets/Empty/"),       # 文件夹资源：没有 asset
+                        ("d4/asset", b"lost")):                                             # 没有 pathname
+                    info = tarfile.TarInfo(name)
+                    info.size = len(data)
+                    tf.addfile(info, io.BytesIO(data))
+            out = os.path.join(tmp, "out")
+            unitypackage_unpack.unpack(pkg, out, verbose=False)
+            got = {}
+            for d, ds, fs in os.walk(out):
+                for x in ds:
+                    got[os.path.relpath(os.path.join(d, x), out).replace("\\", "/")] = None
+                for x in fs:
+                    with open(os.path.join(d, x), "rb") as f:
+                        got[os.path.relpath(os.path.join(d, x), out).replace("\\", "/")] = f.read()
+            self.assertEqual(got, {
+                "Chara": None, "Chara/model.fbx": b"FBX", "Chara/model.fbx.meta": b"m1",
+                "Chara/model.fbx.pathname": b"Assets/Chara/model.fbx", "Chara/model.fbx.preview.png": b"png",
+                "Chara/tex.png": b"PNG", "Chara/tex.png.pathname": b"Assets/Chara/tex.png",
+                "Empty": None, "Empty.meta": b"m3", "Empty.pathname": b"Assets/Empty/",
+                "d4": b"lost"})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class FbxMathTest(unittest.TestCase):

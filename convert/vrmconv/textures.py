@@ -34,13 +34,20 @@ class Optimizer:
 
     def __call__(self, data, mime):
         """→ (data, mime)。处理失败或没变小时返回原数据。"""
-        self.before += len(data)
-        out = (data, mime)
+        return self.account(data, self.process(data, mime))
+
+    def process(self, data, mime):
+        """只做处理、不计数（几张贴图可以在不同线程里同时处理），计数交给 account。"""
         if self.active:
             try:
-                out = self._process(data, mime)
+                return self._process(data, mime)
             except Exception:  # noqa: BLE001  坏图 / 不支持的格式：原样用
-                out = (data, mime)
+                pass
+        return data, mime
+
+    def account(self, data, out):
+        """把一张贴图 data → out（process 的结果）记进统计，返回 out。"""
+        self.before += len(data)
         self.after += len(out[0])
         if out[0] is not data:
             self.changed += 1

@@ -125,9 +125,12 @@ class MaterialBuilder:
     """
 
     def __init__(self, model, base_dir, gb, is1, flat, outline=False, force_double_sided=False,
-                 tex_opt=None):
+                 tex_opt=None, known_alpha=None):
         self.model = model
         self.tex_opt = tex_opt           # textures.Optimizer：嵌入前缩小 / 转 JPEG（None = 原样）
+        # {贴图文件的 normcase 绝对路径: png_alpha_stats 结果}：调用方已经统计过的（FBX 转换时解过）
+        self.known_alpha = known_alpha or {}
+        self._pre = {}                   # prefetch 提前读好的贴图：PMX 贴图序号 → _load 的结果
         self.base_dir = base_dir
         self.gb = gb
         self.is1 = is1
@@ -159,12 +162,9 @@ class MaterialBuilder:
                 return c
         return None
 
-    def resolve_tex(self, idx):
-        """PMX 贴图序号 → glTF texture 序号（-1 = 没有 / 读不了）。"""
-        if idx is None or idx < 0 or idx >= len(self.model["textures"]):
-            return -1
-        if idx in self.img_cache:
-            return self.img_cache[idx]
+    def _load(self, idx):
+        """PMX 贴图序号 → (原图数据, mime, 透明统计, 瘦身后的 (数据, mime))，读不了为 None。
+        不改动 self 的状态，可以在线程里跑（见 prefetch）。"""
         rel = self.model["textures"][idx].replace("\\", "/")
         data = None
         for c in (os.path.join(self.base_dir, rel),
@@ -174,12 +174,43 @@ class MaterialBuilder:
                 if data:
                     break
         if not data:
+            return None
+        # 透明度统计用原图（瘦身后可能已是 JPEG）；只有完全不透明的贴图才会转 JPEG，结论不变
+        key = os.path.normcase(os.path.abspath(c))
+        alpha = self.known_alpha[key] if key in self.known_alpha else vrmio.png_alpha_stats(data)
+        slim = self.tex_opt.process(data, mime) if self.tex_opt is not None else (data, mime)
+        return data, mime, alpha, slim
+
+    def prefetch(self, threads=1):
+        """材质要用的贴图先一起读好（读文件、透明统计、瘦身）：Pillow 解码 / 编码在 C 里跑、不占 GIL，
+        几张图可以同时处理。结果留给 resolve_tex，贴图写进 GLB 的顺序不变。"""
+        textures = self.model["textures"]
+        want = []
+        for mat in self.model["materials"]:
+            if mat["faces"] < 3:                     # 没有三角面的材质不会生成（见 mesh.build_primitives）
+                continue
+            for idx in (mat["tex"], mat["sph"] if mat["sph_mode"] == 2 else -1):
+                if 0 <= idx < len(textures) and idx not in want:
+                    want.append(idx)
+        if threads < 2 or len(want) < 2:
+            return
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(min(threads, len(want))) as ex:
+            self._pre.update(zip(want, ex.map(self._load, want)))
+
+    def resolve_tex(self, idx):
+        """PMX 贴图序号 → glTF texture 序号（-1 = 没有 / 读不了）。"""
+        if idx is None or idx < 0 or idx >= len(self.model["textures"]):
+            return -1
+        if idx in self.img_cache:
+            return self.img_cache[idx]
+        got = self._pre.pop(idx) if idx in self._pre else self._load(idx)
+        if got is None:
             self.img_cache[idx] = -1
             return -1
-        # 透明度统计用原图（瘦身后可能已是 JPEG）；只有完全不透明的贴图才会转 JPEG，结论不变
-        self.tex_alpha[idx] = vrmio.png_alpha_stats(data)
+        data, mime, self.tex_alpha[idx], slim = got
         if self.tex_opt is not None:
-            data, mime = self.tex_opt(data, mime)
+            data, mime = self.tex_opt.account(data, slim)
         ti = self.gb.add_texture(self.gb.add_image(data, mime))
         self.img_cache[idx] = ti
         return ti

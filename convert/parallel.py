@@ -8,6 +8,7 @@
 
 func 必须是模块顶层函数（子进程要能按名字导入），调用方式是 func(*args, log=..., **kwargs)。
 子进程里不再开并行（in_worker()），免得「4 个文件 × 每个包 4 个模型」叠出 16 个进程。
+单个转换内部贴图解码用的线程数见 threads()。
 打包的 exe 要在入口调用 multiprocessing.freeze_support()（ui/app.py），否则子进程会再开一个程序。
 """
 import concurrent.futures as cf
@@ -46,6 +47,12 @@ def free_memory_gb():
     except (OSError, ValueError, AttributeError):
         pass
     return 8.0
+
+
+def threads():
+    """一个转换内部同时处理几张贴图（Pillow 在 C 里解码 / 编码、不占 GIL，线程就够）：最多 4 个；
+    在并行转换的子进程里最多 2 个（核和内存已经被别的子进程占着，一张 4K 贴图解开约 64 MB）。"""
+    return max(1, min(2 if in_worker() else 4, os.cpu_count() or 1))
 
 
 def jobs_for(n_tasks, setting=0):

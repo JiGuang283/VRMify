@@ -8,7 +8,9 @@ Schema 校验需要 jsonschema（requirements-dev.txt），贴图瘦身需要 Pi
 import copy
 import io
 import os
+import random
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -153,6 +155,16 @@ class ConvertTest(Base):
         with open(a, "rb") as fa, open(b, "rb") as fb:
             self.assertEqual(fa.read(), fb.read())
 
+    def test_threads_same_output(self):
+        """贴图在几个线程里同时处理（读文件、透明统计、瘦身），写出的文件和一张张处理时完全相同。"""
+        runs = [{}]
+        if textures.available():
+            runs.append({"tex_max": 32, "tex_jpeg": True})
+        for k, kw in enumerate(runs):
+            a, b = self.convert("thr1_%d" % k, threads=1, **kw), self.convert("thr4_%d" % k, threads=4, **kw)
+            with open(a, "rb") as fa, open(b, "rb") as fb:
+                self.assertEqual(fa.read(), fb.read(), kw)
+
     @unittest.skipUnless(textures.available(), "需要 Pillow")
     def test_texture_slimming(self):
         big = synth.build(os.path.join(self.tmp, "big"), tex_size=1024)
@@ -191,6 +203,84 @@ class AlphaStatsTest(unittest.TestCase):
             self.assertEqual([round(fast[1] / fast[0], 3), round(fast[2] / fast[0], 3)],
                              [round(slow[1] / slow[0], 3), round(slow[2] / slow[0], 3)], name)
         self.assertIsNone(vrmio.png_alpha_stats(b"not a png"))
+
+
+class PmxReadTest(unittest.TestCase):
+    """read_pmx：顶点 / UV 表情的偏移整段批量解，和写进去的一样（float 按 float32 取整）。"""
+
+    def test_morph_offsets(self):
+        tmp = tempfile.mkdtemp(prefix="m2v_read_")
+        try:
+            m = pmxio.read_pmx(synth.build(tmp, eyes=True))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        def f32(x):
+            return struct.unpack("<f", struct.pack("<f", x))[0]
+        by = {mo["name"]: mo for mo in m["morphs"]}
+        hv = 5 * 8
+        self.assertEqual(by["まばたき"]["offsets"], [(hv + k, (0.0, f32(-0.2), 0.0)) for k in range(4)])
+        v0 = by["怒マーク"]["offsets"][0][0]
+        self.assertEqual(by["怒マーク"]["offsets"], [(v0 + k, (0.5, 0.25, 0.0, 0.0)) for k in range(4)])
+        self.assertEqual(by["見開く"]["offsets"], [(0, -0.5), (5, 1.0)])
+        self.assertEqual(len(by["寄り目"]["offsets"]), 2)
+        self.assertEqual(len(m["rigid_bodies"]), 4)                  # 后面的段没有错位
+
+
+class WeightsTest(unittest.TestCase):
+    """mesh.vertex_weights：1 / 2 根骨的顶点走快速分支，结果和通用算法完全相同；带付与别名的结果
+    可以从不带别名的结果改出来（只重算挂在别名骨上的顶点）。"""
+
+    @staticmethod
+    def reference(v, nb, alias):
+        """原来的通用算法（所有权重类型都走这里）。"""
+        bs = [x for x in v["wbones"] if 0 <= x < nb] or [0]
+        wt = v["wtype"]
+        if wt == 0:
+            wl = [(bs[0], 1.0)]
+        elif wt in (1, 3):
+            w0 = v["wweights"][0] if v["wweights"] else 1.0
+            wl = [(bs[0], w0), (bs[1] if len(bs) > 1 else bs[0], 1.0 - w0)]
+        else:
+            ws = list(v["wweights"]) + [0.0] * 4
+            wl = [(bs[k] if k < len(bs) else bs[0], ws[k]) for k in range(4)]
+            if sum(x[1] for x in wl) <= 1e-9:
+                wl = [(bs[0], 1.0)]
+        acc = {}
+        for b, w in wl:
+            b = alias.get(b, b)
+            acc[b] = acc.get(b, 0.0) + max(0.0, w)
+        wl = sorted(acc.items(), key=lambda x: -x[1])[:4]
+        tot = sum(w for _, w in wl)
+        if tot <= 1e-9:
+            return [(wl[0][0] if wl else bs[0], 1.0)]
+        return [(b, w / tot) for b, w in wl]
+
+    def test_cases(self):
+        def vw(wt, bs, ws, alias=None):
+            return mesh.vertex_weights([{"wtype": wt, "wbones": bs, "wweights": ws}], 4, alias or {})[0]
+        self.assertEqual(vw(0, [2], []), [(2, 1.0)])
+        self.assertEqual(vw(1, [1, 2], [0.25]), [(2, 0.75), (1, 0.25)])
+        self.assertEqual(vw(1, [1, 2], [1.0]), [(1, 1.0), (2, 0.0)])         # 零权重也保留
+        self.assertEqual(vw(1, [1, 2], [0.5]), [(1, 0.5), (2, 0.5)])         # 一样大时保持原顺序
+        self.assertEqual(vw(1, [1, 2], [0.25], {2: 1}), [(1, 1.0)])          # 别名并到同一根骨
+        self.assertEqual(vw(1, [9, 2], [0.25]), [(2, 1.0)])                  # 无效骨丢掉
+        self.assertEqual(vw(2, [1, 2, 3, 0], [0.5, 0.25, 0.25, 0.0]), [(1, 0.5), (2, 0.25), (3, 0.25), (0, 0.0)])
+
+    def test_random(self):
+        rnd = random.Random(7)
+        vals = [0.0, -0.0, 1.0, 0.5, 0.3, 0.7, -0.2, 1.2, 1e-12, 0.1, 0.9]
+        verts = []
+        for _ in range(5000):
+            wt = rnd.choice([0, 1, 2, 3, 4])
+            n = {0: 0, 1: 1, 2: 4, 3: 1, 4: 4}[wt]
+            verts.append({"wtype": wt, "wbones": [rnd.choice([-1, 0, 1, 2, 3, 5, 9]) for _ in range(rnd.randint(0, 4))],
+                          "wweights": [rnd.choice(vals) for _ in range(rnd.choice([n, 0]))]})
+        base = mesh.vertex_weights(verts, 6, {})
+        for alias in ({}, {2: 1}, {3: 0, 5: 2}, {0: 1}, {1: 2, 2: 3}):
+            want = [self.reference(v, 6, alias) for v in verts]
+            self.assertEqual(mesh.vertex_weights(verts, 6, alias), want, alias)
+            self.assertEqual(mesh.vertex_weights(verts, 6, alias, base=base), want, alias)
 
 
 class EditTest(Base):
@@ -794,6 +884,26 @@ class PipelineTest(Base):
     def test_not_an_avatar(self):
         self.assertIsNone(pipeline.not_an_avatar(self.pmx))
         self.assertIn("头部", pipeline.not_an_avatar(self._outfit_pmx()))
+
+    @unittest.skipUnless(textures.available(), "需要 Pillow")
+    def test_fbx_texture_stats_reused(self):
+        """FBX → VRM：判断透明时顺便算好的贴图统计交给转 VRM 那一步，贴图不再解第二遍；结果和再解一遍完全相同。"""
+        import fbx2pmx
+        import fbxout
+        from unittest import mock
+        src = os.path.join(self.tmp, "stats_src")
+        shutil.copytree(os.path.join(os.path.dirname(self.pmx), "tex"), os.path.join(src, "tex"))
+        fbx = os.path.join(src, "体.fbx")
+        fbxout.export_pmx(self.pmx, fbx, log=lambda *a, **k: None)
+        with mock.patch.object(vrmio, "png_alpha_stats", wraps=vrmio.png_alpha_stats) as stats:
+            a = pipeline.convert_file(fbx, {}, out_dir=os.path.join(self.tmp, "stats_a"))[0]
+        self.assertEqual(len(vrmio.read_glb(a)[0]["images"]), 2)
+        self.assertEqual(stats.call_count, 0)
+        load = fbx2pmx._load_alpha
+        with mock.patch.object(fbx2pmx, "_load_alpha", lambda p: (load(p)[0], NotImplemented)):
+            b = pipeline.convert_file(fbx, {}, out_dir=os.path.join(self.tmp, "stats_b"))[0]
+        with open(a, "rb") as fa, open(b, "rb") as fb:
+            self.assertEqual(fa.read(), fb.read())
 
     def test_fbx_output_is_only_vrm(self):
         """FBX → VRM：中间的 PMX 和贴图放临时目录，输出目录只有 VRM；只转 PMX 时才留 PMX + 贴图。"""

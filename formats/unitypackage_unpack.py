@@ -43,67 +43,86 @@ except ImportError:                                  # pragma: no cover
     pass
 
 
-def read_paths(t):
-    """Map GUID -> original Assets/ relative path."""
-    out = {}
-    for m in t.getmembers():
-        if not m.isfile() or not m.name.endswith('pathname'):
-            continue
-        guid = m.name.split('/')[0]
-        out[guid] = t.extractfile(m).read().decode('utf-8', 'replace').strip()
-    return out
+def _members(src):
+    """按包里的顺序逐个给出 (GUID, 文件名, 内容)，整个包只解压一遍（流式读 tar）。
+
+    以前先 getmembers() 走一遍、再按成员回头读 pathname、再逐个解出：gzip 不能往回跳，
+    每次回头都从头再解，161 MB 的包要解三遍。"""
+    with tarfile.open(src, 'r|gz') as t:
+        for m in t:
+            if m.isfile():
+                guid, fn = m.name.split('/', 1)
+                yield guid, fn, t.extractfile(m).read()
+
+
+def _target(outdir, raw, guid, fn):
+    """一个成员的落盘路径，以及它是不是「文件夹」资源的辅助文件（要建出空文件夹）。"""
+    # pathname 以 '/' 结尾 = 这是一个「文件夹」资源（Unity 里文件夹也是资源）。
+    # tar 里没有它的 asset 本体，只有 asset.meta / pathname / preview.png。
+    is_folder = raw.endswith('/') or not raw or raw == guid
+    # 去掉开头的 "Assets/"（以前用 lstrip('Assets/')，那是按字符集剥：
+    # "Assets/shaders/x" 会被剥成 "haders/x"）
+    rel = (raw[len('Assets/'):] if raw.startswith('Assets/') else raw).rstrip('/') or guid
+    if fn == 'asset':
+        return os.path.join(outdir, rel), rel, False
+    # asset.meta / pathname / preview.png 是辅助文件：跟资产放在同一层，
+    # 名字里带上资产名（asset.meta 按 Unity 习惯写成 <名>.meta）。
+    # 早先直接写 <父目录>/<文件名>，同一目录下有两个以上资产时，
+    # 后一个会把前一个**静默覆盖**（实测 172 个输出里 51 个碰撞、
+    # 168 个成员被覆盖，其中 92 个 asset.meta + 92 个 pathname）。
+    name = os.path.basename(rel) or guid
+    aux = name + '.meta' if fn == 'asset.meta' else name + '.' + fn
+    return os.path.join(outdir, os.path.dirname(rel), aux), rel, is_folder
 
 
 def unpack(src, outdir, list_only=False, verbose=True):
-    """解包到 outdir；verbose=False 时不逐个列出文件（界面 / 流水线自己记一行汇总）。"""
-    with tarfile.open(src, 'r:gz') as t:
-        paths = read_paths(t)
-        if list_only:
-            for m in t.getmembers():
-                if not m.isfile() or not m.name.endswith('asset'):
-                    continue
-                guid = m.name.split('/')[0]
-                print('%10d  %s' % (m.size, paths.get(guid, '?')))
-            return 0
+    """解包到 outdir；verbose=False 时不逐个列出文件（界面 / 流水线自己记一行汇总）。
 
-        if os.path.isdir(outdir):
-            shutil.rmtree(outdir)
-        os.makedirs(outdir)
-        n = 0
-        for m in t.getmembers():
-            if not m.isfile():
-                continue
-            guid, fn = m.name.split('/', 1)
-            raw = paths.get(guid, '')
-            # pathname 以 '/' 结尾 = 这是一个「文件夹」资源（Unity 里文件夹也是资源）。
-            # tar 里没有它的 asset 本体，只有 asset.meta / pathname / preview.png。
-            is_folder = raw.endswith('/') or not raw or raw == guid
-            # 去掉开头的 "Assets/"（以前用 lstrip('Assets/')，那是按字符集剥：
-            # "Assets/shaders/x" 会被剥成 "haders/x"）
-            rel = (raw[len('Assets/'):] if raw.startswith('Assets/') else raw).rstrip('/') or guid
-            if fn == 'asset':
-                dst = os.path.join(outdir, rel)
-            else:
-                # asset.meta / pathname / preview.png 是辅助文件：跟资产放在同一层，
-                # 名字里带上资产名（asset.meta 按 Unity 习惯写成 <名>.meta）。
-                # 早先直接写 <父目录>/<文件名>，同一目录下有两个以上资产时，
-                # 后一个会把前一个**静默覆盖**（实测 172 个输出里 51 个碰撞、
-                # 168 个成员被覆盖，其中 92 个 asset.meta + 92 个 pathname）。
-                name = os.path.basename(rel) or guid
-                aux = name + '.meta' if fn == 'asset.meta' else name + '.' + fn
-                dst = os.path.join(outdir, os.path.dirname(rel), aux)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            if is_folder and fn != 'asset':
-                # 文件夹资源的 asset 本体不存在，不在这里建的话空文件夹会丢
-                os.makedirs(os.path.join(outdir, rel), exist_ok=True)
-            with open(dst, 'wb') as w:
-                w.write(t.extractfile(m).read())
-            n += 1
-            if verbose:
-                print('  %8.1f KB  %s' % (os.path.getsize(dst) / 1024,
-                                          os.path.relpath(dst, outdir)))
+    一个资源的成员在包里是挨着的（asset、asset.meta、pathname、preview.png），落盘路径要等
+    读到 pathname 才知道：之前的成员先留在内存里（最多一个资源的大小），读到它再按原顺序写出。"""
+    if list_only:
+        paths, sizes = {}, []
+        for guid, fn, data in _members(src):
+            if fn == 'pathname':
+                paths[guid] = data.decode('utf-8', 'replace').strip()
+            elif fn == 'asset':
+                sizes.append((guid, len(data)))
+        for guid, size in sizes:
+            print('%10d  %s' % (size, paths.get(guid, '?')))
+        return 0
+
+    if os.path.isdir(outdir):
+        shutil.rmtree(outdir)
+    os.makedirs(outdir)
+    paths, pending = {}, {}
+    n = 0
+
+    def write(guid, fn, data):
+        dst, rel, folder = _target(outdir, paths.get(guid, ''), guid, fn)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if folder:
+            # 文件夹资源的 asset 本体不存在，不在这里建的话空文件夹会丢
+            os.makedirs(os.path.join(outdir, rel), exist_ok=True)
+        with open(dst, 'wb') as w:
+            w.write(data)
         if verbose:
-            print('\n%d files -> %s' % (n, outdir))
+            print('  %8.1f KB  %s' % (len(data) / 1024, os.path.relpath(dst, outdir)))
+
+    for guid, fn, data in _members(src):
+        if fn == 'pathname':
+            paths[guid] = data.decode('utf-8', 'replace').strip()
+        if guid in paths:
+            for item in pending.pop(guid, ()):
+                write(guid, *item)
+            write(guid, fn, data)
+        else:
+            pending.setdefault(guid, []).append((fn, data))
+        n += 1
+    for guid, items in pending.items():          # 没有 pathname 的资源：按 GUID 落盘
+        for item in items:
+            write(guid, *item)
+    if verbose:
+        print('\n%d files -> %s' % (n, outdir))
     return 0
 
 

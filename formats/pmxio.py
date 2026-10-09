@@ -292,6 +292,9 @@ def read_pmx(path):
     if _DBG:
         print("[dbg] morphs start p=%d" % r.p)
     morphs = []
+    # 顶点 / UV 表情的偏移是定长记录（无符号顶点索引 + 3 / 4 个 float），整段一次解
+    vert_st = struct.Struct("<%s3f" % _IDX[vi].upper())
+    uv_st = struct.Struct("<%s4f" % _IDX[vi].upper())
     for mo_ in range(r.i32("morph count")):
         r.sec = "表情[%d]" % mo_
         mo = {}
@@ -302,14 +305,15 @@ def read_pmx(path):
         mo["kind"] = kind
         n = r.i32()
         offs = []
+        if kind == 1 or kind in (3, 4, 5, 6, 7):     # 顶点：3 个偏移；UV / 追加UV：4 个
+            st = vert_st if kind == 1 else uv_st
+            size = max(n, 0) * st.size
+            r._need(size, "morph offsets")
+            offs =[(o[0], o[1:]) for o in st.iter_unpack(d[r.p:r.p + size])]
+            r.p += size
+            n = 0
         for _ in range(n):
-            if kind == 1:                            # 顶点：3 个偏移
-                offs.append((r.idx(vi, signed=False),
-                             (r.f32(), r.f32(), r.f32())))
-            elif kind in (3, 4, 5, 6, 7):            # UV / 追加UV：4 个
-                offs.append((r.idx(vi, signed=False),
-                             (r.f32(), r.f32(), r.f32(), r.f32())))
-            elif kind == 2:                          # 骨骼
+            if kind == 2:                            # 骨骼
                 offs.append((r.idx(bi),
                              (r.f32(), r.f32(), r.f32()),
                              (r.f32(), r.f32(), r.f32(), r.f32())))

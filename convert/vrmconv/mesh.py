@@ -5,37 +5,64 @@ import math
 import vrmio
 
 
-def vertex_weights(verts, nb, alias):
-    """逐顶点 [(PMX 骨, 权重)]：已归一、已按付与别名合并、最多 4 个。"""
-    def one(v):
-        wt = v["wtype"]
-        bs = [x for x in v["wbones"] if 0 <= x < nb]
-        if not bs:
-            bs = [0]
-        if wt == 0:
-            wl = [(bs[0], 1.0)]
-        elif wt in (1, 3):           # BDEF2 / SDEF（SDEF 退化成线性混合）
-            w0 = v["wweights"][0] if v["wweights"] else 1.0
-            second = bs[1] if len(bs) > 1 else bs[0]
-            wl = [(bs[0], w0), (second, 1.0 - w0)]
-        else:                        # BDEF4 / QDEF
-            ws = list(v["wweights"]) + [0.0] * 4
-            wl = [(bs[k] if k < len(bs) else bs[0], ws[k]) for k in range(4)]
-            if sum(x[1] for x in wl) <= 1e-9:
-                wl = [(bs[0], 1.0)]
-        acc = {}
-        for b_, w in wl:
-            b_ = alias.get(b_, b_)
-            acc[b_] = acc.get(b_, 0.0) + max(0.0, w)
-        wl = sorted(acc.items(), key=lambda x: -x[1])[:4]
-        tot = sum(w for _, w in wl)
+def _weights_of(v, nb, alias):
+    """一个顶点的 [(PMX 骨, 权重)]（见 vertex_weights）。"""
+    wt = v["wtype"]
+    bs = [x for x in v["wbones"] if 0 <= x < nb]
+    if not bs:
+        bs = [0]
+    if wt == 0:
+        return [(alias.get(bs[0], bs[0]), 1.0)]
+    if wt in (1, 3):                 # BDEF2 / SDEF（SDEF 退化成线性混合）
+        # 和下面的通用算法结果完全相同，只是不建字典、不排序（顶点大多是这种）
+        w0 = v["wweights"][0] if v["wweights"] else 1.0
+        a = alias.get(bs[0], bs[0])
+        b = bs[1] if len(bs) > 1 else bs[0]
+        b = alias.get(b, b)
+        wa, wb = max(0.0, w0), max(0.0, 1.0 - w0)
+        if a == b:
+            tot = wa + wb
+            return [(a, 1.0 if tot <= 1e-9 else tot / tot)]
+        if wb > wa:
+            a, b, wa, wb = b, a, wb, wa
+        tot = wa + wb
         if tot <= 1e-9:
-            return [(wl[0][0] if wl else bs[0], 1.0)]
-        return [(b_, w / tot) for b_, w in wl]
+            return [(a, 1.0)]
+        return [(a, wa / tot), (b, wb / tot)]
+    # BDEF4 / QDEF
+    ws = list(v["wweights"]) + [0.0] * 4
+    wl = [(bs[k] if k < len(bs) else bs[0], ws[k]) for k in range(4)]
+    if sum(x[1] for x in wl) <= 1e-9:
+        wl = [(bs[0], 1.0)]
+    acc = {}
+    for b_, w in wl:
+        b_ = alias.get(b_, b_)
+        acc[b_] = acc.get(b_, 0.0) + max(0.0, w)
+    wl = sorted(acc.items(), key=lambda x: -x[1])[:4]
+    tot = sum(w for _, w in wl)
+    if tot <= 1e-9:
+        return [(wl[0][0] if wl else bs[0], 1.0)]
+    return [(b_, w / tot) for b_, w in wl]
 
+
+def vertex_weights(verts, nb, alias, base=None):
+    """逐顶点 [(PMX 骨, 权重)]：已归一、已按付与别名合并、最多 4 个。
+
+    base：同一批顶点不带别名（alias={}）的结果。给了就只重算挂在别名骨上的顶点——网格要带别名的、
+    骨骼表情烘焙要不带的，两份不用各从头算一遍。
+    """
     if not nb:
         return [[(0, 1.0)] for _ in verts]
-    return [one(v) for v in verts]
+    if base is not None and 0 not in alias:          # 没有有效骨的顶点算到骨 0 上
+        if not alias:
+            return base
+        keys = set(alias)
+        out = list(base)
+        for i, v in enumerate(verts):
+            if not keys.isdisjoint(v["wbones"]):
+                out[i] = _weights_of(v, nb, alias)
+        return out
+    return [_weights_of(v, nb, alias) for v in verts]
 
 
 def build_primitives(model, xf, xf_dir, vpos, vnrm, vweights, reverse_winding, make_material):

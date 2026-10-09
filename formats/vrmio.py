@@ -690,26 +690,30 @@ def decode_rgba(data, max_pixels=4 << 20):
     return w, h, rows
 
 
+def png_alpha_stats_image(im):
+    """已经用 Pillow 打开的 PNG → 和 png_alpha_stats 相同的结果（解码时出错会抛异常）。
+    FBX 转换判断透明时已经解过一遍贴图，用它算好交给后面的 PMX → VRM，不用再解一遍。"""
+    if im.mode in ("RGBA", "LA", "PA"):
+        a = im.getchannel("A")
+    elif im.mode == "P" and "transparency" in im.info:
+        a = im.convert("RGBA").getchannel("A")
+    else:
+        return None                                # 没有 alpha（tRNS 色键和纯 Python 版一样忽略）
+    h = a.histogram()
+    return (sum(h), sum(h[:250]), sum(h[11:245]))
+
+
 def _png_alpha_stats_pil(data):
     """png_alpha_stats 的 Pillow 版（C 解码，比纯 Python 版快十倍以上，统计整张图）。
-    没装 Pillow 或解不开时返回 NotImplemented，交给纯 Python 版。"""
+    没有 alpha 通道的图看文件头就知道，不解码。没装 Pillow 或解不开时返回 NotImplemented，交给纯 Python 版。"""
     try:
         from PIL import Image
     except ImportError:
         return NotImplemented
     try:
-        im = Image.open(io.BytesIO(data))
-        im.load()
-        if im.mode in ("RGBA", "LA", "PA"):
-            a = im.getchannel("A")
-        elif im.mode == "P" and "transparency" in im.info:
-            a = im.convert("RGBA").getchannel("A")
-        else:
-            return None                            # 没有 alpha（tRNS 色键和纯 Python 版一样忽略）
-        h = a.histogram()
+        return png_alpha_stats_image(Image.open(io.BytesIO(data)))
     except Exception:  # noqa: BLE001  坏图 / 罕见格式：纯 Python 版有自己的保守处理
         return NotImplemented
-    return (sum(h), sum(h[:250]), sum(h[11:245]))
 
 
 def png_alpha_stats(data, max_rows=512):

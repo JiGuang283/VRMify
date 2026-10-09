@@ -63,6 +63,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
         sys.path.insert(0, _p)
 import fbx_reader as fbx
 import unityasset
+import vrmio
 
 
 # --------------------------------------------------- 贴图 alpha / 朝向 ------
@@ -1023,27 +1024,44 @@ def _decode_png_rgba(src):
     return width, height, bytes(out)
 
 
-def _load_rgba(src):
-    """(width, height, RGBA bytes)；拿不到位图返回 None。"""
+def _load_alpha(src):
+    """→ ((宽, 高, alpha), png)：alpha 是每像素 1 字节的 alpha 通道（转成 RGBA 后的那个通道；
+    没有 alpha 通道的图为 None = 全不透明），拿不到位图时整个三元组为 None；
+    png 是用同一次解码算好的 vrmio.png_alpha_stats 结果（只有 PNG 能这样算），算不了为 NotImplemented。
+
+    只取 alpha 通道：4K 贴图的 RGBA 有 64 MB，alpha 只有 16 MB（几张图会同时解，见 _copy_textures）。
+    """
     try:
         from PIL import Image
-        im = Image.open(src)
-        im = im.convert("RGBA")
-        return im.size[0], im.size[1], im.tobytes()
     except ImportError:
-        pass
-    except Exception:
-        return None
-    return _decode_png_rgba(src)
+        got = _decode_png_rgba(src)
+        return (got and (got[0], got[1], bytes(got[2][3::4]))), NotImplemented
+    try:
+        im = Image.open(src)
+        if im.mode in ("RGBA", "LA", "PA"):
+            alpha = im.getchannel("A").tobytes()
+        elif "transparency" in im.info:
+            alpha = im.convert("RGBA").getchannel("A").tobytes()
+        else:
+            alpha = None                    # 转成 RGBA 后 alpha 全是 255
+        got = (im.size[0], im.size[1], alpha)
+    except Exception:  # noqa: BLE001
+        return None, NotImplemented
+    png = NotImplemented
+    if im.format == "PNG":
+        try:
+            png = vrmio.png_alpha_stats_image(im)
+        except Exception:  # noqa: BLE001  交给 PMX → VRM 自己再解
+            pass
+    return got, png
 
 
-def _has_any_transparency(w, h, rgba):
-    """整张图有没有非 255 的 alpha（切片 + count 在 C 里跑，不逐像素循环）。"""
-    alpha = bytes(rgba[3::4])
-    return alpha.count(255) != len(alpha)
+def _has_any_transparency(w, h, alpha):
+    """整张图有没有非 255 的 alpha（count 在 C 里跑，不逐像素循环）。"""
+    return alpha is not None and alpha.count(255) != len(alpha)
 
 
-def _alpha_stats_whole(w, h, rgba):
+def _alpha_stats_whole(w, h, alpha):
     """整图 alpha 统计（4x4 网格降采样）→ (全透占比, 实心占比)。
 
     每行起点错开一点：固定步长遇到周期图案会一直踩到同一类像素，把统计系统性
@@ -1058,7 +1076,7 @@ def _alpha_stats_whole(w, h, rgba):
         base = y * w
         x0 = (row * 7) % ws if ws > 1 else 0
         for x in range(x0, w, ws):
-            a = rgba[(base + x) * 4 + 3]
+            a = alpha[base + x]
             n += 1
             if a < ALPHA_TRANSPARENT_BELOW:
                 t += 1
@@ -1070,7 +1088,7 @@ def _alpha_stats_whole(w, h, rgba):
     return t / n, o / n
 
 
-def _alpha_stats_uv(w, h, rgba, uvs):
+def _alpha_stats_uv(w, h, alpha, uvs):
     """按「材质实际用到的 UV 角点」定点采样 → (全透占比, 实心占比, 采样数)。
 
     uvs 里已经是 MMD 口径 (u, 1-v)（v=0 在最上一行），寻址按 MMD 的 wrap 来。
@@ -1083,7 +1101,7 @@ def _alpha_stats_uv(w, h, rgba, uvs):
         u, v = uvs[i]
         x = int(math.floor(u * w)) % w if w else 0
         y = int(math.floor(v * h)) % h if h else 0
-        a = rgba[(y * w + x) * 4 + 3]
+        a = alpha[y * w + x]
         n += 1
         if a < ALPHA_TRANSPARENT_BELOW:
             t += 1
@@ -1110,14 +1128,14 @@ def decide_alpha(src, uvs=None, got=None):
     代价是有时会少去一张（偏保守），而这正是要的方向：判不准就保留，
     用户还能手动选「全部去除」。
     """
-    got = got or _load_rgba(src)                    # 调用方已经解过就不再解一遍
+    got = got or _load_alpha(src)[0]                # 调用方已经解过就不再解一遍
     if got is None:
         return ALPHA_KEEP, "cannot sample alpha"
-    w, h, rgba = got
-    if not _has_any_transparency(w, h, rgba):
+    w, h, alpha = got
+    if not _has_any_transparency(w, h, alpha):
         return ALPHA_KEEP, "no transparency at all"
-    whole = _alpha_stats_whole(w, h, rgba)
-    used = _alpha_stats_uv(w, h, rgba, uvs) if uvs else None
+    whole = _alpha_stats_whole(w, h, alpha)
+    used = _alpha_stats_uv(w, h, alpha, uvs) if uvs else None
     if used is None or whole is None:
         if whole is None:
             return ALPHA_KEEP, "cannot sample alpha"
@@ -1480,22 +1498,26 @@ def _pick_diffuse(scene, mat_id, tids):
 
 
 def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
-                   alpha_uvs=None, known=None, fallback=None):
+                   alpha_uvs=None, known=None, fallback=None, threads=1):
     """Locate each texture image on disk and copy it into ``out_dir/textures/``.
 
     Returns ``(out_names, stats)``:
 
     * ``out_names`` - ``{源文件名: 要在 PMX 里引用的文件名}``。走了 alpha 处理的
       贴图在这里被换成 ``<名>_noalpha.png``（**原始图片一律不动**）。
-    * ``stats``     - 计数与逐张的判定说明，供日志 / 界面显示。
+    * ``stats``     - 计数与逐张的判定说明，供日志 / 界面显示；``png_alpha`` 是
+      ``{原样拷贝的 PNG 的 normcase 绝对路径: vrmio.png_alpha_stats 结果}``，
+      判断透明时顺便算好，接着转 VRM 时不用再解一遍（pmx2vrm 的 tex_alpha）。
 
     Files referenced by the FBX but missing locally (the FBX usually stores an
     absolute game path like ``G:\\...``) are simply skipped - the PMX still
     references them so the user can drop the images into ``textures/`` later.
+
+    threads：同时解几张图（Pillow 在 C 里解码、不占 GIL）。
     """
     stats = {"mode": alpha_mode, "copied": 0, "weighed": 0,
              "stripped": 0, "kept": 0, "opaque": 0, "failed": 0,
-             "decisions": [], "missing": 0, "out_names": {}}
+             "decisions": [], "missing": 0, "out_names": {}, "png_alpha": {}}
     if not tex_list:
         return stats["out_names"], stats
     import shutil
@@ -1558,22 +1580,39 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
     if found:
         tdir = os.path.join(out_dir, "textures")
         os.makedirs(tdir, exist_ok=True)
-        for bn, src in found.items():
+        items = list(found.items())
+
+        def weigh(item):
+            """先看看这张图到底有没有 alpha 可处理 → (有透明?, 判定, 说明, png_alpha_stats 结果)。
+            在线程里跑；解出来的 alpha 用完就丢，不会几张图的一起攒在内存里。"""
+            bn, src = item
+            got, png = _load_alpha(src)
+            if got is None or not _has_any_transparency(*got):
+                return False, None, None, png
+            if alpha_mode == ALPHA_STRIP:
+                return True, ALPHA_STRIP, "StripAll", png
+            return (True,) + decide_alpha(src, (alpha_uvs or {}).get(bn), got) + (png,)
+
+        if alpha_mode == ALPHA_KEEP:
+            weighed = [None] * len(items)
+        elif threads > 1 and len(items) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(min(threads, len(items))) as ex:
+                weighed = list(ex.map(weigh, items))
+        else:
+            weighed = [weigh(it) for it in items]
+        for (bn, src), w in zip(items, weighed):
             real = os.path.basename(src)        # 换了扩展名 / 来自 Unity 材质时用实际文件名
             ref = real
             out_bn = real
             wrote_copy = False          # 副本已经写过盘了，别再被原件覆盖回去
-            if alpha_mode != ALPHA_KEEP:
-                # 先看看这张图到底有没有 alpha 可处理
-                got = _load_rgba(src)
-                has_a = got is not None and _has_any_transparency(*got)
+            png = NotImplemented
+            if w is not None:
+                has_a, verdict, detail, png = w
                 if not has_a:
                     stats["opaque"] += 1
-                elif alpha_mode == ALPHA_STRIP:
-                    verdict, detail = ALPHA_STRIP, "StripAll"
-                else:
+                elif alpha_mode != ALPHA_STRIP:
                     stats["weighed"] += 1
-                    verdict, detail = decide_alpha(src, (alpha_uvs or {}).get(bn), got)
                 if has_a:
                     stats["decisions"].append((bn, verdict, detail))
                     if verdict != ALPHA_STRIP:
@@ -1604,6 +1643,8 @@ def _copy_textures(tex_list, fbx_path, out_dir, verbose, alpha_mode=ALPHA_AUTO,
             except OSError:
                 continue
             stats["out_names"][bn] = ref
+            if png is not NotImplemented:       # 原样拷贝：统计结果对拷贝出来的文件也成立
+                stats["png_alpha"][os.path.normcase(os.path.abspath(dst))] = png
 
     if verbose and tex_list:
         if stats["copied"]:
@@ -1645,7 +1686,8 @@ def _mesh_has_no_material(g, model, scene, mats=None):
 def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=None,
             center=True, morphs=True, max_morphs=None, remove_alpha=None,
             alpha_mode=None, auto_facing=True, face_180=False,
-            skip_untextured=True):
+            skip_untextured=True, threads=4):
+    # threads：判断贴图透明时同时解几张图（见 _copy_textures）
     # ⚠ remove_alpha 的默认必须是 None（不是 False）：False 会被 alpha_mode_of
     #   当成「用户显式要 keep」，把「不指定就用 auto」的默认遮蔽掉。
     alpha_mode = alpha_mode_of(alpha_mode, remove_alpha)
@@ -1960,7 +2002,8 @@ def convert(scene, out_path, scale_mode="mmd", flip_z=True, verbose=True, name=N
     tex_out_names, tex_stats = _copy_textures(
         tex_list, scene.path, _odir, verbose, alpha_mode=alpha_mode,
         alpha_uvs=alpha_uvs, known=tex_paths,
-        fallback=lambda bn: unity_tex(tex_fallback[bn]) if bn in tex_fallback else None)
+        fallback=lambda bn: unity_tex(tex_fallback[bn]) if bn in tex_fallback else None,
+        threads=threads)
     # 走了 alpha 处理的贴图在 PMX 里要引用 <名>_noalpha.png
     tex_list = [tex_out_names.get(bn, bn) for bn in tex_list]
 

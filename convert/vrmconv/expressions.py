@@ -326,7 +326,7 @@ def _preset_en(name, is1):
     return p
 
 
-def _flatten_morphs(morphs, model=None, extra_bone=None):
+def _flatten_morphs(morphs, model=None, extra_bone=None, weights=None):
     """把顶点 / 骨骼 / UV / 材质表情（含グループ展开）整理成
     [(名字, {顶点: (dx,dy,dz)}, [(材质, 运算, 28 个值, 比率)], {顶点: (du,dv)})]。
 
@@ -335,8 +335,9 @@ def _flatten_morphs(morphs, model=None, extra_bone=None):
     骨骼表情（kind 2）给了 model 时烘焙成顶点偏移（morphbake.BoneBaker）；
     UV 表情（kind 3）留给 build_expressions 换成贴图偏移。
     extra_bone：[(名字, 骨骼表情 offsets)]，追加的合成表情（视线），同样烘焙。
+    weights：已经算好的不带付与别名的顶点权重（mesh.vertex_weights(..., {})），给了就不再算。
     """
-    baker = morphbake.BoneBaker(model) if model is not None else None
+    baker = morphbake.BoneBaker(model, weights) if model is not None else None
     cache = {}
 
     def resolve(i, seen):
