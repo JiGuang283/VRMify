@@ -11,6 +11,7 @@ import { appendLog, renderStatus } from './run.js';
 import { applyLayout } from './layout.js';
 import { fillPreviewPanels, loadModel, previewFile, showBusy, viewer } from './preview.js';
 import { T, loadTune, renderTune } from './tune.js';
+import { queueThumb, setOnThumb } from './thumbs.js';
 
 function applyLang() {
   document.documentElement.lang = S.lang === 'en' ? 'en' : 'zh-CN';
@@ -46,6 +47,7 @@ function handleEvent(ev) {
     renderFiles();
     // a file just finished converting → open it in the preview: the first one of each run (unless the Tune
     // panel has unsaved changes for the model on screen), and the one already on screen (show the real output)
+    if (ev.file.status === 'done' && was === 'running') queueThumb(ev.file);
     if (ev.file.status === 'done' && was !== 'done' && ev.file.outputs.some((o) => o.url || o.previewable)) {
       const first = !S.autoOpened && !(T.dirty && T.fid === S.current && ev.file.id !== S.current);
       if (first) S.autoOpened = true;
@@ -64,6 +66,9 @@ function handleEvent(ev) {
     if (ev.error) { showBusy(null); toast(t('pvFailed', { err: ev.error })); } else { loadModel(ev.url, ev.name); loadTune(); }
   }
 }
+
+// an automatic thumbnail was written: refresh the Tune panel when it shows that file (and has nothing unsaved)
+setOnThumb((id) => { if (T.fid === id && !$('tunePanel').hidden && !T.dirty) loadTune(); });
 
 async function pollEvents() {
   for (;;) {

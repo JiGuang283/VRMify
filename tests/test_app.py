@@ -132,6 +132,51 @@ class SkippedStatusTest(unittest.TestCase):
                 b.close()
 
 
+class AutoThumbTest(unittest.TestCase):
+    """转换后自动生成的缩略图：记成 thumbnail_auto；手动设置过的不覆盖；不算「调整过」；关掉选项后转换不再带上。"""
+
+    def test_auto_vs_manual(self):
+        import base64
+        sys.path[:0] = [os.path.join(os.path.dirname(HERE), p) for p in ("convert", "formats")] + [HERE]
+        import pmx2vrm
+        import synth
+        import vrmio
+        tmp = tempfile.mkdtemp(prefix="m2v_thumb_")
+        pmx = synth.build(os.path.join(tmp, "src"))
+        vrm = os.path.join(tmp, "out.vrm")
+        pmx2vrm.convert(pmx, vrm)
+        png = "data:image/png;base64," + base64.b64encode(vrmio.encode_png(2, 2, [b"\xff" * 8] * 2)).decode()
+        with mock.patch.object(server, "SETTINGS", os.path.join(tmp, "settings.json")), \
+                mock.patch.object(server, "EDITS", os.path.join(tmp, "edits.json")), \
+                mock.patch.object(server, "EDITS_DIR", os.path.join(tmp, "edits")):
+            b = server.Backend()
+            try:
+                b.add_paths([pmx])
+                fid = next(iter(b.files))
+                f = b.files[fid]
+                f.update(status="done", outputs=b._outputs([vrm]))
+
+                def meta_thumb():
+                    return vrmio.read_glb(vrm)[0]["extensions"]["VRMC_vrm"]["meta"].get("thumbnailImage")
+
+                self.assertTrue(b.tune_thumb(fid, png, auto=True)["ok"])
+                self.assertTrue(b.edits_for(f)["thumbnail_auto"])
+                self.assertIsNotNone(meta_thumb())
+                self.assertFalse(b._entry(f)["tuned"])               # 只有自动缩略图：不算调整过
+                b.tune_save(fid, {"title": "名前"})                   # 调整面板保存：缩略图和标记都留着
+                self.assertTrue(b.edits_for(f)["thumbnail_auto"])
+                self.assertIsNotNone(meta_thumb())
+                b.set_options(dict(b.opts, vrm=dict(b.opts["vrm"], auto_thumb=False)))
+                self.assertNotIn("thumbnail", b._convert_edits(f))    # 关掉后转换不再套用自动截的
+                self.assertEqual(b._convert_edits(f)["title"], "名前")
+                self.assertTrue(b.tune_thumb(fid, png)["ok"])         # 手动设置：去掉标记
+                self.assertNotIn("thumbnail_auto", b.edits_for(f))
+                self.assertTrue(b.tune_thumb(fid, png, auto=True)["skipped"])
+                self.assertIn("thumbnail", b._convert_edits(f))
+            finally:
+                b.close()
+
+
 class StalePreviewTest(unittest.TestCase):
     def test_sweep(self):
         """启动时删一天以前遗留的预览临时目录，新的不动。"""

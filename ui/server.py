@@ -19,7 +19,8 @@
   POST /api/snapshot {name, data}     把预览截图存到模型旁边
   POST /api/tune     {id}             调整面板要的信息（可选表情、物理链、当前调整）
   POST /api/tune/save  {id, edits}    保存某个文件的调整，并套到它已有的输出 / 预览 VRM 上
-  POST /api/tune/thumb {id, data}     把预览截图存成这个文件的 VRM 缩略图（data 为空 = 去掉）
+  POST /api/tune/thumb {id, data, auto} 把预览截图存成这个文件的 VRM 缩略图（data 为空 = 去掉）；
+                                      auto：转换后自动截的，用户自己设过缩略图时不覆盖
   GET  /file/<token>                  预览要读的 VRM / 缩略图（只提供登记过的文件）
   GET  /model/<token>/<相对路径>       PMX 原生预览：PMX 和它旁边的贴图（只限登记过的模型文件夹；
                                       浏览器显示不了的 DDS 等现转 PNG）
@@ -216,6 +217,19 @@ class Backend:
         with self.lock:
             return json.loads(json.dumps(self.edits.get(self._key(f)) or {}))
 
+    @staticmethod
+    def _user_edits(e):
+        """去掉自动生成的缩略图（thumbnail_auto）后的调整：判断「调整过」、关掉自动缩略图时转换用。"""
+        e = dict(e or {})
+        if e.pop("thumbnail_auto", None):
+            e.pop("thumbnail", None)
+        return e
+
+    def _convert_edits(self, f):
+        """转换时套用的调整：关掉「自动生成缩略图」后，以前自动截的那张不再写进去。"""
+        e = self.edits_for(f)
+        return e if self.opts["vrm"].get("auto_thumb", True) else self._user_edits(e)
+
     # ----------------------------------------------------------- events --
     def emit(self, **ev):
         with self.cond:
@@ -240,7 +254,7 @@ class Backend:
     # ------------------------------------------------------------ files --
     def _entry(self, f):
         e = {k: f[k] for k in ("id", "path", "name", "kind", "size", "status", "outputs", "error")}
-        e["tuned"] = not vrm_edit.is_empty(self.edits.get(self._key(f)))
+        e["tuned"] = not vrm_edit.is_empty(self._user_edits(self.edits.get(self._key(f))))
         return e
 
     def state(self):
@@ -368,7 +382,7 @@ class Backend:
             with self.lock:
                 f = self.files.get(fid)
             if f:
-                todo.append((fid, f["path"], f["name"], self.edits_for(f)))
+                todo.append((fid, f["path"], f["name"], self._convert_edits(f)))
         total = len(todo)
         jobs = parallel.jobs_for(total, opts.get("jobs"), [pipeline.memory_estimate(p) for _, p, _, _ in todo])
         st = {"done": 0, "failed": 0, "skipped": 0, "finished": 0}
@@ -534,7 +548,7 @@ class Backend:
                     thumbnail=("/file/%s/thumb.png" % self.token_for(th)) if th and os.path.isfile(th) else None)
         return info
 
-    def tune_save(self, fid, edits):
+    def tune_save(self, fid, edits, done_msg=None):
         with self.lock:
             f = self.files.get(fid)
             if not f or f["kind"] not in pipeline.CONVERTIBLE:
@@ -544,6 +558,8 @@ class Backend:
             edits = dict(edits or {})
             if "thumbnail" not in edits and old.get("thumbnail"):
                 edits["thumbnail"] = old["thumbnail"]      # 缩略图单独由 tune_thumb 设置
+                if old.get("thumbnail_auto"):
+                    edits["thumbnail_auto"] = True
             if vrm_edit.is_empty(edits):
                 self.edits.pop(key, None)
             else:
@@ -558,17 +574,23 @@ class Backend:
             except Exception as e:  # noqa: BLE001
                 self.log("调整写入 %s 失败：%s" % (os.path.basename(p), e), "err", fid)
         if applied:
-            self.log("调整已写入 %s" % "、".join(os.path.basename(p) for p in applied), "ok", fid)
+            self.log((done_msg or "调整已写入 %s") % "、".join(os.path.basename(p) for p in applied), "ok", fid)
         self._update(fid)
         return {"ok": True, "applied": len(applied)}
 
-    def tune_thumb(self, fid, data):
-        """data：PNG data URL；空 = 去掉缩略图。"""
+    def tune_thumb(self, fid, data, auto=False):
+        """data：PNG data URL；空 = 去掉缩略图。
+
+        auto：转换后自动截的（界面的「自动生成缩略图」）。记成 thumbnail_auto，下次转换后重新截；
+        用户自己设过缩略图（没有 thumbnail_auto）时不覆盖。
+        """
         with self.lock:
             f = self.files.get(fid)
             if not f or f["kind"] not in pipeline.CONVERTIBLE:
                 return {"error": "no such file"}
             edits = self.edits_for(f)
+            if auto and (not data or (edits.get("thumbnail") and not edits.get("thumbnail_auto"))):
+                return {"skipped": True}
             path = None
             old = edits.get("thumbnail")
             if not data and old and os.path.dirname(os.path.abspath(old)) == os.path.abspath(EDITS_DIR):
@@ -582,7 +604,11 @@ class Backend:
                 with open(path, "wb") as fh:
                     fh.write(base64.b64decode(data.split(",", 1)[1]))
             edits["thumbnail"] = path or ""
-        r = self.tune_save(fid, edits)
+            if auto:
+                edits["thumbnail_auto"] = True
+            else:
+                edits.pop("thumbnail_auto", None)
+        r = self.tune_save(fid, edits, done_msg="缩略图已自动生成并写入 %s" if auto else None)
         if path:
             r["thumbnail"] = "/file/%s/thumb.png?t=%d" % (self.token_for(path), int(time.time() * 1000))
         return r
@@ -815,7 +841,7 @@ class Handler(SimpleHTTPRequestHandler):
         if route == "/api/tune/save":
             return self._json(b.tune_save(body.get("id"), body.get("edits")))
         if route == "/api/tune/thumb":
-            return self._json(b.tune_thumb(body.get("id"), body.get("data")))
+            return self._json(b.tune_thumb(body.get("id"), body.get("data"), bool(body.get("auto"))))
         if route == "/api/snapshot":
             return self._json({"path": b.snapshot(body.get("name"), body.get("data", ""), body.get("model"))})
         return self._json({"error": "unknown"}, 404)

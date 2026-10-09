@@ -26,7 +26,7 @@ export async function loadTune() {
   if (!fid) { T.fid = null; T.info = null; renderTune(); return; }
   const r = await api('/api/tune', { id: fid });
   if (fid !== S.current) return;
-  T.fid = fid; T.info = r; T.edits = clone(r.edits); delete T.edits.thumbnail; T.dirty = false;
+  T.fid = fid; T.info = r; T.edits = clone(r.edits); delete T.edits.thumbnail; delete T.edits.thumbnail_auto; T.dirty = false;
   if (S.autoTune && r.ready && $('tunePanel').hidden) { showPanel('tunePanel'); S.autoTune = false; }
   if (!$('tunePanel').hidden) renderTune();
 }
@@ -114,6 +114,7 @@ function renderMeta(sec) {
   tr.innerHTML = (T.info.thumbnail ? `<img src="${T.info.thumbnail}" alt="">` : `<div class="noimg">${t('thumbNone')}</div>`) +
     `<div class="col"><div><button class="btn small" data-a="shot">${t('thumbFromView')}</button> ` +
     (T.info.thumbnail ? `<button class="btn small ghost" data-a="rm">${t('thumbRemove')}</button>` : '') +
+    (T.info.thumbnail && T.info.edits && T.info.edits.thumbnail_auto ? `<span class="hint">${t('thumbAuto')}</span>` : '') +
     `</div><div class="hint flush">${t('thumbHint')}</div></div>`;
   tr.addEventListener('click', async (e) => {
     const a = e.target.dataset.a;
@@ -121,6 +122,7 @@ function renderMeta(sec) {
     const r = await api('/api/tune/thumb', { id: T.fid, data: a === 'shot' ? viewer.snapshotSquare(1024) : '' });
     if (r.error) return toast(r.error);
     T.info.thumbnail = r.thumbnail || null;
+    if (T.info.edits) delete T.info.edits.thumbnail_auto;          // set by hand now: never replaced automatically
     toast(t('thumbSaved'));
     renderTune();
   });

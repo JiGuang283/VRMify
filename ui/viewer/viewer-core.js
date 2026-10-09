@@ -84,7 +84,8 @@ export const MOTIONS = {
 };
 
 export class Viewer {
-  constructor(container, { background = '#8a8f98' } = {}) {
+  // loop: false → no render loop of its own (offscreen use: load, frame, snapshot); pixelRatio overrides the screen's
+  constructor(container, { background = '#8a8f98', loop = true, pixelRatio = null } = {}) {
     this.container = container;
     this.vrm = null;
     this.mmd = null;                 // { mesh, helper, grant, bones, rest, armRest }
@@ -97,7 +98,7 @@ export class Viewer {
     this.onLoad = null;
 
     const r = this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    r.setPixelRatio(pixelRatio || Math.min(2, window.devicePixelRatio || 1));
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     r.domElement.style.display = 'block';
@@ -142,7 +143,7 @@ export class Viewer {
     this._fitShadow();
     this.clock = new THREE.Clock();
     const tick = () => { requestAnimationFrame(tick); this._tick(); };
-    tick();
+    if (loop) tick();
   }
 
   resize() {
