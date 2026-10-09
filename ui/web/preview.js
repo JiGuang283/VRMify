@@ -105,6 +105,11 @@ const segClick = (id, attr, fn) => $(id).addEventListener('click', (e) => {
   fn(b.getAttribute(attr));
 });
 segClick('frameSeg', 'data-frame', (k) => viewer.frame(k));
+// R / Home: back to the selected framing (not while typing in a field)
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (e.key === 'r' || e.key === 'R' || e.key === 'Home') { viewer.resetView(); e.preventDefault(); }
+});
 segClick('motionSeg', 'data-motion', (m) => viewer.setMotion(m));
 segClick('bgSeg', 'data-bg', (c) => viewer.setBackground(c));
 $('pvSpring').addEventListener('change', () => viewer.setSpring($('pvSpring').checked));

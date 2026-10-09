@@ -114,10 +114,12 @@ export class Viewer {
     this.controls.enableDamping = true;
     this.controls.zoomToCursor = true;            // the wheel zooms toward the point under the pointer
     this.controls.minDistance = 0.03;
-    // double-click: that point of the model (or the bone under the pointer) becomes the orbit centre
+    // double-click: that point of the model (or the bone under the pointer) becomes the orbit centre;
+    // on the empty background it goes back to the last framing (resetView)
     r.domElement.addEventListener('dblclick', (e) => {
       const p = this.pointAt(e.clientX, e.clientY);
       if (p) this.focusOn(p);
+      else this.resetView();
     });
 
     this.ambient = new THREE.AmbientLight(0xffffff, 0.6);
@@ -335,6 +337,7 @@ export class Viewer {
 
   // ------------------------------------------------------------- camera --
   frame(kind) {
+    this.frameKind = kind;
     const H = this.height, c = this.chestY, h = this.headY, E = this.extent || H, cy = this.centerY ?? H * 0.52;
     const presets = {
       body: [[0, cy + E * 0.03, E * 2.4], [0, cy, 0]],
@@ -359,6 +362,9 @@ export class Viewer {
     const hit = ray.intersectObject(this.vrm ? this.vrm.scene : this.mmd.mesh, true).find((h) => h.object.isMesh);
     return hit ? hit.point.clone() : null;
   }
+
+  // back to the last framing preset (frame), undoing orbit / pan / zoom / double-click focus
+  resetView() { if (this.loaded) this.frame(this.frameKind || 'body'); }
 
   // move the orbit centre to p (world), keeping the viewing direction and distance; eased over ~0.3 s
   focusOn(p) {

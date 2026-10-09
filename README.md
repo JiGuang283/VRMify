@@ -43,7 +43,7 @@ unzip it and run `VRMify.exe`. Nothing to install; delete the folder to uninstal
 - **Preview**: three-vrm (same MToon / SpringBone rules as UniVRM) with idle, walk and run motions, adjustable
   lighting, expression sliders and screenshots, plus a skeleton overlay (coloured by humanoid / weighted / physics /
   unused, with bone name and parent on hover). The wheel zooms toward the pointer and a double-click makes that
-  point the orbit centre. PMX files preview natively with MMD shading and physics.
+  point the orbit centre; R (or Home, or a double-click on the background) resets the view. PMX files preview natively with MMD shading and physics.
 - **Tuning after conversion**: change the name, thumbnail, which morph each preset uses and its strength, gaze range,
   and physics stiffness / gravity / per-chain switches without converting again (hovering a chain shows it and the
   colliders it hits in the preview; a chain can be kept shown or framed by the camera); saving writes straight into the VRM. Tuning is remembered per source file and reapplied the next time it converts.
