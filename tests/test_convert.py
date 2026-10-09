@@ -1053,6 +1053,36 @@ class SnapshotTest(Base):
         n = len(snapshots.SHOTS)
         self.assertEqual(w, 150 + n * (64 + 6) + 6)              # 一段放下标准的一组，两个模型两行
         self.assertEqual(h, 6 + 2 * (64 + 20 + 6) + 6)
+        # 浏览器连同子进程（GPU、渲染进程）都结束了，临时配置目录也删了
+        self.assertEqual(snapshots.browser_procs(), [])
+        self.assertFalse([d for d in os.listdir(tempfile.gettempdir()) if d.startswith(snapshots.PROFILE_PREFIX)])
+
+    def test_cleanup_stale(self):
+        """遗留的截图浏览器（配置目录里记的进程已经不在了）连同配置目录一起清掉；正在跑的不动。"""
+        import snapshots
+        tmp = tempfile.mkdtemp(prefix="m2v_snaptmp_")
+        sleeper = [sys.executable, "-c", "import time; time.sleep(120)"]
+        owner = subprocess.Popen(sleeper)                       # 「正在跑的截图」的主进程
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait()                                              # 已经退出的主进程
+        procs = []
+        try:
+            for name, pid in (("stale", gone.pid), ("live", owner.pid)):
+                d = os.path.join(tmp, snapshots.PROFILE_PREFIX + name)
+                os.makedirs(d)
+                with open(os.path.join(d, snapshots.OWNER_FILE), "w") as f:
+                    f.write(str(pid))
+                # 冒充浏览器：命令行里带配置目录
+                procs.append(subprocess.Popen(sleeper + ["--user-data-dir=" + d]))
+            snapshots.cleanup_stale(tmp)
+            self.assertIsNotNone(procs[0].wait(30))                       # 遗留的结束了
+            self.assertIsNone(procs[1].poll())                            # 正在跑的还在
+            self.assertEqual(os.listdir(tmp), [snapshots.PROFILE_PREFIX + "live"])
+        finally:
+            for p in procs + [owner]:
+                p.kill()
+                p.wait()
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class PipelineTest(Base):

@@ -16,7 +16,9 @@ import argparse
 import base64
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -133,6 +135,96 @@ def find_browser(path=None):
     return next((c for c in cands if c and os.path.isfile(c)), None)
 
 
+# ---- 浏览器进程的清理
+# 只结束浏览器主进程是不够的：Windows 上它的子进程（GPU、渲染进程）会留下来，软件渲染的 GPU 进程
+# 一直占满一个核。所以结束时连同整棵进程树一起结束；每次开始前再按临时配置目录名找出以前遗留的进程。
+PROFILE_PREFIX = "vrmify_snap_profile_"
+OWNER_FILE = "owner.pid"            # 配置目录里记着是哪个进程开的浏览器，用来判断是不是遗留的
+
+
+def browser_procs(marker=PROFILE_PREFIX):
+    """命令行里带 marker 的进程 → [(进程号, 命令行)]（截图浏览器的命令行里有它的临时配置目录）。"""
+    try:
+        if os.name == "nt":
+            ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and "
+                  "$_.CommandLine -like '*%s*' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }" % marker)
+            out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60).stdout
+            rows = [ln.split("\t", 1) for ln in out.splitlines() if "\t" in ln]
+        else:
+            out = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=60).stdout
+            rows = [ln.strip().split(None, 1) for ln in out.splitlines() if marker in ln]
+        return [(int(p), cmd) for p, cmd in rows if p.strip().isdigit() and int(p) != os.getpid()]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+
+def _kill_pid(pid):
+    """结束进程和它的子进程。"""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=60)
+        else:
+            os.kill(pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _alive(pid):
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH", "/FO", "CSV"],
+                                 capture_output=True, text=True, errors="replace", timeout=60).stdout
+            return '"%d"' % pid in out
+        os.kill(pid, 0)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def stop_browser(proc, prof):
+    """结束这次截图的浏览器：整棵进程树；主进程先退出了的、树已经断开的，按配置目录名再找一遍。"""
+    if os.name == "nt":
+        _kill_pid(proc.pid)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)       # 浏览器单独一个进程组（start_new_session）
+        except OSError:
+            pass
+    try:
+        proc.wait(10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    for pid, _ in browser_procs(os.path.basename(prof)):
+        _kill_pid(pid)
+
+
+def cleanup_stale(tmp=None):
+    """以前遗留的截图浏览器和临时配置目录（异常退出、或者旧版本没关干净的）。正在跑的别的截图
+    （配置目录里记的进程还活着）不动。"""
+    tmp = tmp or tempfile.gettempdir()
+    live = set()
+    try:
+        names = [n for n in os.listdir(tmp) if n.startswith(PROFILE_PREFIX)]
+    except OSError:
+        names = []
+    for n in names:
+        try:
+            with open(os.path.join(tmp, n, OWNER_FILE)) as f:
+                owner = int(f.read().strip() or 0)
+        except (OSError, ValueError):
+            owner = 0
+        if owner and owner != os.getpid() and _alive(owner):
+            live.add(n)
+    for pid, cmd in browser_procs():
+        m = re.search(re.escape(PROFILE_PREFIX) + r"[^\s\"'\\/]*", cmd)
+        if m and m.group(0) not in live:
+            _kill_pid(pid)
+    for n in names:
+        if n not in live:
+            shutil.rmtree(os.path.join(tmp, n), ignore_errors=True)
+
+
 def row_label(path, all_paths):
     """行标签：文件名（不带扩展名）；有同名的行时前面加上所在文件夹名。"""
     def short(p):
@@ -203,25 +295,27 @@ def shoot(models, out_png, size=224, custom=False, browser=None, timeout=300, co
             self._send(b"{}", "application/json")
             done.set()
 
+    cleanup_stale()
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    prof = tempfile.mkdtemp(prefix="vrmify_snap_profile_")
+    prof = tempfile.mkdtemp(prefix=PROFILE_PREFIX)
+    with open(os.path.join(prof, OWNER_FILE), "w") as f:
+        f.write(str(os.getpid()))
     url = "http://127.0.0.1:%d/" % srv.server_address[1]
-    proc = subprocess.Popen([exe, "--headless=new", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-                             "--no-first-run", "--no-default-browser-check", "--disable-extensions",
-                             "--user-data-dir=" + prof]
-                            # Linux 的 CI（Ubuntu 24.04 限制了非特权用户命名空间）里 Chrome 的沙箱起不来；只加载本地页面
-                            + ([] if os.name == "nt" else ["--no-sandbox"]) + [url],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = None
     try:
+        proc = subprocess.Popen([exe, "--headless=new", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+                                 "--no-first-run", "--no-default-browser-check", "--disable-extensions",
+                                 "--user-data-dir=" + prof]
+                                # Linux 的 CI（Ubuntu 24.04 限制了非特权用户命名空间）里 Chrome 的沙箱起不来；只加载本地页面
+                                + ([] if os.name == "nt" else ["--no-sandbox"]) + [url],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=os.name != "nt")
         if not done.wait(timeout):
             raise SystemExit("%d 秒内浏览器没有交回截图" % timeout)
     finally:
-        proc.terminate()
-        try:
-            proc.wait(10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        if proc is not None:
+            stop_browser(proc, prof)
         srv.shutdown()
         srv.server_close()
         shutil.rmtree(prof, ignore_errors=True)
