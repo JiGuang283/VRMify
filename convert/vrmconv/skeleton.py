@@ -254,7 +254,9 @@ class NodeTree:
         h, s = human["hips"], human["spine"]
         leg_y = (self.wpos[human["leftUpperLeg"]][1] + self.wpos[human["rightUpperLeg"]][1]) * 0.5
         gap = self.wpos[s][1] - leg_y
-        if gap <= 0.02 or self.wpos[s][1] - self.wpos[h][1] >= 0.25 * gap:
+        # MMD 模型实测 0~5 mm（不到高度差的 5%）；正常绑定的 FBX 等 hips 本来就在骨盆，
+        # 离 spine 有高度差的 20% 以上，不动
+        if gap <= 0.02 or self.wpos[s][1] - self.wpos[h][1] >= 0.1 * gap:
             return
         old = self.wpos[h]
         self.wpos[h] = (old[0], leg_y + 0.43 * gap, old[2])

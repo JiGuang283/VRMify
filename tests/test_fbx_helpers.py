@@ -49,6 +49,23 @@ class BoneNameTest(unittest.TestCase):
         self.assertEqual(human.get("leftUpperLeg"), 2)
         self.assertEqual(human.get("leftLowerLeg"), 3)
 
+    def test_unity_finger_names(self):
+        """Unity / VRChat 的「Index Proximal.L」：其余手指 1～3；拇指 Proximal / Intermediate / Distal = 0～2，
+        有 ThumbMetacarpal（VRM 1.0 风格）时 Metacarpal / Proximal / Distal = 0～2。"""
+        self.assertEqual(_en_bone("Index Proximal.L"), ("finger", ("left", "Index", 1)))
+        self.assertEqual(_en_bone("Little Distal.R"), ("finger", ("right", "Little", 3)))
+        self.assertEqual(_en_bone("Thumb Proximal.L"), ("finger", ("left", "Thumb", 0)))
+        self.assertEqual(_en_bone("Thumb Intermediate.L"), ("finger", ("left", "Thumb", 1)))
+        self.assertEqual(_en_bone("J_Bip_L_ThumbProximal", True), ("finger", ("left", "Thumb", 1)))
+        self.assertEqual(_en_bone("J_Bip_L_ThumbMetacarpal", True), ("finger", ("left", "Thumb", 0)))
+        names = ["Hips", "Spine", "Chest", "Neck", "Head", "Upper_arm.L", "Lower_arm.L", "Hand.L"] +             ["%s %s.L" % (f, s) for f in ("Thumb", "Index", "Middle", "Ring", "Little")
+             for s in ("Proximal", "Intermediate", "Distal")]
+        human = _map_humanoid([{"name": n, "name_en": n} for n in names], True, {})
+        self.assertEqual(names[human["leftThumbMetacarpal"]], "Thumb Proximal.L")
+        self.assertEqual(names[human["leftThumbDistal"]], "Thumb Distal.L")
+        self.assertEqual(names[human["leftIndexProximal"]], "Index Proximal.L")
+        self.assertEqual(names[human["leftLittleDistal"]], "Little Distal.L")
+
     def test_mmd_names_win(self):
         bones = [{"name": "下半身", "name_en": ""}, {"name": "Hips", "name_en": ""}]
         self.assertEqual(_map_humanoid(bones, True, {})["hips"], 0)

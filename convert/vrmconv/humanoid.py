@@ -105,11 +105,15 @@ _EN_FINGERS = {"thumb": "Thumb", "index": "Index", "middle": "Middle", "ring": "
                "pinky": "Little", "little": "Little"}
 
 
-def _en_bone(name):
+def _en_bone(name, thumb_metacarpal=False):
     """英文骨名 → ("slot", 骨位) / ("finger", (side, finger, 节号 0～3)) / None。
 
     节号按 MMD 的口径：拇指 0～2（VRM 1.0 的 Metacarpal / Proximal / Distal），其余手指 1～3；
     HumanIK 的拇指是 Thumb1～3、指尖是 4，所以拇指减 1、第 4 节（指尖）丢掉。
+    Unity / VRChat 的「Index Proximal.L」这类节名：其余手指 Proximal / Intermediate / Distal = 1～3；
+    拇指在 Unity 和 VRM 0.x 里叫 Proximal / Intermediate / Distal（第一节在掌根）= 0～2，
+    VRM 1.0 风格叫 Metacarpal / Proximal / Distal——同一个 Proximal 指的节不一样，
+    所以由调用方看整副骨架里有没有 ThumbMetacarpal（thumb_metacarpal）。
     """
     s = (name or "").split(":")[-1].split("|")[-1].lower()
     m = _EN_SIDE.search(s.replace(".", "_").replace(" ", "_"))
@@ -133,6 +137,15 @@ def _en_bone(name):
         if f == "Thumb":
             d -= 1
         return ("finger", (side, f, d)) if 0 <= d <= 3 and not (f != "Thumb" and d == 0) else None
+    m = re.fullmatch(r"(thumb|index|middle|ring|pinky|little)(metacarpal|proximal|intermediate|distal)", base)
+    if m:
+        f, seg = _EN_FINGERS[m.group(1)], m.group(2)
+        if f == "Thumb":
+            segs = {"metacarpal": 0, "proximal": 1, "distal": 2} if thumb_metacarpal else \
+                {"proximal": 0, "intermediate": 1, "distal": 2}
+        else:
+            segs = {"proximal": 1, "intermediate": 2, "distal": 3}
+        return ("finger", (side, f, segs[seg])) if seg in segs else None
     v = _EN_LIMBS.get(base)
     return ("slot", side + v) if v else None
 
@@ -262,6 +275,7 @@ def _map_humanoid(bones, is1, alias):
     en = {}                          # 英文骨名兜底：骨位 → 骨索引
     # HumanIK 的 LeftLeg 是小腿（大腿叫 LeftUpLeg）；只有 Leg、没有 UpLeg / Thigh 时 Leg 才是大腿
     has_upleg = any(re.search(r"upleg|upperleg|thigh", (b["name"] or "").lower()) for b in bones)
+    thumb_mc = any(re.search(r"thumb.?metacarpal", b["name"] or "", re.I) for b in bones)
     for i, b in enumerate(bones):
         if i in alias:               # 已并入付与親的骨不参与映射
             continue
@@ -275,7 +289,7 @@ def _map_humanoid(bones, is1, alias):
         if v and v not in human:
             human[v] = i
         if not v:
-            r = _en_bone(b["name"])
+            r = _en_bone(b["name"], thumb_mc)
             if r and r[0] == "finger":
                 en.setdefault(("finger",) + r[1][:2], {}).setdefault(r[1][2], i)
             elif r:
