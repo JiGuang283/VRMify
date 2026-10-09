@@ -81,6 +81,33 @@ class ExpressionNameTest(unittest.TestCase):
         self.assertEqual(_preset_en("Fcl_ALL_Joy", False), "joy")
         self.assertEqual(_preset_en("vrc.blink_left", False), "blink_l")
 
+    def test_lookup(self):
+        from vrmconv.expressions import Lookup
+        lk = Lookup(["怒りA", "キリッ", "eyeBlink_L", "EyeBlink_R", "上L", "にこり２"])
+        self.assertEqual(lk.get("怒り"), "怒りA")              # 变体后缀
+        self.assertEqual(lk.get("ｷﾘｯ"), "キリッ")              # 半角片假名
+        self.assertEqual(lk.get("にこり2"), "にこり２")         # 全角数字
+        self.assertEqual(lk.all(("eyeBlinkLeft", "eyeBlinkRight")), ("eyeBlink_L", "EyeBlink_R"))
+        self.assertIsNone(lk.get("上"))                          # 单边的不算
+        self.assertIsNone(lk.all(("eyeBlinkLeft", "eyeWideRight")))
+
+    def test_en_parts_and_arkit(self):
+        from vrmconv.expressions import Lookup, _en_part, combo_recipes
+        lk = Lookup(["Fcl_BRW_Angry", "Fcl_EYE_Joy", "Mouth_Laugh1", "Mouth_Smile1", "Eye_Smile_L", "Fcl_ALL_Sorrow"])
+        self.assertEqual(_en_part(lk, "angry", 1), "Fcl_BRW_Angry")
+        self.assertEqual(_en_part(lk, "happy", 2), "Fcl_EYE_Joy")       # 单边的 Eye_Smile_L 不算
+        self.assertEqual(_en_part(lk, "happy", 3), "Mouth_Smile1")      # smile 先于 laugh
+        self.assertIsNone(_en_part(lk, "sad", 1))                       # ALL 是整张脸，不当部位
+        # 只有 ARKit：各部位都从 ARKit 来；每个表情动不同的顶点，不会被当成重叠
+        names = ["browDownLeft", "browDownRight", "eyeSquintLeft", "eyeSquintRight", "mouthFrownLeft",
+                 "mouthFrownRight", "browInnerUp"]
+        deltas = {n: {k: (0.0, 0.1, 0.0)} for k, n in enumerate(names)}
+        r = combo_recipes(deltas, {})
+        self.assertEqual(r["angry"], [("browDownLeft", 0.5, 1), ("browDownRight", 0.5, 1),
+                                      ("eyeSquintLeft", 0.3, 2), ("eyeSquintRight", 0.3, 2),
+                                      ("mouthFrownLeft", 0.4, 3), ("mouthFrownRight", 0.4, 3)])
+        self.assertEqual([n for n, _, _ in r["sad"]], ["browInnerUp", "mouthFrownLeft", "mouthFrownRight"])
+
     def test_not_presets(self):
         for name in ("MTH_SMILE1", "Fcl_BRW_Angry", "Key 1", "eye_a", "Basis", "EYE_SMILE1"):
             self.assertIsNone(_preset_en(name, True), name)

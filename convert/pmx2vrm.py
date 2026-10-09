@@ -309,9 +309,8 @@ def _gaze(model, human_b, is1, enabled, log, look=None):
     if not enabled or "leftEye" not in human_b or "rightEye" not in human_b:
         return []
     have = set()
-    table = expressions.EXPR_1_0 if is1 else expressions.EXPR_0X
     for mo in model["morphs"]:
-        p = table.get(mo["name"]) or expressions._preset_en(mo["name"], True)
+        p = expressions._table_preset(mo["name"], True) or expressions._preset_en(mo["name"], True)
         if p:
             have.add(p)
     out = [(n, offs) for n, offs in morphbake.gaze_offsets(human_b["leftEye"], human_b["rightEye"], look)

@@ -467,6 +467,55 @@ class ComboTest(Base):
         self.assertIn("怒り+ｷﾘｯ+∧", ex["custom"])
 
 
+class OtherNamingTest(Base):
+    """不按 MMD 标准起名的模型：ARKit（左右各一个）、中文名；名字靠不住的单眼眨眼按顶点定左右。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = pmxio.read_pmx(synth.build(os.path.join(cls.tmp, "arkit"), "ARKitモデル"))
+        hv = 5 * 8
+        left = [hv + k for k in range(8) if m["vertices"][hv + k]["pos"][0] > 0]
+        right = [hv + k for k in range(8) if m["vertices"][hv + k]["pos"][0] < 0]
+        rename = {"まばたき": "眨眼", "あ": "啊2", "にこり": "Mouth_Smile1", "笑い": "Mouth_Laugh1"}
+        for mo in m["morphs"]:
+            mo["name"] = rename.get(mo["name"], mo["name"])
+            mo["panel"] = 4
+        # 左右各一组：eyeBlinkLeft 故意放在角色右边（-X），看是不是按顶点认
+        for name, vs in (("eyeBlinkLeft", right), ("eyeBlinkRight", left), ("eyeWideLeft", left[:2]),
+                         ("eyeWideRight", right[:2]), ("browInnerUp", left[2:3] + right[2:3]),
+                         ("browOuterUpLeft", left[3:4]), ("browOuterUpRight", right[3:4]),
+                         ("jawOpen", left[:1] + right[:1]), ("mouthPucker", left[1:2] + right[1:2])):
+            m["morphs"].append({"name": name, "name_en": name, "panel": 4, "kind": 1,
+                                "offsets": [(v, (0.0, -0.01, 0.001)) for v in vs]})
+        cls.pmx = os.path.join(cls.tmp, "arkit", "ARKitモデル.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+
+    def test_presets(self):
+        logs = []
+        out = os.path.join(self.tmp, "arkit.vrm")
+        pmx2vrm.convert(self.pmx, out, log=lambda s, t=None: logs.append((s, t)))
+        self.assertValid(out)
+        g = vrmio.read_glb(out)[0]
+        names = g["meshes"][0]["extras"]["targetNames"]
+        pre = g["extensions"]["VRMC_vrm"]["expressions"]["preset"]
+
+        def binds(p):
+            return [(names[b["index"]], b["weight"]) for b in pre[p]["morphTargetBinds"]]
+        self.assertEqual(binds("blink"), [("眨眼", 1.0)])                 # 中文名
+        self.assertEqual(binds("aa"), [("啊2", 1.0)])                     # 中文名 + 变体后缀
+        self.assertEqual(binds("ou"), [("mouthPucker", 1.0)])            # ARKit 退路
+        self.assertEqual(binds("blinkLeft"), [("eyeBlinkRight", 1.0)])   # 按顶点：它在角色左边
+        self.assertEqual(binds("blinkRight"), [("eyeBlinkLeft", 1.0)])
+        # 惊讶 = ARKit 的抬眉（三个）+ 睁眼（左右一对）
+        self.assertEqual(sorted(n for n, _ in binds("surprised")),
+                         sorted(["browInnerUp", "browOuterUpLeft", "browOuterUpRight", "eyeWideLeft", "eyeWideRight"]))
+        rep = [s for s, t in logs if s.startswith("表情预设：")]
+        self.assertEqual(len(rep), 1)
+        self.assertIn("surprised ← browInnerUp×0.7", rep[0])
+        self.assertIn("模型里找不到：", rep[0])
+
+
 class SkeletonTest(Base):
     """MMD 式的骨架：下半身 / 上半身从同一点出发、缺上半身2。"""
 

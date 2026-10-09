@@ -23,7 +23,7 @@ FBX / unitypackage, uemodel (UEFormat), psk / pskx (Unreal ActorX) and xps (XNAL
 | **Pose** | Raises A-pose arms to the T-pose VRM requires (bones and vertices together) |
 | **Coordinates** | PMX (left-handed) → glTF (right-handed) via one mirror, with automatic winding detection — no mirrored or see-through models |
 | **Materials** | MToon. Shade color and shading boundary come from the PMX toon ramp (pink skin shadows, like native VRoid models); colors written in linear space; opaque / cutout / blend chosen from the texture's alpha; additive sphere maps → matcap |
-| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo); emotion presets combine brow, eye and mouth morphs like VRoid (e.g. angry = 怒り + ｷﾘｯ + 口角下げ) so the whole face changes; material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
+| **Expressions** | Vertex morphs → morph targets (sparse, small files); common ones mapped to VRM presets (blink, aiueo); emotion presets combine brow, eye and mouth morphs like VRoid (e.g. angry = 怒り + ｷﾘｯ + 口角下げ) so the whole face changes, also for models that only have ARKit shapes (common on VRChat); material morphs → material color binds (show / hide parts); bone morphs (寄り目 etc.) baked into vertex morphs; UV morphs (emoticon sprites) → texture offsets; gaze expressions lookUp / lookDown / lookLeft / lookRight added when the model has eye bones |
 | **Physics** | PMX rigid bodies / joints → VRM 1.0 SpringBone, tuned to feel like native VRM models; colliders from the PMX bone-following rigid bodies. Models with no physics at all (common for FBX) get it from bone names and skeleton structure: hair, skirts, sleeves, ribbons and tails swing, with body colliders added |
 | **Textures** | Optional max size (4096 / 2048 / 1024) and JPEG for opaque textures — VRM files usually shrink by half or more (needs Pillow); textures with transparency stay PNG |
 | **Metadata** | Author, version, contact and usage license (who may use it, commercial use, modification, redistribution, credit) set in the UI; conservative defaults |
@@ -292,8 +292,9 @@ rename the PMX or disable `[ファイル] → [アンカーデータの自動読
   turns the legs' push on each skirt chain toward the panel's facing, so legs no longer split a skirt down the middle, but the
   panel still doesn't move as one piece like the original.
 - **Materials**: multiplicative sphere maps (.sph) and shared toon07–10 have no equivalent; outlines are off by default.
-- **Expression presets**: mapped and combined by standard MMD morph names; models with non-standard names can't be combined
-  (assign them in Tune), and the combination weights are fixed, so a few models may look a bit strong or weak.
+- **Expression presets**: mapped and combined by morph name (MMD Japanese names, VRoid / VRChat English names, ARKit, common
+  Chinese names); models whose names match none of these can't be combined (assign them in Tune; the "表情预设" log line lists
+  what's missing), and the combination weights are fixed, so a few models may look a bit strong or weak.
 - **Other formats**: FBX keeps English bone names (rename before using MMD motions); XPS has no morphs; PMX allows at most 4 bone weights per vertex.
 - **Textures**: KTX2 / WebP are not supported and fall back to a flat color.
 
