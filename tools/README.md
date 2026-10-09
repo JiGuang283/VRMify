@@ -102,7 +102,7 @@ python tools/build_release.py --expect-version v0.1.0  # tag 和 ui/version.py �
 ```
 
 按 `Model-To-VRM.spec` 打包，把 `LICENSE`、README 放进程序文件夹，再压成绿色版 zip。GitHub Actions 的
-`release.yml` 用的也是它，流程见 README 的「打包和发布」。
+`release.yml` 用的也是它，流程见 README 的「开发」一节。
 
 ## 冒烟测试 `smoke_exe.py`
 

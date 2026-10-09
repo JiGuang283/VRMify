@@ -31,7 +31,7 @@ transparency**, and game textures often store something else there.  Three
 modes: ``keep`` (copy as-is), ``strip`` (always drop the alpha channel),
 ``auto`` (default - decide per image, see :func:`decide_alpha`).  Stripped
 copies are written as ``<name>_noalpha.<ext>`` so the original is never
-touched.  ``--remove-alpha`` is kept as a legacy alias for ``--alpha strip``.
+touched.  ``--remove-alpha`` is kept as a legacy alias for ``--alpha auto``.
 
 Facing (``--no-auto-facing`` / ``--face-180``): FBX has no "which way does the
 character look" field, and MMD always wants the model to face -Z.  Because the
@@ -78,7 +78,7 @@ ALPHA_AUTO = "auto"          # 逐张贴图判一次（默认）
 ALPHA_STRIP = "strip"        # 一律去掉 alpha
 ALPHA_MODES = (ALPHA_KEEP, ALPHA_AUTO, ALPHA_STRIP)
 
-ALPHA_NOALPHA_SUFFIX = "_noalpha"   # 去 alpha 副本的后缀；改了要同步 README
+ALPHA_NOALPHA_SUFFIX = "_noalpha"   # 去 alpha 副本的后缀；改了要同步 docs/other-formats.md
 
 ALPHA_TRANSPARENT_BELOW = 8     # alpha 低于它算「全透明」
 ALPHA_OPAQUE_ABOVE = 250        # alpha 大于等于它算「实心」
