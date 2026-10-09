@@ -102,6 +102,8 @@ def run(tasks, jobs, log_for, start=None, done=None, should_stop=None):
                 key, msg, tag = q.get(timeout=0.2)
             except queue.Empty:
                 continue
+            if tag == "__stop__":                       # 收尾时放进来的，不用再等 0.2 秒超时
+                break
             if tag == "__done__":
                 finished[key].set()
             else:
@@ -149,6 +151,7 @@ def run(tasks, jobs, log_for, start=None, done=None, should_stop=None):
         broken = True
     finally:
         stop_pump.set()
+        q.put((None, None, "__stop__"))                 # 子进程都已退出，它们的日志都在这之前
         th.join(5)
     if broken:
         pending = [t for t in pending if t[0] not in results]

@@ -946,6 +946,24 @@ class PipelineTest(Base):
         self.assertTrue(any(m.startswith("解包 Avatar.unitypackage：") for m, _ in logs))
         self.assertFalse(any(" KB " in m for m, _ in logs))             # 不再逐个列文件
 
+    def test_archive_models_in_parallel(self):
+        """压缩包里有几个模型：同时转（子进程）；不同文件夹下的同名模型输出名加 _2，不会互相覆盖。"""
+        from unittest import mock
+        z = os.path.join(self.tmp, "two.zip")
+        with zipfile.ZipFile(z, "w") as zf:
+            for p, arc in self._pack_files():
+                zf.write(p, arc.replace("包", "红", 1))
+                zf.write(p, arc.replace("包", "蓝", 1))
+        logs = []
+        with mock.patch.object(pipeline, "SMALL_MODEL", 0):         # 合成模型很小，照样算「值得并行」
+            outs = pipeline.convert_file(z, {"jobs": 2}, out_dir=os.path.join(self.tmp, "two_out"),
+                                         log=lambda m, t=None: logs.append(m))
+        stem = os.path.splitext(os.path.basename(self.pmx))[0]
+        self.assertEqual(sorted(os.path.basename(p) for p in outs), sorted([stem + ".vrm", stem + "_2.vrm"]))
+        for p in outs:
+            self.assertValid(p)
+        self.assertIn("压缩包里有 2 个模型，同时转 2 个", logs)
+
     def test_archive_kinds(self):
         for name, kind in (("a.zip", "zip"), ("a.7z", "7z"), ("a.7z.001", "7z"), ("a.7z.002", None),
                            ("a.rar", "rar"), ("a.part1.rar", "rar"), ("a.part02.rar", None),

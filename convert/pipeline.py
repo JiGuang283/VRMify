@@ -348,11 +348,11 @@ def _unpack_fbxs(path, log):
     return fbxs, dest
 
 
-def _fbx_names(fbxs):
-    """每个 FBX 的输出名；包里不同文件夹下的同名 FBX 加 _2、_3。"""
+def _unique_names(paths):
+    """包里每个模型的输出名（文件名去掉扩展名）；不同文件夹下的同名模型加 _2、_3，免得输出互相覆盖。"""
     names, used = [], set()
-    for fbx in fbxs:
-        base = name = os.path.splitext(os.path.basename(fbx))[0]
+    for p in paths:
+        base = name = os.path.splitext(os.path.basename(p))[0]
         k = 2
         while name.lower() in used:
             name = "%s_%d" % (base, k)
@@ -382,7 +382,7 @@ def _fbx_to_pmx(fbx, out, name, o, log):
 def _fbxs_to_pmx(fbxs, out_dir, o, log):
     """FBX → PMX（写进 out_dir，贴图在 out_dir/textures），返回 PMX 路径列表。"""
     outs = []
-    for fbx, name in zip(fbxs, _fbx_names(fbxs)):
+    for fbx, name in zip(fbxs, _unique_names(fbxs)):
         out = os.path.join(out_dir, name + ".pmx")
         _fbx_to_pmx(fbx, out, name, o, log)
         outs.append(out)
@@ -414,22 +414,40 @@ def fbx_to_vrm(fbx, name, out_dir, opts, log, edits=None, check_avatar=False):
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _fbxs_to_vrm(fbxs, out_dir, opts, log, edits=None):
-    """几个 FBX（unitypackage 里常有好几套服装）→ VRM：能并行时同时转，各自的日志前面带上模型名。
-    包里某个模型失败不影响其它的，都失败才报错。"""
-    names = _fbx_names(fbxs)
-    multi = len(fbxs) > 1
-    tasks = [(i, fbx_to_vrm, (fbx, names[i], out_dir, opts), {"edits": edits, "check_avatar": multi})
-             for i, fbx in enumerate(fbxs)]
-    jobs = parallel.jobs_for(len(tasks), opts.get("jobs"))
-    if not multi:
+def _fbxs_to_vrm(fbxs, out_dir, opts, log, edits=None, name=None):
+    """几个 FBX（unitypackage 里常有好几套服装）→ VRM（见 _convert_each）。
+    name：只有一个 FBX 时用它当输出名（压缩包里有同名模型时由调用方改过名）。"""
+    names = [name] if name and len(fbxs) == 1 else _unique_names(fbxs)
+    if len(fbxs) == 1:
         return fbx_to_vrm(fbxs[0], names[0], out_dir, opts, log, edits=edits)
+    return _convert_each([(fbx_to_vrm, (fbx, names[i], out_dir, opts), {"edits": edits, "check_avatar": True})
+                          for i, fbx in enumerate(fbxs)], names, [os.path.getsize(f) for f in fbxs], opts, log,
+                         "包里")
+
+
+SMALL_MODEL = 1 << 20      # 输入文件小于 1 MB 的模型（道具、配件）转得比开子进程还快，不为它们并行
+
+
+def _convert_each(tasks, names, sizes, opts, log, where):
+    """几个模型（unitypackage 里的几套服装、压缩包里的几个模型）→ 输出路径列表：能并行时同时转，
+    各自的日志前面带上模型名（parallel.run）；某个模型失败不影响其它的，都失败才报错。
+
+    tasks：[(func, args, kwargs)]，按 func(*args, log=…, **kwargs) 调用、返回输出路径列表；
+    func 要是模块顶层函数（子进程按名字导入）。names / sizes：每个任务的模型名、输入文件大小。
+    where：日志里说「包里」还是「压缩包里」。
+    """
+    if len(tasks) == 1:                              # 只有一个：直接转，出错照常抛出
+        func, args, kw = tasks[0]
+        return func(*args, log=log, **kw)
+    big = sum(1 for s in sizes if s >= SMALL_MODEL)  # 一个人物 + 几个小道具：一个一个转更快
+    jobs = parallel.jobs_for(big, opts.get("jobs")) if big > 1 else 1
+    keyed = [(i,) + tuple(t) for i, t in enumerate(tasks)]
     if jobs > 1:
-        log("包里有 %d 个模型，同时转 %d 个" % (len(tasks), jobs), "info")
-        results = parallel.run(tasks, jobs, lambda i: (lambda m, t=None: log("[%s] %s" % (names[i], m), t)))
+        log("%s有 %d 个模型，同时转 %d 个" % (where, len(tasks), jobs), "info")
+        results = parallel.run(keyed, jobs, lambda i: (lambda m, t=None: log("[%s] %s" % (names[i], m), t)))
     else:
         results = {}
-        for i, func, args, kw in tasks:
+        for i, func, args, kw in keyed:
             try:
                 results[i] = (True, func(*args, log=log, **kw))
             except Exception as e:  # noqa: BLE001  一个模型失败不影响其它的
@@ -517,18 +535,26 @@ def _convert_archive(path, kind, out_dir, opts, log, edits=None):
             os.path.relpath(p, tmp) for p in todo)), "info")
         if not todo:
             raise RuntimeError("压缩包里没有可转换的模型（PMX / FBX / uemodel / psk / xps）")
-        outs = []
-        for p in todo:
-            log("→ %s" % os.path.relpath(p, tmp), "head")
-            outs += _convert_model(p, classify(p), out_dir, opts, log, edits)
-        return outs
+        names = _unique_names(todo)
+        # 只转 PMX 时几个模型的贴图都写进输出目录的同一个 textures 文件夹：一个一个转
+        each = dict(opts, jobs=1) if opts["target"] == "pmx" else opts
+        return _convert_each([(_convert_inner, (p, os.path.relpath(p, tmp), out_dir, opts),
+                               {"edits": edits, "name": names[i]}) for i, p in enumerate(todo)],
+                             names, [os.path.getsize(p) for p in todo], each, log, "压缩包里")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _convert_model(path, kind, out_dir, opts, log, edits=None):
+def _convert_inner(path, rel, out_dir, opts, log, edits=None, name=None):
+    """压缩包里的一个模型（rel：在包里的相对路径，日志用）。并行时在子进程里跑（见 _convert_each）。"""
+    log("→ %s" % rel, "head")
+    return _convert_model(path, classify(path), out_dir, opts, log, edits, name=name)
+
+
+def _convert_model(path, kind, out_dir, opts, log, edits=None, name=None):
+    """name：转 VRM 时的输出名（不给时用文件名；unitypackage 里的几个模型各用各的文件名）。"""
     if kind == "pmx":
-        return [pmx_to_vrm(path, out_dir, opts, log, edits=edits)]
+        return [pmx_to_vrm(path, out_dir, opts, log, name=name, edits=edits)]
     if opts["target"] == "pmx":
         pmxs = to_pmx(path, kind, out_dir, opts, log)
         for p in pmxs:
@@ -538,7 +564,7 @@ def _convert_model(path, kind, out_dir, opts, log, edits=None):
     if kind in ("fbx", "unitypackage"):
         fbxs, dest = _unpack_fbxs(path, log) if kind == "unitypackage" else ([path], None)
         try:
-            return _fbxs_to_vrm(fbxs, out_dir, opts, log, edits)
+            return _fbxs_to_vrm(fbxs, out_dir, opts, log, edits, name=name if kind == "fbx" else None)
         finally:
             if dest:
                 shutil.rmtree(dest, ignore_errors=True)
@@ -546,7 +572,7 @@ def _convert_model(path, kind, out_dir, opts, log, edits=None):
     try:
         pmxs = to_pmx(path, kind, work, opts, log)
         log("PMX → VRM：%s" % os.path.basename(pmxs[0]), "info")
-        return [pmx_to_vrm(p, out_dir, opts, log, edits=edits) for p in pmxs]
+        return [pmx_to_vrm(p, out_dir, opts, log, name=name, edits=edits) for p in pmxs]
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

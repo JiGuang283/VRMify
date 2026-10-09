@@ -100,8 +100,8 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   - **Metadata**: author and usage license (the name defaults to the model file name)
   - **Output**: convert non-PMX formats to VRM (default, via PMX) or stop at PMX; save to the app folder (default: a `vrm`
     folder next to the program) / next to the source / a chosen folder, optional per-run subfolder; how many to convert at
-    once (Auto / 1 / 2 / 4: several files, or several outfits in one package, convert in parallel — about twice as fast or
-    more, ~1.5 GB of memory each)
+    once (Auto / 1 / 2 / 4: several files, or several models in one package or archive, convert in parallel — about twice
+    as fast or more, ~1.5 GB of memory each)
 - Right: three-vrm preview. Previewing a file that hasn't been converted yet builds a temporary VRM in the background first;
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names
