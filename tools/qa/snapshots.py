@@ -223,6 +223,7 @@ def shoot(models, out_png, size=224, custom=False, browser=None, timeout=300, co
         except subprocess.TimeoutExpired:
             proc.kill()
         srv.shutdown()
+        srv.server_close()
         shutil.rmtree(prof, ignore_errors=True)
     if "error" in result:
         raise SystemExit("页面出错：\n" + result["error"])
