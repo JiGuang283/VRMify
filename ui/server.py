@@ -10,7 +10,7 @@
   POST /api/pick_output               选输出文件夹，返回路径
   POST /api/pick_ue_ref               选 uemodel 的整身对齐参考，返回路径（参考像部件时带 warn）
   POST /api/remove   {ids} · /api/clear
-  POST /api/options  {opts, lang}     保存选项（写 settings.json）
+  POST /api/options  {opts, lang, ui} 保存选项、界面语言、栏宽（写 settings.json）
   POST /api/convert  {ids}            开始转换（ids 为空 = 全部待转的）
   POST /api/stop                      当前文件转完后停止
   POST /api/preview  {id, output}     给某个文件准备预览（PMX 等会先快速转一份临时 VRM）；
@@ -126,6 +126,19 @@ def _sweep_stale_previews(max_age=86400):
             pass
 
 
+# 界面布局（拖动分隔条调的栏宽，像素）：left 左栏、side 右侧面板栏（调整面板 sideWide）
+_UI_LIMITS = {"left": (300, 900), "side": (220, 900), "sideWide": (280, 900)}
+
+
+def _clean_ui(ui):
+    out = {}
+    for k, (lo, hi) in _UI_LIMITS.items():
+        v = (ui or {}).get(k) if isinstance(ui, dict) else None
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[k] = int(min(hi, max(lo, v)))
+    return out
+
+
 class Backend:
     def __init__(self):
         self.lock = threading.RLock()
@@ -141,7 +154,7 @@ class Backend:
         self.last_seen = time.time()
         _sweep_stale_previews()
         self.tmp = tempfile.mkdtemp(prefix="model2vrm_preview_")
-        self.opts, self.lang = self._load_settings()
+        self.opts, self.lang, self.ui = self._load_settings()
         self.edits = self._load_edits()
 
     # --------------------------------------------------------- settings --
@@ -158,12 +171,12 @@ class Backend:
         saved = (s.get("opts") or {}).get("output")
         if s.get("v", 1) < 2 and (saved is None or saved == _OLD_DEFAULT_OUTPUT):
             opts["output"]["mode"] = "app"
-        return opts, lang
+        return opts, lang, _clean_ui(s.get("ui"))
 
     def _save_settings(self):
         try:
             with open(SETTINGS, "w", encoding="utf-8") as f:
-                json.dump({"v": 2, "lang": self.lang, "opts": self.opts}, f, ensure_ascii=False, indent=1)
+                json.dump({"v": 2, "lang": self.lang, "opts": self.opts, "ui": self.ui}, f, ensure_ascii=False, indent=1)
         except OSError:
             pass
 
@@ -221,7 +234,7 @@ class Backend:
     def state(self):
         with self.lock:
             return {"files": [self._entry(f) for f in self.files.values()], "opts": self.opts,
-                    "lang": self.lang, "busy": self.busy,
+                    "lang": self.lang, "busy": self.busy, "ui": self.ui,
                     "seq": self.events[-1][0] if self.events else 0,
                     "native": self.window is not None, "version": __version__,
                     "features": {"pillow": textures.available()}, "app_out": APP_OUT}
@@ -265,12 +278,14 @@ class Backend:
                 del self.files[i]
         self.emit(type="files")
 
-    def set_options(self, opts=None, lang=None):
+    def set_options(self, opts=None, lang=None, ui=None):
         with self.lock:
             if opts is not None:
                 self.opts = pipeline.merged(opts)
             if lang in LANGS:
                 self.lang = lang
+            if ui is not None:
+                self.ui = _clean_ui(dict(self.ui, **ui) if isinstance(ui, dict) else None)
             self._save_settings()
 
     def _update(self, fid, **kw):
@@ -720,7 +735,7 @@ class Handler(SimpleHTTPRequestHandler):
             b.clear()
             return self._json({})
         if route == "/api/options":
-            b.set_options(body.get("opts"), body.get("lang"))
+            b.set_options(body.get("opts"), body.get("lang"), body.get("ui"))
             return self._json({"opts": b.opts, "lang": b.lang})
         if route == "/api/convert":
             return self._json({"started": b.convert(body.get("ids"))})

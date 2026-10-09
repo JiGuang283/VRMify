@@ -1,4 +1,5 @@
 :root {
+  --left-w: 440px; --side-w: 300px; --side-wide-w: 380px;
   --bg: #f3f4f7; --card: #ffffff; --text: #1d2026; --muted: #6b7380; --line: #e3e6eb; --hover: #f2f4f8;
   --accent: #3a6ee8; --accent-soft: #e9f0fd; --ok: #1f9d55; --warn: #c27c0e; --err: #d64545;
   --viewport: #8a8f98; --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
@@ -26,7 +27,7 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 
 .layout { flex: 1; display: flex; min-height: 0; }
 /* left column: settings scroll, the run bar stays at the bottom */
-.left { width: 440px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+.left { width: var(--left-w); flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .left-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
@@ -119,14 +120,18 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .spinner { width: 18px; height: 18px; border: 2px solid #fff6; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* side column next to the preview (one panel at a time) */
-.side { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--card);
+.side { width: var(--side-w); flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--card);
   border-left: 1px solid var(--line); }
-.side.wide { width: 380px; }
+.side.wide { width: var(--side-wide-w); }
+/* drag handles between the columns (double-click resets) */
+.splitter { width: 6px; margin: 0 -3px; flex: none; cursor: col-resize; position: relative; z-index: 5; }
+.splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .15s; }
+.splitter:hover::after, .splitter.dragging::after { background: var(--accent); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .pv canvas { pointer-events: none; }
 /* narrow windows (the app allows 1000 px): give the preview more of the width */
 @media (max-width: 1200px) {
-  .left { width: 360px; }
-  .side { width: 260px; }
-  .side.wide { width: 330px; }
+  :root { --left-w: 360px; --side-w: 260px; --side-wide-w: 330px; }
   .pv-title { max-width: 140px; }
 }
 .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px; overflow-y: auto; }

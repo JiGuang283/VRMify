@@ -10,6 +10,7 @@ export const S = {
   logErrors: 0, progress: null, result: null,
   autoOpened: false,    // first file of a run already opened in the preview
   autoTune: false,      // open the tune panel by itself once the model on screen can be tuned
+  ui: {},               // column widths from settings.json (layout.js)
 };
 
 export function t(key, args) {

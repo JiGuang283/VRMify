@@ -78,6 +78,23 @@ class OutputDefaultTest(unittest.TestCase):
         self.assertEqual(pipeline.output_dir(os.path.join(out, "a.pmx"), opts), out)
 
 
+class LayoutTest(unittest.TestCase):
+    """拖动调的栏宽存进 settings.json：只收认识的键、夹在范围里；传 None 是恢复默认。"""
+
+    def test_widths_saved_and_clamped(self):
+        path = os.path.join(tempfile.mkdtemp(prefix="m2v_ui_"), "settings.json")
+        with mock.patch.object(server, "SETTINGS", path):
+            b = server.Backend.__new__(server.Backend)
+            b.lock = __import__("threading").RLock()
+            b.opts, b.lang, b.ui = server.Backend._load_settings(None)
+            self.assertEqual(b.ui, {})
+            b.set_options(ui={"left": 520.6, "side": 50, "bogus": 3, "sideWide": "x"})
+            self.assertEqual(b.ui, {"left": 520, "side": 220})
+            b.set_options(ui={"sideWide": 400})
+            b.set_options(ui={"left": None})
+            self.assertEqual(server.Backend._load_settings(None)[2], {"side": 220, "sideWide": 400})
+
+
 class StalePreviewTest(unittest.TestCase):
     def test_sweep(self):
         """启动时删一天以前遗留的预览临时目录，新的不动。"""

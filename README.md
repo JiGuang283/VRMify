@@ -104,7 +104,8 @@ From a terminal: `python ui/app.py [files or folders ...]` (`--browser` forces t
   after conversion the real output is shown. PMX files (added PMX files, PMX outputs, "PMX only" results) are previewed
   natively: MMD toon shading, sphere maps, morphs and live MMD physics (ammo.js); models with standard bone names
   (Japanese MMD or common English names) also play the idle / walk motions. The Light, Expressions, Tune and Info panels open in a column to the right of the preview (one at a time); the preview narrows
-  instead of being covered. See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
+  instead of being covered. Drag the dividers to resize the left column and the panel column (remembered; double-click
+  a divider to reset). See [Tuning after conversion](#tuning-after-conversion) for the Tune panel.
 - **Archives from model sites can be added directly** (zip / 7z / rar / tar.gz …; add the first part of a split archive):
   they are extracted to a temp folder, the PMX inside is converted (other formats if there is no PMX; one nested archive level
   is unpacked too) and the output goes next to the archive. Zip uses the built-in extractor and restores legacy GBK / Shift-JIS

@@ -194,6 +194,7 @@
       <div class="progress"><div id="progressFill"></div></div>
     </section>
   </aside>
+  <div class="splitter" id="splitLeft" role="separator" aria-orientation="vertical" data-i18n-title="dragResize"></div>
 
   <main class="right">
     <div class="pv-toolbar">
@@ -221,6 +222,7 @@
         <div class="pv-busy" id="pvBusy" hidden><div class="spinner"></div><span id="pvBusyText"></span></div>
       </div>
       <!-- side column: one panel at a time; the preview narrows instead of being covered -->
+      <div class="splitter" id="splitSide" role="separator" aria-orientation="vertical" data-i18n-title="dragResize" hidden></div>
       <aside class="side" id="side" hidden>
         <div class="panel" id="lightPanel" hidden>
           <div class="field"><label data-i18n="lightAz"></label><input type="range" id="lAz" min="-180" max="180" step="5" value="35"><output id="lAzV"></output></div>

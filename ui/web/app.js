@@ -3,10 +3,12 @@
 //   files.js    file list          options.js  conversion settings
 //   run.js      run bar + log      preview.js  3D preview, toolbar, side column
 //   tune.js     tune panel (per-model adjustments written into the VRM)
+//   layout.js   drag handles for the column widths
 import { $, S, api, t, toast } from './core.js';
 import { renderFiles } from './files.js';
 import { applyOptsToForm, renderOutFolder, syncDependents } from './options.js';
 import { appendLog, renderStatus } from './run.js';
+import { applyLayout } from './layout.js';
 import { fillPreviewPanels, loadModel, previewFile, showBusy, viewer } from './preview.js';
 import { T, loadTune, renderTune } from './tune.js';
 
@@ -14,6 +16,7 @@ function applyLang() {
   document.documentElement.lang = S.lang === 'en' ? 'en' : 'zh-CN';
   document.querySelectorAll('[data-i18n]').forEach((e) => { e.textContent = t(e.dataset.i18n); });
   document.querySelectorAll('[data-i18n-ph]').forEach((e) => { e.placeholder = t(e.dataset.i18nPh); });
+  document.querySelectorAll('[data-i18n-title]').forEach((e) => { e.title = t(e.dataset.i18nTitle); });
   document.querySelectorAll('[data-lang]').forEach((b) => b.classList.toggle('on', b.dataset.lang === S.lang));
   $('fileList').dataset.empty = t('empty');
   renderStatus(); renderOutFolder(); syncDependents();
@@ -27,7 +30,8 @@ document.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('clic
 async function loadState() {
   const st = await api('/api/state');
   Object.assign(S, { files: st.files, opts: st.opts, lang: st.lang, busy: st.busy, seq: st.seq, native: st.native,
-    features: st.features || {}, appOut: st.app_out || '' });
+    features: st.features || {}, appOut: st.app_out || '', ui: st.ui || {} });
+  applyLayout();
   $('ver').textContent = st.version ? 'v' + st.version : '';
   applyOptsToForm();
   applyLang();

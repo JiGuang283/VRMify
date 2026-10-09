@@ -6,7 +6,7 @@ import { loadModel, modelUrl, showPanel, viewer } from './preview.js';
 
 export const T = {
   fid: null, info: null, edits: {}, dirty: false,
-  open: { meta: false, expr: true, look: true, physics: true, chains: false },   // collapsible sections (kept across models)
+  open: { meta: true, expr: true, look: true, physics: true, chains: false },   // collapsible sections (kept across models)
 };
 
 // three-vrm loads VRM 0.x presets under their 1.0 names
