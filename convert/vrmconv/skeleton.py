@@ -11,7 +11,7 @@ import math
 from types import SimpleNamespace
 
 from .humanoid import (REQUIRED_0X, REQUIRED_1_0, _HIPS_Y, _SYNTH, _append_aliases,
-                       _clean_parents, _fix_humanoid_hierarchy, _map_humanoid, _reparent,
+                       _clean_parents, _fix_humanoid_hierarchy, _map_humanoid, _pick_toes, _reparent,
                        _topo_bones, _tpose_globals, _vrm_anchor)
 from .mathutil import _I3, _m3vec
 
@@ -69,11 +69,12 @@ def fix_facing(model, log):
     return deg
 
 
-def prepare_bones(bones, is1, log):
+def prepare_bones(bones, is1, log, weighted=()):
     """→ SimpleNamespace(parents, alias, required, human_b, order, remap)。
 
-    1) 付与 100% 的同位置骨（足D 等）并入付与親：权重与子骨都转过去
-    2) humanoid 映射 + 层级修正（上半身 挂到 下半身 下等）
+    1) 付与 100% 的骨（足D 等）并入付与親：权重与子骨都转过去
+    2) humanoid 映射 + 层级修正（上半身 挂到 下半身 下等）；脚趾按 _pick_toes 选
+    weighted：挂了网格的骨（PMX 骨索引），选脚趾时用。
     """
     nb = len(bones)
     parents = _clean_parents(bones)
@@ -87,10 +88,14 @@ def prepare_bones(bones, is1, log):
             % (len(alias), "、".join(bones[i]["name"] for i in
                                     list(alias)[:6]) +
                ("…" if len(alias) > 6 else "")))
+        off = [bones[i]["name"] for i, s in alias.items() if math.dist(bones[i]["pos"], bones[s]["pos"]) > 0.01]
+        if off:
+            log("付与骨合并：%s 与付与親的位置略有偏差，合并后绕付与親的位置转动" % "、".join(off))
     # 1.0 规范里 chest / neck 可选，但不少程序、动作数据默认有（比如按躯干关节生成布娃娃），
     # 缺的话和 0.x 一样补占位骨
     required = REQUIRED_0X
     human_b = _map_humanoid(bones, is1, alias)
+    _pick_toes(bones, human_b, alias, set(weighted))
     _fix_humanoid_hierarchy(human_b, parents, bones, set(required), log)
     order, remap = _topo_bones(parents)
     return SimpleNamespace(parents=parents, alias=alias, required=required,

@@ -137,11 +137,16 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             len(model["morphs"])))
 
     # ---- 骨骼预处理（都在 PMX 坐标里做，最后统一过 xf）：付与骨合并、humanoid、T-pose
-    bs = skeleton.prepare_bones(bones, is1, _log)
     # 骨骼表情烘焙用不带别名的权重，网格用带别名的：先算前者，后者只重算挂在别名骨上的顶点
     if raw_weights is None:
         raw_weights = mesh.vertex_weights(verts, len(bones), {})
+    bs = skeleton.prepare_bones(bones, is1, _log, weighted={b for wl in raw_weights for b, w in wl if w > 0})
     vweights = mesh.vertex_weights(verts, len(bones), bs.alias, base=raw_weights)
+    for n, rb, rp, lb, lp in mesh.mirror_mismatches(verts, raw_weights, vweights, bs.human_b):
+        _log("权重：左右对称的 %d 对顶点，右侧主要绑在 %s（%s），左侧却绑在 %s（%s），"
+             "动作时这部分会变形。可能是模型的权重错误，建议在 PmxEditor 中检查"
+             % (n, bones[rb]["name"], mesh.LIMB_PART.get(rp, rp), bones[lb]["name"],
+                mesh.LIMB_PART.get(lp, lp)), "warn")
     glob, bpos, vpos, vnrm, vmat = skeleton.apply_tpose(verts, bones, bs, vweights, tpose, _log)
 
     # ---- 缠绕顺序自动判定：必须用「镜像后」的数据投票。

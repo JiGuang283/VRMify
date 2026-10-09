@@ -230,18 +230,21 @@ def _reparent(parents, child, new_parent):
     return True
 
 
-def _append_aliases(bones, parents, eps):
-    """「付与回転 100%、和付与親同位置」的骨 → 付与親，返回 {骨: 付与親}。
+def _append_aliases(bones, parents, eps, loose=0.15):
+    """「付与回転 100%」跟随付与親的骨 → 付与親，返回 {骨: 付与親}。
 
     典型是 足D / ひざD / 足首D：网格权重全在 D 骨上，D 骨靠 PMX 的付与
     跟随 足 / ひざ / 足首 转动；而 humanoid 映射指向的是 足 / ひざ / 足首。
     glTF/VRM 没有付与机制，原样导出时转大腿网格完全不动。
-    这种骨与付与親在静止姿势下完全重合、旋转也 1:1 跟随，把它的权重和
-    子骨直接并到付与親上是等价的。
+    和付与親在静止姿势下重合（差不超过 eps）、旋转也 1:1 跟随的，把权重和子骨并到付与親上是等价的。
+    不重合的（足首D 比 足首 靠后 2～3 cm 之类）也合并，条件是：两者是兄弟骨（D 骨的父骨并入后就是
+    付与親的父骨）、偏差不超过付与親那一节骨长的 loose 倍、D 骨本身不是 humanoid 骨位（左目 跟随 両目
+    就不能并）。合并后网格绕付与親的位置转，和 MMD 只差一个很小的平移（偏差 2.5 cm、转 30° 时约 1 cm）；
+    不合并的话它在 VRM 里完全不动，挂在付与親子骨上的部分（鞋尖）却跟着转，鞋子从中间裂开。
     付与率不是 1（腕捩1 的 0.25、腰キャンセル 的 -1 等）的不动。
     """
     n = len(bones)
-    alias = {}
+    alias, near = {}, {}
     for i, b in enumerate(bones):
         ir = b.get("inherit_rot")
         if not ir:
@@ -252,12 +255,13 @@ def _append_aliases(bones, parents, eps):
         im = b.get("inherit_mov")
         if im and im[0] != src:
             continue
-        p, q = b["pos"], bones[src]["pos"]
-        if math.sqrt(sum((p[k] - q[k]) ** 2 for k in range(3))) > eps:
-            continue
         if _is_ancestor(parents, i, src):        # 付与親在自己下面：并过去会成环
             continue
-        alias[i] = src
+        d = math.dist(b["pos"], bones[src]["pos"])
+        if d <= eps:
+            alias[i] = src
+        elif not MMD_TO_VRM.get(b["name"]):
+            near[i] = (src, d)
 
     def resolve(i):
         seen = set()
@@ -265,7 +269,35 @@ def _append_aliases(bones, parents, eps):
             seen.add(i)
             i = alias[i]
         return i
+    grew = True
+    while grew:                      # D 骨的父骨可能也是这样并进来的（ひざD → 足首D）
+        grew = False
+        for i, (src, d) in near.items():
+            pi, ps = parents[i], parents[src]
+            if i in alias or pi < 0 or ps < 0 or resolve(pi) != resolve(ps):
+                continue
+            if d <= loose * math.dist(bones[ps]["pos"], bones[src]["pos"]):
+                alias[i] = src
+                grew = True
     return {i: resolve(i) for i in alias}
+
+
+def _pick_toes(bones, human, alias, weighted):
+    """humanoid 的脚趾：MMD 的 つま先 是足 IK 的末端点（鞋尖最前面），不是脚趾关节——动画转脚趾时
+    绕着鞋尖最前面那一点转。有 足先EX（准标准骨，脚掌和脚趾之间的关节，鞋头的权重常在它上面）就用它；
+    没有的话，つま先 没挂网格就留着（转了也没影响），挂了网格就不设脚趾（VRM 里可以不设，鞋子跟着脚整体转）。
+    weighted：挂了网格的骨（PMX 骨索引）。只处理 MMD 名字的骨。"""
+    names = {b["name"]: i for i, b in enumerate(bones) if i not in alias}
+    for side, jp in (("left", "左"), ("right", "右")):
+        slot = side + "Toes"
+        cur = human.get(slot)
+        if cur is not None and bones[cur]["name"] != jp + "つま先":
+            continue
+        ex = names.get(jp + "足先EX")
+        if ex is not None:
+            human[slot] = ex
+        elif cur is not None and cur in weighted:
+            del human[slot]
 
 
 def _map_humanoid(bones, is1, alias):

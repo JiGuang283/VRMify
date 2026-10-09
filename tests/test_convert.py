@@ -256,6 +256,59 @@ class PmxReadTest(unittest.TestCase):
         self.assertEqual(len(m["rigid_bodies"]), 4)                  # 后面的段没有错位
 
 
+class LegBonesTest(unittest.TestCase):
+    """腿部的 D 骨合并、脚趾选骨、左右权重不一致的检查。"""
+
+    @staticmethod
+    def bone(name, parent, pos, grant=None):
+        return {"name": name, "parent": parent, "pos": pos,
+                "inherit_rot": (grant, 1.0) if grant is not None else None, "inherit_mov": None}
+
+    def leg(self, ankle_d_offset):
+        """0 腰 1 足 2 ひざ 3 足首 4 足D 5 ひざD 6 足首D（偏差 ankle_d_offset）7 足先EX 8 つま先 9 両目 10 左目"""
+        b = self.bone
+        return [b("腰", -1, (0, 10, 0)), b("左足", 0, (1, 10, 0)), b("左ひざ", 1, (1, 6, 0)), b("左足首", 2, (1, 1, 0)),
+                b("左足D", 0, (1, 10, 0), 1), b("左ひざD", 4, (1, 6, 0), 2), b("左足首D", 5, (1, 1, ankle_d_offset), 3),
+                b("左足先EX", 6, (1, 0.3, -0.8)), b("左つま先", 3, (1, 0.2, -1.2)),
+                b("両目", 0, (0, 15, -1)), b("左目", 0, (0.3, 15, -0.2), 9)]
+
+    def test_aliases(self):
+        from vrmconv import humanoid
+        for off, merged in ((0.0, True), (0.3, True), (1.5, False)):       # 足首 那一节长 5：15% 是 0.75
+            bones = self.leg(off)
+            alias = humanoid._append_aliases(bones, humanoid._clean_parents(bones), eps=0.01)
+            self.assertEqual(alias.get(4), 1)
+            self.assertEqual(alias.get(5), 2)
+            self.assertEqual(alias.get(6), 3 if merged else None, off)
+            self.assertNotIn(10, alias)                                    # humanoid 骨（左目）不并
+
+    def test_toes(self):
+        from vrmconv import humanoid
+        bones = self.leg(0.3)
+        alias = humanoid._append_aliases(bones, humanoid._clean_parents(bones), eps=0.01)
+        human = {"leftToes": 8}
+        humanoid._pick_toes(bones, human, alias, set())
+        self.assertEqual(human["leftToes"], 7)                             # 有 足先EX 用它
+        no_ex = [dict(b, name="左足先" if b["name"] == "左足先EX" else b["name"]) for b in bones]
+        human = {"leftToes": 8}
+        humanoid._pick_toes(no_ex, human, alias, set())
+        self.assertEqual(human["leftToes"], 8)                             # つま先 没挂网格：留着
+        humanoid._pick_toes(no_ex, human, alias, {8})
+        self.assertNotIn("leftToes", human)                                # 挂了网格：不设脚趾
+
+    def test_mirror_mismatch(self):
+        human = {"leftUpperLeg": 1, "rightUpperLeg": 2, "leftLowerLeg": 3, "rightLowerLeg": 4}
+        verts, weights = [], []
+        for k in range(30):                           # 右侧绑大腿、左侧对称位置绑小腿
+            verts += [{"pos": (-1.0, 1.0 + k * 0.01, 0.0)}, {"pos": (1.0, 1.0 + k * 0.01, 0.0)}]
+            weights += [[(2, 0.8), (4, 0.1)], [(3, 0.8), (1, 0.1)]]
+        for k in range(30):                           # 对称的不算
+            verts += [{"pos": (-2.0, 1.0 + k * 0.01, 0.0)}, {"pos": (2.0, 1.0 + k * 0.01, 0.0)}]
+            weights += [[(4, 1.0)], [(3, 1.0)]]
+        self.assertEqual(mesh.mirror_mismatches(verts, weights, weights, human), [(30, 2, "UpperLeg", 3, "LowerLeg")])
+        self.assertEqual(mesh.mirror_mismatches(verts[60:], weights[60:], weights[60:], human), [])
+
+
 class WeightsTest(unittest.TestCase):
     """mesh.vertex_weights：1 / 2 根骨的顶点走快速分支，结果和通用算法完全相同；带付与别名的结果
     可以从不带别名的结果改出来（只重算挂在别名骨上的顶点）。"""

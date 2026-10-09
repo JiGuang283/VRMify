@@ -66,6 +66,55 @@ def vertex_weights(verts, nb, alias, base=None):
     return [_weights_of(v, nb, alias) for v in verts]
 
 
+LIMB_PART = {"Shoulder": "肩", "UpperArm": "上臂", "LowerArm": "前臂", "Hand": "手",
+             "UpperLeg": "大腿", "LowerLeg": "小腿", "Foot": "脚", "Toes": "脚趾"}
+
+
+def mirror_mismatches(verts, raw_weights, vweights, human, min_count=20):
+    """左右对称位置的顶点绑在四肢的不同部位上（一边大腿、一边小腿之类）→
+    [(顶点对数, 右侧骨, 右侧部位, 左侧骨, 左侧部位)]（骨是 PMX 索引，部位是 humanoid 骨位去掉 left / right）。
+
+    多半是模型镜像权重时弄错了：在 MMD 里同样会变形（膝盖一弯，绑在大腿上的鞋子就被扯开），
+    转换器不改模型，只在日志里提示。PMX 坐标里角色的左边是 +X。只算两边都主要（≥ 0.5）挂在
+    四肢的 humanoid 骨上、而且各自几乎不挂对面那个部位（< 0.2）的顶点对，关节处正常的混合权重不算。
+    """
+    part = {}
+    for s, b in human.items():
+        for side in ("left", "right"):
+            if s.startswith(side):
+                part[b] = s[len(side):]
+    if not part:
+        return []
+
+    def key(x, y, z):
+        return (round(x, 3), round(y, 3), round(z, 3))
+
+    def dom(wl):
+        return max(wl, key=lambda t: t[1])
+
+    def on(wl, p):
+        return sum(w for b, w in wl if part.get(b) == p)
+
+    left = {key(*v["pos"]): i for i, v in enumerate(verts) if v["pos"][0] > 1e-4}
+    groups = {}
+    for i, v in enumerate(verts):
+        x, y, z = v["pos"]
+        if x >= -1e-4:
+            continue
+        j = left.get(key(-x, y, z))
+        if j is None:
+            continue
+        (br, wr), (bl, wl) = dom(vweights[i]), dom(vweights[j])
+        pr, pl = part.get(br), part.get(bl)
+        if not pr or not pl or pr == pl or wr < 0.5 or wl < 0.5:
+            continue
+        if on(vweights[i], pl) >= 0.2 or on(vweights[j], pr) >= 0.2:
+            continue
+        k = (dom(raw_weights[i])[0], pr, dom(raw_weights[j])[0], pl)
+        groups[k] = groups.get(k, 0) + 1
+    return sorted(((n,) + k for k, n in groups.items() if n >= min_count), reverse=True)
+
+
 def build_primitives(model, xf, xf_dir, vpos, vnrm, vweights, reverse_winding, make_material):
     """按 PMX 材质切网格。make_material(PMX 材质号, 材质) → glTF 材质号（只给有面的材质调用）。
 
