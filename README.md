@@ -236,7 +236,7 @@ python tools/build_release.py           # → dist/Model-To-VRM-v<version>-win64
 | Workflow | Runs on | Does |
 |---|---|---|
 | `test.yml` | pushes to main that touch code; manual | unit tests on Linux (incl. official VRM schema checks), about a minute |
-| `release.yml` | `v*` tags; manual | tests on Windows → `build_release.py` → for tags a **draft** release with the zip; manual runs only upload the zip as an artifact |
+| `release.yml` | `v*` tags; manual | tests on Windows → `build_release.py` → `smoke_exe.py` runs the built exe on a few synthetic models → for tags a **draft** release with the zip; manual runs only upload the zip as an artifact |
 
 To release: bump `ui/version.py` → commit → `git tag v0.1.0` → `git push origin main v0.1.0` → review the draft under Releases
 and publish. The build fails if the tag and `ui/version.py` disagree.

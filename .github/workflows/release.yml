@@ -1,4 +1,4 @@
-# 打 v* tag 时：测试 → 打包 Windows 绿色版 zip → 建一个草稿 Release（确认后在网页上点发布）。
+# 打 v* tag 时：测试 → 打包 Windows 绿色版 zip → 冒烟测试（tools/smoke_exe.py）→ 建一个草稿 Release（确认后在网页上点发布）。
 # 手动运行（workflow_dispatch）只打包，zip 在这次运行的 Artifacts 里，不建 Release。
 #
 #   改 ui/version.py → 提交 → git tag v0.1.0 → git push origin v0.1.0
@@ -29,6 +29,9 @@ jobs:
         run: |
           $expect = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "" }
           python tools/build_release.py --expect-version "$expect"
+      # 打包后的 exe 实际跑一遍：启动、转换合成的 PMX / zip / FBX / unitypackage、校验输出（不过就不建 Release）
+      - name: Smoke test
+        run: python tools/smoke_exe.py "${{ steps.build.outputs.zip }}"
       # 直接上传 zip 本身（archive: false），下载下来不会是「zip 套 zip」
       - uses: actions/upload-artifact@v7
         with:

@@ -605,6 +605,25 @@ class SkirtTest(Base):
             self.assertEqual(d[c], [0.0, 0.0, 0.0])
 
 
+class SnapshotTest(Base):
+    """tools/qa/snapshots.py：无界面浏览器里用预览组件拍表情对照表（没有 Edge / Chrome 时跳过）。"""
+
+    def test_sheet(self):
+        import snapshots
+        if not snapshots.find_browser():
+            self.skipTest("没有 Edge / Chrome")
+        out = os.path.join(self.tmp, "snap.png")
+        a, b = self.convert("snap_a"), self.convert("snap_b", combo_expr=False)
+        snapshots.shoot([(a, a), (b, b)], out, size=64, timeout=180)
+        with open(out, "rb") as f:
+            head = f.read(24)
+        self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
+        w, h = int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+        n = len(snapshots.SHOTS)
+        self.assertEqual(w, 150 + n * (64 + 6) + 6)              # 一段放下标准的一组，两个模型两行
+        self.assertEqual(h, 6 + 2 * (64 + 20 + 6) + 6)
+
+
 class PipelineTest(Base):
     def _pack_files(self):
         src = os.path.dirname(self.pmx)

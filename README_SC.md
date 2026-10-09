@@ -227,7 +227,7 @@ python tools/build_release.py           # → dist/Model-To-VRM-v<版本>-win64.
 | 工作流 | 什么时候跑 | 做什么 |
 |---|---|---|
 | `test.yml` | 推送到 main 且改了代码；也可手动运行 | Linux 上跑单元测试（含官方 VRM Schema 校验），约 1 分钟 |
-| `release.yml` | 推送 `v*` tag；也可手动运行 | Windows 上测试 → `build_release.py` 打包 → tag 触发时建**草稿** Release 并附上 zip；手动运行只把 zip 放进 Artifacts |
+| `release.yml` | 推送 `v*` tag；也可手动运行 | Windows 上测试 → `build_release.py` 打包 → `smoke_exe.py` 启动 exe 实际转换几个合成模型 → tag 触发时建**草稿** Release 并附上 zip；手动运行只把 zip 放进 Artifacts |
 
 发版：改 `ui/version.py` → 提交 → `git tag v0.1.0` → `git push origin main v0.1.0` → 到 GitHub 的 Releases 里检查草稿、点发布。
 tag 和 `ui/version.py` 不一致时打包会直接失败。

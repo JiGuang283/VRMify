@@ -63,6 +63,19 @@ python tools/regress.py check --code ../旧版本的代码目录          # 用�
 * `check` 对每个样本：转换 → `check_vrm` 结构和 Schema 校验 → 列出 JSON 里不同的路径（最多 20 条）、二进制块是否一致。
   有错误或差异时退出码为 1。变化是否符合预期要自己判断，确认后重新 `record`。
 
+## 表情截图 `qa/snapshots.py`
+
+```bash
+python tools/qa/snapshots.py a.vrm -o a.png                     # 全身、脸、表情预设、口型、眨眼、视线四个方向
+python tools/qa/snapshots.py 旧/a.vrm 新/a.vrm -o 对比.png       # 每个输入一行，上下对照
+python tools/qa/snapshots.py model/角色/角色.pmx -o a.png         # 不是 VRM 的先用当前代码转一份（临时目录）
+python tools/qa/snapshots.py a.vrm --custom --cols 12 -o a.png  # 再加上自定义表情，每段 12 列
+```
+
+用无界面的 Edge / Chrome（`--browser` 指定路径）加载界面预览用的 `ui/viewer/viewer-core.js` 来拍，
+和程序里看到的一致；WebGL 走软件渲染，不依赖显卡，一个模型几秒。模型没有的表情格子标「无」。
+改表情相关的代码前后各拍一张对照，比只看 `regress.py` 的 JSON 差异直观。
+
 ## 单元测试 `tests/`
 
 ```bash
@@ -90,3 +103,14 @@ python tools/build_release.py --expect-version v0.1.0  # tag 和 ui/version.py �
 
 按 `Model-To-VRM.spec` 打包，把 `LICENSE`、README 放进程序文件夹，再压成绿色版 zip。GitHub Actions 的
 `release.yml` 用的也是它，流程见 README 的「打包和发布」。
+
+## 冒烟测试 `smoke_exe.py`
+
+```bash
+python tools/smoke_exe.py dist/Model-To-VRM-v0.1.2-win64.zip   # 发布 zip、解开的程序文件夹或 exe 都行
+```
+
+单元测试测源码，这里测**打包以后**的 exe：用临时数据目录启动 `--no-open`，通过它自己的 HTTP 接口
+加入合成的 PMX / zip / FBX / unitypackage 并转换，检查版本号、页面和预览库、每个输出过 `check_vrm`、
+PMX 原生预览和调整面板接口。PyInstaller 漏打模块或页面资源时会在这里失败（退出码 1，并打印 exe 的输出）。
+`release.yml` 打包后自动跑，不通过就不建 Release。
