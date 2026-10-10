@@ -13,7 +13,7 @@
   <a href="https://github.com/JiGuang283/VRMify/releases/latest"><img src="https://img.shields.io/github/v/release/JiGuang283/VRMify?label=download" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4" alt="Windows 10 / 11">
   <img src="https://img.shields.io/badge/VRM-1.0%20%7C%200.x-7b61ff" alt="VRM 1.0 / 0.x">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/JiGuang283/VRMify" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-007ec6" alt="License: GPL-3.0"></a>
 </p>
 
 <p align="center">
