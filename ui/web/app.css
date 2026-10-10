@@ -63,6 +63,9 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .field > label { width: 92px; flex: none; color: var(--muted); }
 .field input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .field output { width: 34px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seg.nowrap { flex-wrap: nowrap; flex: none; }
+.input.jobs-num { flex: none; width: 64px; }
+.input.jobs-num:disabled { color: var(--muted); }
 .switch { display: flex; align-items: center; gap: 7px; margin: 6px 0; cursor: pointer; }
 .switch input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
 .switch.sub, .field.sub { margin-left: 22px; }

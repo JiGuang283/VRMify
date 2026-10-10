@@ -20,6 +20,7 @@ import threading
 import traceback
 
 WORKER_ENV = "VRMIFY_WORKER"
+MAX_AUTO = 8              # 自动时最多同时跑几个：再多也快不了多少（内存带宽、硬盘、进程启动），还多占内存
 GB_PER_JOB = 1.5          # 不知道任务多大时按这么多算（十几万顶点的模型转换时进程峰值约 0.5 GB）
 MEM_SHARE = 0.8           # 并行的任务加起来最多占可用内存的这么多
 
@@ -88,10 +89,14 @@ def threads():
     return max(1, min(2 if in_worker() else 4, os.cpu_count() or 1))
 
 
+def auto_jobs():
+    """自动时最多同时跑几个（还没看内存）：物理核数 − 1（留一个给界面和系统），最多 MAX_AUTO。
+    8 核 16 线程上 20 个包：4 个 11.6 秒、8 个 9.1 秒、16 个 8.3 秒——超过物理核数快不了多少。"""
+    return max(1, min(MAX_AUTO, cores() - 1))
+
+
 def jobs_for(n_tasks, setting=0, mem_gb=None):
-    """同时跑几个：setting > 0 时按设置；0 = 自动（物理核数，再看可用内存）。
-    超过物理核数还能再快一点，但每个任务都变慢、界面也会卡，不划算（8 核 16 线程上 20 个包：
-    4 个 11.6 秒、8 个 9.1 秒、16 个 8.3 秒）。
+    """同时跑几个：setting > 0 时按设置；0 = 自动（auto_jobs，再看可用内存）。
 
     mem_gb：每个任务的内存峰值估计（GB，见 pipeline.memory_estimate）。给了就取「最大的几个加起来
     不超过可用内存的 MEM_SHARE」——同时在跑的任意几个都不会超；不给按每个 GB_PER_JOB 算。
@@ -104,7 +109,7 @@ def jobs_for(n_tasks, setting=0, mem_gb=None):
         setting = 0
     if setting > 0:
         return min(setting, n_tasks)
-    cap = max(1, min(cores(), n_tasks))
+    cap = max(1, min(auto_jobs(), n_tasks))
     free = free_memory_gb()
     if not mem_gb:
         return max(1, min(cap, int(free // GB_PER_JOB)))
@@ -124,6 +129,20 @@ def _init(q):
     global _QUEUE
     _QUEUE = q
     os.environ[WORKER_ENV] = "1"
+    _lower_priority()
+
+
+def _lower_priority():
+    """子进程降到「低于正常」：电脑空闲时照样用满 CPU，用户同时在用别的程序（或这个界面）时先让给它们。"""
+    try:
+        if os.name == "nt":
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x4000)    # BELOW_NORMAL_PRIORITY_CLASS
+        else:
+            os.nice(5)
+    except (OSError, AttributeError):
+        pass
 
 
 def _call(key, func, args, kwargs):

@@ -840,9 +840,10 @@ class JobsBudgetTest(unittest.TestCase):
         self.assertEqual(self.jobs(4, [1.0] * 4), 3)
         self.assertEqual(self.jobs(4, [0.25, 1.5, 0.25, 1.5]), 2)           # 两个大的可能同时在跑
         self.assertEqual(self.jobs(4, [1.5] * 4, free=1.0), 1)
-        self.assertEqual(self.jobs(4, [0.2] * 4, cpu=3), 3)                # 物理核数
-        self.assertEqual(self.jobs(20, [0.2] * 20, free=30, cpu=16), 16)    # 不设上限，只看核数和内存
-        self.assertEqual(self.jobs(20, [1.0] * 20, free=10, cpu=16), 8)
+        self.assertEqual(self.jobs(4, [0.2] * 4, cpu=3), 2)                # 物理核数 − 1
+        self.assertEqual(self.jobs(4, [0.2] * 4, cpu=1), 1)
+        self.assertEqual(self.jobs(20, [0.2] * 20, free=30, cpu=16), 8)     # 最多 MAX_AUTO
+        self.assertEqual(self.jobs(20, [1.0] * 20, free=5, cpu=16), 4)      # 内存不够时更少
         self.assertEqual(self.jobs(1, [0.2]), 1)
 
     def test_estimate(self):
@@ -1409,7 +1410,7 @@ class PipelineTest(Base):
         self.assertEqual(sorted(os.path.basename(p) for p in outs), sorted([stem + ".vrm", stem + "_2.vrm"]))
         for p in outs:
             self.assertValid(p)
-        self.assertIn("压缩包中共有 2 个模型，同时转换 2 个", logs)
+        self.assertIn("压缩包中共有 2 个模型，并行转换 2 个", logs)
 
     def test_archive_kinds(self):
         for name, kind in (("a.zip", "zip"), ("a.7z", "7z"), ("a.7z.001", "7z"), ("a.7z.002", None),

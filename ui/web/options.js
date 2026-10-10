@@ -34,6 +34,11 @@ export function applyOptsToForm() {
   });
   markSeg($('targetSeg'), targetValue());
   markSeg($('sizeSeg'), sizeValue());
+  // parallel jobs: Auto (the box shows how many that is here, greyed) or Manual (the box is the number)
+  const jobs = Math.max(0, Math.round(+getOpt('jobs') || 0));
+  markSeg($('jobsSeg'), jobs ? 'manual' : 'auto');
+  $('jobsNum').disabled = !jobs;
+  if (document.activeElement !== $('jobsNum')) $('jobsNum').value = jobs || S.features.auto_jobs || '';
   syncDependents();
 }
 
@@ -97,6 +102,20 @@ document.querySelectorAll('[data-opt]').forEach((el) => {
       changed();
     });
   }
+});
+$('jobsSeg').addEventListener('click', (e) => {
+  const v = e.target.closest('button')?.dataset.v; if (!v) return;
+  const manual = v === 'manual';
+  if (manual === !!(+getOpt('jobs'))) return;
+  setOpt('jobs', manual ? Math.max(1, +$('jobsNum').value || S.features.auto_jobs || 1) : 0);
+  changed();
+  if (manual) $('jobsNum').focus();
+});
+$('jobsNum').addEventListener('change', (e) => {
+  const n = Math.round(+e.target.value);
+  if (n >= 1) setOpt('jobs', Math.min(64, n));
+  changed();
+  e.target.value = +getOpt('jobs') || S.features.auto_jobs || '';     // an invalid entry shows the stored number again
 });
 $('targetSeg').addEventListener('click', (e) => {
   const v = e.target.closest('button')?.dataset.v; if (!v) return;

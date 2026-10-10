@@ -268,7 +268,8 @@ class Backend:
                     "lang": self.lang, "busy": self.busy, "ui": self.ui,
                     "seq": self.events[-1][0] if self.events else 0,
                     "native": self.window is not None, "version": __version__,
-                    "features": {"pillow": textures.available()}, "app_out": APP_OUT}
+                    "features": {"pillow": textures.available(), "auto_jobs": parallel.auto_jobs()},
+                    "app_out": APP_OUT}
 
     def add_paths(self, paths):
         added = []
@@ -425,7 +426,7 @@ class Backend:
 
         try:
             if jobs > 1:
-                self.log("同时转换 %d 个文件（共 %d 个）" % (jobs, total), "info")
+                self.log("并行转换 %d 个文件（共 %d 个）" % (jobs, total), "info")
                 parallel.run([(fid, pipeline.convert_file, (path, opts), {"edits": edits})
                               for fid, path, _, edits in todo], jobs,
                              lambda fid: (lambda m, t=None: self.log(m, t, fid)),

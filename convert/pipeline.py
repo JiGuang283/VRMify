@@ -491,7 +491,7 @@ def _convert_each(tasks, names, sizes, opts, log, where):
     jobs = parallel.jobs_for(big, opts.get("jobs"), [_model_gb(s) for s in sizes if s >= SMALL_MODEL]) if big > 1 else 1
     keyed = [(i,) + tuple(t) for i, t in enumerate(tasks)]
     if jobs > 1:
-        log("%s共有 %d 个模型，同时转换 %d 个" % (where, len(tasks), jobs), "info")
+        log("%s共有 %d 个模型，并行转换 %d 个" % (where, len(tasks), jobs), "info")
         results = parallel.run(keyed, jobs, lambda i: (lambda m, t=None: log("[%s] %s" % (names[i], m), t)))
     else:
         results = {}
