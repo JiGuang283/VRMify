@@ -220,7 +220,7 @@ Python 3.10 or newer.
 ```bash
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt   # optional: pywebview (own window), Pillow (faster textures)
-python ui/app.py                                # or double-click 启动.bat; --browser opens it in the browser
+python ui/app.py                                # or double-click VRMify.bat; --browser opens it in the browser
 ```
 
 Without the optional packages conversion still works; the UI opens in the browser and texture slimming is

@@ -209,7 +209,7 @@ SpringBone 是 MMD 物理的近似。在「调整」里整体或逐条链调硬�
 ```bash
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt   # 可选：pywebview（独立窗口）、Pillow（贴图处理更快）
-python ui/app.py                                # 或双击 启动.bat；--browser 用浏览器打开界面
+python ui/app.py                                # 或双击 VRMify.bat；--browser 用浏览器打开界面
 ```
 
 不装可选依赖也能转换，只是界面会在浏览器里打开，也不能瘦身贴图。
