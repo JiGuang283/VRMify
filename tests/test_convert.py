@@ -831,7 +831,7 @@ class JobsBudgetTest(unittest.TestCase):
     def jobs(self, n, mem=None, free=4.0, cpu=8):
         from unittest import mock
         par = pipeline.parallel
-        with mock.patch.object(par, "free_memory_gb", return_value=free),                 mock.patch.object(par.os, "cpu_count", return_value=cpu),                 mock.patch.dict(os.environ, {par.WORKER_ENV: ""}):
+        with mock.patch.object(par, "free_memory_gb", return_value=free),                 mock.patch.object(par, "cores", return_value=cpu),                 mock.patch.dict(os.environ, {par.WORKER_ENV: ""}):
             return par.jobs_for(n, 0, mem)
 
     def test_jobs(self):
@@ -840,7 +840,9 @@ class JobsBudgetTest(unittest.TestCase):
         self.assertEqual(self.jobs(4, [1.0] * 4), 3)
         self.assertEqual(self.jobs(4, [0.25, 1.5, 0.25, 1.5]), 2)           # 两个大的可能同时在跑
         self.assertEqual(self.jobs(4, [1.5] * 4, free=1.0), 1)
-        self.assertEqual(self.jobs(4, [0.2] * 4, cpu=3), 2)
+        self.assertEqual(self.jobs(4, [0.2] * 4, cpu=3), 3)                # 物理核数
+        self.assertEqual(self.jobs(20, [0.2] * 20, free=30, cpu=16), 16)    # 不设上限，只看核数和内存
+        self.assertEqual(self.jobs(20, [1.0] * 20, free=10, cpu=16), 8)
         self.assertEqual(self.jobs(1, [0.2]), 1)
 
     def test_estimate(self):

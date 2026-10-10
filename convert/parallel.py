@@ -12,6 +12,7 @@ func 必须是模块顶层函数（子进程要能按名字导入），调用方
 打包的 exe 要在入口调用 multiprocessing.freeze_support()（ui/app.py），否则子进程会再开一个程序。
 """
 import concurrent.futures as cf
+import functools
 import multiprocessing as mp
 import os
 import queue
@@ -50,6 +51,37 @@ def free_memory_gb():
     return 8.0
 
 
+@functools.lru_cache(maxsize=None)
+def cores():
+    """物理核数（超线程的两个逻辑核算一个）；拿不到时按逻辑核数。"""
+    n = 0
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class INFO(ctypes.Structure):           # SYSTEM_LOGICAL_PROCESSOR_INFORMATION
+                _fields_ = [("mask", ctypes.c_size_t), ("relationship", ctypes.c_int),
+                            ("_", ctypes.c_ulonglong * 2)]
+            k32, size = ctypes.windll.kernel32, ctypes.c_ulong(0)
+            k32.GetLogicalProcessorInformation(None, ctypes.byref(size))
+            buf = (INFO * (size.value // ctypes.sizeof(INFO)))()
+            if k32.GetLogicalProcessorInformation(buf, ctypes.byref(size)):
+                n = sum(1 for i in buf if i.relationship == 0)       # RelationProcessorCore
+        elif os.path.exists("/proc/cpuinfo"):
+            seen, phys = set(), "0"
+            with open("/proc/cpuinfo", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    key, _, val = line.partition(":")
+                    if key.strip() == "physical id":
+                        phys = val.strip()
+                    elif key.strip() == "core id":
+                        seen.add((phys, val.strip()))
+            n = len(seen)
+    except (OSError, ValueError, AttributeError):
+        n = 0
+    return n or os.cpu_count() or 1
+
+
 def threads():
     """一个转换内部同时处理几张贴图（Pillow 在 C 里解码 / 编码、不占 GIL，线程就够）：最多 4 个；
     在并行转换的子进程里最多 2 个（核和内存已经被别的子进程占着，一张 4K 贴图解开约 64 MB）。"""
@@ -57,7 +89,9 @@ def threads():
 
 
 def jobs_for(n_tasks, setting=0, mem_gb=None):
-    """同时跑几个：setting > 0 时按设置；0 = 自动（CPU 核数 − 1、最多 4 个，再看可用内存）。
+    """同时跑几个：setting > 0 时按设置；0 = 自动（物理核数，再看可用内存）。
+    超过物理核数还能再快一点，但每个任务都变慢、界面也会卡，不划算（8 核 16 线程上 20 个包：
+    4 个 11.6 秒、8 个 9.1 秒、16 个 8.3 秒）。
 
     mem_gb：每个任务的内存峰值估计（GB，见 pipeline.memory_estimate）。给了就取「最大的几个加起来
     不超过可用内存的 MEM_SHARE」——同时在跑的任意几个都不会超；不给按每个 GB_PER_JOB 算。
@@ -70,7 +104,7 @@ def jobs_for(n_tasks, setting=0, mem_gb=None):
         setting = 0
     if setting > 0:
         return min(setting, n_tasks)
-    cap = max(1, min(4, (os.cpu_count() or 2) - 1, n_tasks))
+    cap = max(1, min(cores(), n_tasks))
     free = free_memory_gb()
     if not mem_gb:
         return max(1, min(cap, int(free // GB_PER_JOB)))
