@@ -133,7 +133,7 @@ class SkippedStatusTest(unittest.TestCase):
 
 
 class AutoThumbTest(unittest.TestCase):
-    """转换后自动生成的缩略图：记成 thumbnail_auto；手动设置过的不覆盖；不算「调整过」；关掉选项后转换不再带上。"""
+    """转换后自动生成的缩略图：记成 auto；手动设置过的不覆盖；不算「调整过」；关掉选项后转换不再带上。"""
 
     def test_auto_vs_manual(self):
         import base64
@@ -160,19 +160,78 @@ class AutoThumbTest(unittest.TestCase):
                     return vrmio.read_glb(vrm)[0]["extensions"]["VRMC_vrm"]["meta"].get("thumbnailImage")
 
                 self.assertTrue(b.tune_thumb(fid, png, auto=True)["ok"])
-                self.assertTrue(b.edits_for(f)["thumbnail_auto"])
+                self.assertTrue(b.edits_for(f)["thumbnails"]["out"]["auto"])     # 按模型（VRM 文件名）存
                 self.assertIsNotNone(meta_thumb())
                 self.assertFalse(b._entry(f)["tuned"])               # 只有自动缩略图：不算调整过
                 b.tune_save(fid, {"title": "名前"})                   # 调整面板保存：缩略图和标记都留着
-                self.assertTrue(b.edits_for(f)["thumbnail_auto"])
+                self.assertTrue(b.edits_for(f)["thumbnails"]["out"]["auto"])
                 self.assertIsNotNone(meta_thumb())
                 b.set_options(dict(b.opts, vrm=dict(b.opts["vrm"], auto_thumb=False)))
-                self.assertNotIn("thumbnail", b._convert_edits(f))    # 关掉后转换不再套用自动截的
+                self.assertNotIn("thumbnails", b._convert_edits(f))   # 关掉后转换不再套用自动截的
                 self.assertEqual(b._convert_edits(f)["title"], "名前")
                 self.assertTrue(b.tune_thumb(fid, png)["ok"])         # 手动设置：去掉标记
-                self.assertNotIn("thumbnail_auto", b.edits_for(f))
+                self.assertFalse(b.edits_for(f)["thumbnails"]["out"]["auto"])
                 self.assertTrue(b.tune_thumb(fid, png, auto=True)["skipped"])
-                self.assertIn("thumbnail", b._convert_edits(f))
+                self.assertIn("thumbnails", b._convert_edits(f))
+            finally:
+                b.close()
+
+    def test_per_model(self):
+        """一个包里几个模型：缩略图各存各的、只写进自己的 VRM；旧版按文件存的那张分给各个模型。"""
+        import base64
+        sys.path[:0] = [os.path.join(os.path.dirname(HERE), p) for p in ("convert", "formats")] + [HERE]
+        import pmx2vrm
+        import synth
+        import vrm_edit
+        import vrmio
+        tmp = tempfile.mkdtemp(prefix="m2v_thumbs_")
+        pmx = synth.build(os.path.join(tmp, "src"))
+        vrms = [os.path.join(tmp, n + ".vrm") for n in ("a", "b")]
+        for v in vrms:
+            pmx2vrm.convert(pmx, v)
+
+        def png(c):
+            return "data:image/png;base64," + base64.b64encode(vrmio.encode_png(2, 2, [bytes([c]) * 8] * 2)).decode()
+
+        def thumb(v):
+            g, bin_data = vrmio.read_glb(v)
+            i = g["extensions"]["VRMC_vrm"]["meta"].get("thumbnailImage")
+            if i is None:
+                return None
+            bv = g["bufferViews"][g["images"][i]["bufferView"]]
+            return bin_data[bv.get("byteOffset", 0):bv.get("byteOffset", 0) + bv["byteLength"]]
+
+        with mock.patch.object(server, "SETTINGS", os.path.join(tmp, "settings.json")),                 mock.patch.object(server, "EDITS", os.path.join(tmp, "edits.json")),                 mock.patch.object(server, "EDITS_DIR", os.path.join(tmp, "edits")):
+            b = server.Backend()
+            try:
+                b.add_paths([pmx])
+                fid = next(iter(b.files))
+                f = b.files[fid]
+                f.update(status="done", outputs=b._outputs(vrms))
+                self.assertTrue(b.tune_thumb(fid, png(0x10), auto=True, model="a")["ok"])
+                self.assertIsNotNone(thumb(vrms[0]))
+                self.assertIsNone(thumb(vrms[1]))                      # 只写进 a
+                self.assertTrue(b.tune_thumb(fid, png(0x20), auto=True, model="b")["ok"])
+                self.assertNotEqual(thumb(vrms[0]), thumb(vrms[1]))
+                self.assertEqual(b.tune_info(fid, "b")["model"], "b")
+                self.assertTrue(b.tune_info(fid, "b")["thumbnail_auto"])
+                b.tune_thumb(fid, png(0x30), model="a")                 # 手动设置 a：a 不再自动更新，b 照常
+                self.assertTrue(b.tune_thumb(fid, png(0x40), auto=True, model="a")["skipped"])
+                self.assertTrue(b.tune_thumb(fid, png(0x50), auto=True, model="b")["ok"])
+                b.tune_thumb(fid, "", model="b")                        # 去掉 b 的，a 的留着
+                self.assertIsNone(thumb(vrms[1]))
+                self.assertIsNotNone(thumb(vrms[0]))
+                # 旧版：一张对所有模型；给 a 单独设置后 b 仍用旧的那张
+                old = os.path.join(tmp, "old.png")
+                with open(old, "wb") as fh:
+                    fh.write(base64.b64decode(png(0x60).split(",", 1)[1]))
+                b.edits[b._key(f)] = {"thumbnail": old}
+                self.assertEqual(vrm_edit.thumb_for(b.edits_for(f), vrms[1]), old)
+                b.tune_thumb(fid, png(0x70), model="a")
+                e = b.edits_for(f)
+                self.assertNotIn("thumbnail", e)
+                self.assertEqual(e["thumbnails"]["b"]["path"], old)
+                self.assertNotEqual(e["thumbnails"]["a"]["path"], old)
             finally:
                 b.close()
 

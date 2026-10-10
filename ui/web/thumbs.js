@@ -1,10 +1,11 @@
-// Automatic VRM thumbnails: when a file finishes converting, its VRM is loaded into a hidden viewer, framed on the
-// face and saved as the thumbnail (the same as the Tune panel's "use current view"). Option vrm.auto_thumb;
-// the server keeps a thumbnail the user set by hand (see /api/tune/thumb auto).
+// Automatic VRM thumbnails: when a file finishes converting, each of its VRMs is loaded into a hidden viewer,
+// framed on the face and saved as that model's thumbnail (the same as the Tune panel's "use current view").
+// Option vrm.auto_thumb; the server keeps a thumbnail the user set by hand (see /api/tune/thumb auto).
 import { Viewer } from '/viewer/viewer-core.js';
 import { api } from './core.js';
 import { getOpt } from './options.js';
 import { viewer } from './preview.js';
+import { modelOf } from './tune.js';
 
 let tv = null, running = false;
 const queue = [];
@@ -22,14 +23,14 @@ function thumbViewer() {
   return tv;
 }
 
-// a file entry that just went from running to done. Files with several VRMs (an archive with more than one
-// model) are skipped: the thumbnail is per source file and would end up on every model
+// a file entry that just went from running to done: one thumbnail for each of its VRMs (an archive can hold several)
 export function queueThumb(entry) {
   if (!getOpt('vrm.auto_thumb')) return;
-  const vrms = (entry.outputs || []).filter((o) => o.url);
-  if (vrms.length !== 1 || queue.some((q) => q.id === entry.id)) return;
-  queue.push({ id: entry.id, url: vrms[0].url, name: vrms[0].name });
-  if (!running) run();
+  for (const o of (entry.outputs || []).filter((x) => x.url)) {
+    const model = modelOf(o.name);
+    if (!queue.some((q) => q.id === entry.id && q.model === model)) queue.push({ id: entry.id, url: o.url, name: o.name, model });
+  }
+  if (queue.length && !running) run();
 }
 
 async function run() {
@@ -45,7 +46,7 @@ async function run() {
       v.frame('face');
       const data = v.snapshotSquare(1024);
       v.clear();
-      const r = await api('/api/tune/thumb', { id: job.id, data, auto: true });
+      const r = await api('/api/tune/thumb', { id: job.id, data, auto: true, model: job.model });
       if (r.ok && onThumb) onThumb(job.id);
     } catch (e) { console.warn('auto thumbnail failed', job.name, e); }
   }

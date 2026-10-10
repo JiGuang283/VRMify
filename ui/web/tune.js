@@ -12,6 +12,9 @@ export const T = {
 // three-vrm loads VRM 0.x presets under their 1.0 names
 const V0_TO_V1 = { a: 'aa', i: 'ih', u: 'ou', e: 'ee', o: 'oh', joy: 'happy', sorrow: 'sad', fun: 'relaxed', blink_l: 'blinkLeft', blink_r: 'blinkRight' };
 
+// which model of the file a VRM / preview URL or file name is (vrm_edit.model_key): thumbnails are kept per model
+export const modelOf = (s) => (s ? decodeURIComponent(s.split('?')[0].split('/').pop()).replace(/\.[^.]+$/, '') : null);
+
 // switching to another model drops unsaved tune edits: ask first
 export function leaveTune(id) {
   if (!T.dirty || !T.fid || T.fid === id) return true;
@@ -24,9 +27,10 @@ export async function loadTune() {
   if ($('tunePanel').hidden && !S.autoTune) return;
   const fid = S.current;
   if (!fid) { T.fid = null; T.info = null; renderTune(); return; }
-  const r = await api('/api/tune', { id: fid });
+  const r = await api('/api/tune', { id: fid, model: modelOf(modelUrl) });
   if (fid !== S.current) return;
-  T.fid = fid; T.info = r; T.edits = clone(r.edits); delete T.edits.thumbnail; delete T.edits.thumbnail_auto; T.dirty = false;
+  T.fid = fid; T.info = r; T.edits = clone(r.edits); delete T.edits.thumbnail; delete T.edits.thumbnail_auto; delete T.edits.thumbnails;
+  T.dirty = false;
   if (S.autoTune && r.ready && $('tunePanel').hidden) { showPanel('tunePanel'); S.autoTune = false; }
   if (!$('tunePanel').hidden) renderTune();
 }
@@ -114,15 +118,15 @@ function renderMeta(sec) {
   tr.innerHTML = (T.info.thumbnail ? `<img src="${T.info.thumbnail}" alt="">` : `<div class="noimg">${t('thumbNone')}</div>`) +
     `<div class="col"><div><button class="btn small" data-a="shot">${t('thumbFromView')}</button> ` +
     (T.info.thumbnail ? `<button class="btn small ghost" data-a="rm">${t('thumbRemove')}</button>` : '') +
-    (T.info.thumbnail && T.info.edits && T.info.edits.thumbnail_auto ? `<span class="hint">${t('thumbAuto')}</span>` : '') +
+    (T.info.thumbnail && T.info.thumbnail_auto ? `<span class="hint">${t('thumbAuto')}</span>` : '') +
     `</div><div class="hint flush">${t('thumbHint')}</div></div>`;
   tr.addEventListener('click', async (e) => {
     const a = e.target.dataset.a;
     if (!a || !viewer.loaded) return;
-    const r = await api('/api/tune/thumb', { id: T.fid, data: a === 'shot' ? viewer.snapshotSquare(1024) : '' });
+    const r = await api('/api/tune/thumb', { id: T.fid, data: a === 'shot' ? viewer.snapshotSquare(1024) : '', model: modelOf(modelUrl) });
     if (r.error) return toast(r.error);
     T.info.thumbnail = r.thumbnail || null;
-    if (T.info.edits) delete T.info.edits.thumbnail_auto;          // set by hand now: never replaced automatically
+    T.info.thumbnail_auto = false;                                 // set by hand now: never replaced automatically
     toast(t('thumbSaved'));
     renderTune();
   });

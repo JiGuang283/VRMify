@@ -13,7 +13,10 @@ edits（纯 JSON，界面按源文件存）：
      "lookAt": {"h": 15.0, "down": 10.0, "up": 7.0},       视线最大转角（度）：左右 / 向下 / 向上；不给 = 转换时的值
      "spring": {"stiffness": 1.0, "drag": 1.0, "gravity": 0.0,       整体：硬度 ×、阻尼 ×、重力 +
                 "chains": {"链 key": {"stiffness": 1.0, "gravity": 0.0, "off": false}}},
-     "thumbnail": "缩略图 PNG 的路径"}
+     "thumbnails": {"模型名": {"path": "缩略图 PNG 的路径", "auto": true}}}
+
+缩略图按模型分开（一个包里几个模型各用各的）：模型名 = 输出 VRM 的文件名去掉扩展名（model_key）。
+旧版的 "thumbnail": "路径" 对这个文件的所有模型都有效，没有按模型设置的模型仍然用它。
 
 可重复套用：第一次调整时把原始的表情 / 物理 / meta 存进 glTF 根节点的 extras.vrmconv_base，
 以后每次都先还原再套用，不会越调越歪；edits 为空就是还原成转换时的样子。
@@ -386,6 +389,17 @@ def _add_thumb(g, bin_data, png, is1):
     return bytes(bin_data), thumb
 
 
+def model_key(path):
+    """缩略图按模型存的键：VRM 文件名去掉扩展名。"""
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def thumb_for(edits, path):
+    """这个 VRM 的缩略图 PNG 路径：按模型设置的，否则旧版对所有模型的那张；没有 → None。"""
+    t = ((edits or {}).get("thumbnails") or {}).get(model_key(path))
+    return (t or {}).get("path") or (edits or {}).get("thumbnail") or None
+
+
 def is_empty(edits):
     if not edits:
         return True
@@ -397,6 +411,7 @@ def is_empty(edits):
                                   for c in (sp.get("chains") or {}).values()))
     return (not edits.get("title") and not edits.get("expressions") and neutral_spring
             and not edits.get("thumbnail") and not edits.get("lookAt")
+            and not any((t or {}).get("path") for t in (edits.get("thumbnails") or {}).values())
             and all(_num(v, 1.0) == 1.0 for v in (edits.get("intensity") or {}).values()))
 
 
@@ -434,7 +449,7 @@ def apply(path, edits, out_path=None):
     if edits.get("title"):
         vrm["meta"]["name" if is1 else "title"] = str(edits["title"])
         n += 1
-    thumb = edits.get("thumbnail")
+    thumb = thumb_for(edits, path)
     if thumb and os.path.isfile(thumb):
         with open(thumb, "rb") as f:
             png = f.read()

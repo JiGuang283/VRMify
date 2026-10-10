@@ -17,9 +17,9 @@
                                       output = 输出列表里的序号时预览那个输出（PMX 输出同样先转临时 VRM）
   POST /api/open     {path}           在资源管理器里显示文件
   POST /api/snapshot {name, data}     把预览截图存到模型旁边
-  POST /api/tune     {id}             调整面板要的信息（可选表情、物理链、当前调整）
+  POST /api/tune     {id, model}      调整面板要的信息（可选表情、物理链、当前调整；model = 预览中的模型）
   POST /api/tune/save  {id, edits}    保存某个文件的调整，并套到它已有的输出 / 预览 VRM 上
-  POST /api/tune/thumb {id, data, auto} 把预览截图存成这个文件的 VRM 缩略图（data 为空 = 去掉）；
+  POST /api/tune/thumb {id, data, auto, model} 把预览截图存成某个模型的 VRM 缩略图（data 为空 = 去掉）；
                                       auto：转换后自动截的，用户自己设过缩略图时不覆盖
   GET  /file/<token>                  预览要读的 VRM / 缩略图（只提供登记过的文件）
   GET  /model/<token>/<相对路径>       PMX 原生预览：PMX 和它旁边的贴图（只限登记过的模型文件夹；
@@ -219,10 +219,15 @@ class Backend:
 
     @staticmethod
     def _user_edits(e):
-        """去掉自动生成的缩略图（thumbnail_auto）后的调整：判断「调整过」、关掉自动缩略图时转换用。"""
+        """去掉自动生成的缩略图后的调整：判断「调整过」、关掉自动缩略图时转换用。"""
         e = dict(e or {})
         if e.pop("thumbnail_auto", None):
             e.pop("thumbnail", None)
+        ths = {k: t for k, t in (e.get("thumbnails") or {}).items() if not (t or {}).get("auto")}
+        if ths:
+            e["thumbnails"] = ths
+        else:
+            e.pop("thumbnails", None)
         return e
 
     def _convert_edits(self, f):
@@ -528,7 +533,8 @@ class Backend:
             out.append(f["preview_path"])
         return [p for p in out if os.path.isfile(p)]
 
-    def tune_info(self, fid):
+    def tune_info(self, fid, model=None):
+        """model：预览里显示的模型（vrm_edit.model_key），一个包里有几个模型时按它取信息和缩略图。"""
         with self.lock:
             f = self.files.get(fid)
             if not f:
@@ -539,16 +545,24 @@ class Backend:
             edits = self.edits_for(f)
         if not targets:
             return {"editable": True, "ready": False, "edits": edits}
+        if model:
+            targets.sort(key=lambda p: vrm_edit.model_key(p) != model)
         try:
             info = vrm_edit.describe(targets[0])
         except (OSError, ValueError) as e:
             return {"error": str(e)}
-        th = edits.get("thumbnail")
-        info.update(editable=True, ready=True, edits=edits,
-                    thumbnail=("/file/%s/thumb.png" % self.token_for(th)) if th and os.path.isfile(th) else None)
+        key = vrm_edit.model_key(targets[0])
+        th = vrm_edit.thumb_for(edits, targets[0])
+        own = (edits.get("thumbnails") or {}).get(key)
+        auto = own.get("auto") if own else edits.get("thumbnail_auto")
+        ok = bool(th and os.path.isfile(th))
+        info.update(editable=True, ready=True, edits=edits, model=key, thumbnail_auto=bool(ok and auto),
+                    thumbnail=("/file/%s/thumb.png" % self.token_for(th)) if ok else None)
         return info
 
-    def tune_save(self, fid, edits, done_msg=None):
+    def tune_save(self, fid, edits, done_msg=None, only=None, keep_thumbs=True):
+        """only：只套到这些模型（model_key）的 VRM 上。keep_thumbs：edits 里没有缩略图时沿用已存的
+        （缩略图单独由 tune_thumb 设置）。"""
         with self.lock:
             f = self.files.get(fid)
             if not f or f["kind"] not in pipeline.CONVERTIBLE:
@@ -556,16 +570,16 @@ class Backend:
             key = self._key(f)
             old = self.edits.get(key) or {}
             edits = dict(edits or {})
-            if "thumbnail" not in edits and old.get("thumbnail"):
-                edits["thumbnail"] = old["thumbnail"]      # 缩略图单独由 tune_thumb 设置
-                if old.get("thumbnail_auto"):
-                    edits["thumbnail_auto"] = True
+            if keep_thumbs:
+                for k in ("thumbnail", "thumbnail_auto", "thumbnails"):
+                    if k not in edits and old.get(k):
+                        edits[k] = old[k]
             if vrm_edit.is_empty(edits):
                 self.edits.pop(key, None)
             else:
                 self.edits[key] = edits
             self._save_edits()
-            targets = self._tune_targets(f)
+            targets = [p for p in self._tune_targets(f) if only is None or vrm_edit.model_key(p) in only]
         applied = []
         for p in targets:
             try:
@@ -578,37 +592,49 @@ class Backend:
         self._update(fid)
         return {"ok": True, "applied": len(applied)}
 
-    def tune_thumb(self, fid, data, auto=False):
-        """data：PNG data URL；空 = 去掉缩略图。
+    def tune_thumb(self, fid, data, auto=False, model=None):
+        """data：PNG data URL；空 = 去掉缩略图。model：给哪个模型（vrm_edit.model_key；不给 = 第一个）。
 
-        auto：转换后自动截的（界面的「自动生成缩略图」）。记成 thumbnail_auto，下次转换后重新截；
-        用户自己设过缩略图（没有 thumbnail_auto）时不覆盖。
+        缩略图按模型存（edits["thumbnails"]），一个包里几个模型各用各的，只写进那个模型的 VRM。
+        auto：转换后自动截的（界面的「自动生成缩略图」）。记成 auto，下次转换后重新截；
+        用户自己给这个模型设过缩略图（不是 auto）时不覆盖。
         """
         with self.lock:
             f = self.files.get(fid)
             if not f or f["kind"] not in pipeline.CONVERTIBLE:
                 return {"error": "no such file"}
             edits = self.edits_for(f)
-            if auto and (not data or (edits.get("thumbnail") and not edits.get("thumbnail_auto"))):
+            keys = list(dict.fromkeys(vrm_edit.model_key(p) for p in self._tune_targets(f)))
+            model = model or (keys[0] if keys else os.path.splitext(f["name"])[0])
+            ths = edits.setdefault("thumbnails", {})
+            legacy, legacy_auto = edits.pop("thumbnail", None), edits.pop("thumbnail_auto", None)
+            if legacy:                      # 旧版按文件存的一张：分给各个模型，以后都按模型存
+                for k in keys + [model]:
+                    ths.setdefault(k, {"path": legacy, "auto": bool(legacy_auto)})
+            cur = ths.get(model) or {}
+            if auto and (not data or (cur.get("path") and not cur.get("auto"))):
                 return {"skipped": True}
             path = None
-            old = edits.get("thumbnail")
-            if not data and old and os.path.dirname(os.path.abspath(old)) == os.path.abspath(EDITS_DIR):
+            if data:
+                os.makedirs(EDITS_DIR, exist_ok=True)
+                name = hashlib.md5(("%s|%s" % (self._key(f), model)).encode("utf-8")).hexdigest()[:16]
+                path = os.path.join(EDITS_DIR, name + ".png")
+                with open(path, "wb") as fh:
+                    fh.write(base64.b64decode(data.split(",", 1)[1]))
+                ths[model] = {"path": path, "auto": bool(auto)}
+            else:
+                ths.pop(model, None)
+            old = cur.get("path")
+            if (old and old != path and os.path.dirname(os.path.abspath(old)) == os.path.abspath(EDITS_DIR)
+                    and not any((t or {}).get("path") == old for t in ths.values())):
                 try:
                     os.remove(old)
                 except OSError:
                     pass
-            if data:
-                os.makedirs(EDITS_DIR, exist_ok=True)
-                path = os.path.join(EDITS_DIR, hashlib.md5(self._key(f).encode("utf-8")).hexdigest()[:16] + ".png")
-                with open(path, "wb") as fh:
-                    fh.write(base64.b64decode(data.split(",", 1)[1]))
-            edits["thumbnail"] = path or ""
-            if auto:
-                edits["thumbnail_auto"] = True
-            else:
-                edits.pop("thumbnail_auto", None)
-        r = self.tune_save(fid, edits, done_msg="缩略图已自动生成并写入 %s" if auto else None)
+            if not ths:
+                del edits["thumbnails"]
+        r = self.tune_save(fid, edits, done_msg="缩略图已自动生成并写入 %s" if auto else None,
+                           only=[model], keep_thumbs=False)
         if path:
             r["thumbnail"] = "/file/%s/thumb.png?t=%d" % (self.token_for(path), int(time.time() * 1000))
         return r
@@ -837,11 +863,11 @@ class Handler(SimpleHTTPRequestHandler):
         if route == "/api/open":
             return self._json({"ok": b.reveal(body.get("path"))})
         if route == "/api/tune":
-            return self._json(b.tune_info(body.get("id")))
+            return self._json(b.tune_info(body.get("id"), body.get("model")))
         if route == "/api/tune/save":
             return self._json(b.tune_save(body.get("id"), body.get("edits")))
         if route == "/api/tune/thumb":
-            return self._json(b.tune_thumb(body.get("id"), body.get("data"), bool(body.get("auto"))))
+            return self._json(b.tune_thumb(body.get("id"), body.get("data"), bool(body.get("auto")), body.get("model")))
         if route == "/api/snapshot":
             return self._json({"path": b.snapshot(body.get("name"), body.get("data", ""), body.get("model"))})
         return self._json({"error": "unknown"}, 404)

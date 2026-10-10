@@ -42,6 +42,7 @@ export async function loadModel(url, name, keepView) {
     $('pvEmpty').hidden = true;
     $('pvHint').hidden = false;
     $('pvTitle').textContent = name;
+    if (!T.dirty) loadTune();         // the Tune panel shows the model on screen (an archive can hold several)
   } catch (e) { toast(t('pvFailed', { err: e.message })); }
   showBusy(null);
 }
