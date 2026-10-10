@@ -2,11 +2,35 @@
 """材质：PMX 材质 → glTF 材质 + MToon（1.0 的 VRMC_materials_mtoon / 0.x 的 materialProperties）。
 
 颜色按 MMD 的显示公式算，阴影色和明暗交界按 PMX 的 toon 渐变换算，VRM 1.0 的颜色因子写线性值；
-透明模式看漫反射 alpha、贴图的 alpha 分布和材质表情。
+透明模式看漫反射 alpha、贴图的 alpha 分布（只算材质的 UV 用到的部分）和材质表情。
 """
+import io
+import math
 import os
 
 import vrmio
+
+ALPHA_GRID = 1024     # 统计 UV 覆盖区域的透明度时，贴图 alpha 缩到的最长边（像素）
+
+
+def _alpha_grid(data):
+    """贴图字节 → 缩小的 alpha 通道（Pillow 灰度图；最近邻缩小，不造出假的中间值）。
+    没有 alpha、没装 Pillow 或解不开时为 None。"""
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(data))
+        if im.mode in ("RGBA", "LA", "PA"):
+            a = im.getchannel("A")
+        elif im.mode == "P" and "transparency" in im.info:
+            a = im.convert("RGBA").getchannel("A")
+        else:
+            return None
+        k = ALPHA_GRID / max(a.size)
+        if k < 1:
+            a = a.resize((max(1, round(a.width * k)), max(1, round(a.height * k))), Image.NEAREST)
+        return a
+    except Exception:  # noqa: BLE001  解不开就按整张图的统计
+        return None
 
 
 def _lin(c):
@@ -140,11 +164,18 @@ class MaterialBuilder:
         self.props_0x = []
         self.img_cache = {}
         self.tex_alpha = {}              # PMX 贴图 → png_alpha_stats 结果
+        self.tex_grid = {}               # PMX 贴图 → _alpha_grid（只有整张图里有透明像素的贴图）
+        self.alpha_by_uv = 0             # 按 UV 覆盖区域统计后不再算透明的材质数
         self.toon_cache = {}
         self.blend_rank = 0
         self.sph_skipped = 0
         self.morph_min_alpha = {}        # PMX 材质 → 材质表情能把 alpha 压到多低
         self.morph_max_alpha = {}        # PMX 材质 → 材质表情能把 alpha 抬到多高
+        self.face_start = []             # PMX 材质 → 它的第一个面在 model["faces"] 里的位置
+        k = 0
+        for mat in model["materials"]:
+            self.face_start.append(k)
+            k += mat["faces"]
         for f in flat:
             ops = f[2]
             for mi_, mat in enumerate(model["materials"]):
@@ -163,7 +194,7 @@ class MaterialBuilder:
         return None
 
     def _load(self, idx):
-        """PMX 贴图序号 → (原图数据, mime, 透明统计, 瘦身后的 (数据, mime))，读不了为 None。
+        """PMX 贴图序号 → (原图数据, mime, 透明统计, 瘦身后的 (数据, mime), 缩小的 alpha)，读不了为 None。
         不改动 self 的状态，可以在线程里跑（见 prefetch）。"""
         rel = self.model["textures"][idx].replace("\\", "/")
         data = None
@@ -178,8 +209,9 @@ class MaterialBuilder:
         # 透明度统计用原图（瘦身后可能已是 JPEG）；只有完全不透明的贴图才会转 JPEG，结论不变
         key = os.path.normcase(os.path.abspath(c))
         alpha = self.known_alpha[key] if key in self.known_alpha else vrmio.png_alpha_stats(data)
+        grid = _alpha_grid(data) if alpha and alpha[0] and alpha[1] >= alpha[0] * 0.001 else None
         slim = self.tex_opt.process(data, mime) if self.tex_opt is not None else (data, mime)
-        return data, mime, alpha, slim
+        return data, mime, alpha, slim, grid
 
     def prefetch(self, threads=1):
         """材质要用的贴图先一起读好（读文件、透明统计、瘦身）：Pillow 解码 / 编码在 C 里跑、不占 GIL，
@@ -208,7 +240,9 @@ class MaterialBuilder:
         if got is None:
             self.img_cache[idx] = -1
             return -1
-        data, mime, self.tex_alpha[idx], slim = got
+        data, mime, self.tex_alpha[idx], slim, grid = got
+        if grid is not None:
+            self.tex_grid[idx] = grid
         if self.tex_opt is not None:
             data, mime = self.tex_opt.account(data, slim)
         ti = self.gb.add_texture(self.gb.add_image(data, mime))
@@ -252,6 +286,38 @@ class MaterialBuilder:
         return ([color[k] * lit[k] for k in range(3)] + [color[3]],
                 [color[k] * dark[k] for k in range(3)], shift, toony)
 
+    def used_alpha(self, mi_, mat):
+        """材质贴图的透明统计（同 png_alpha_stats），只算这个材质的 UV 覆盖到的部分。
+
+        有的模型几个部件共用一张大图集，或者贴图右边还拼着用不到的半透明图层（同一张图
+        u 0～1/3 是颜色，后面是别的通道）：按整张图统计，不透明的身体、衣服也被当成半透明，
+        BLEND 的排序问题让部件在转动视角时消失、前后遮挡错乱。三角面按 UV 画到缩小的
+        alpha 图上，只统计盖住的像素。整张图没有透明像素的贴图不用算。"""
+        whole = self.tex_alpha.get(mat["tex"])
+        grid = self.tex_grid.get(mat["tex"])
+        if grid is None or mat["faces"] < 3:
+            return whole
+        from PIL import Image, ImageDraw
+        w, h = grid.size
+        mask = Image.new("L", (w, h), 0)
+        draw = ImageDraw.Draw(mask)
+        verts, faces = self.model["vertices"], self.model["faces"]
+        s = self.face_start[mi_]
+        for t in range(s, s + mat["faces"] - 2, 3):
+            uv = [verts[faces[t + k]]["uv"] for k in range(3)]
+            # 平铺（repeat）：整个三角形移到最小角所在的那一格
+            ou, ov = math.floor(min(p[0] for p in uv)), math.floor(min(p[1] for p in uv))
+            draw.polygon([((u - ou) * w, (v - ov) * h) for u, v in uv], fill=255)
+        hist = grid.histogram(mask=mask)
+        st = (sum(hist), sum(hist[:250]), sum(hist[11:245]))
+        # UV 全落在完全透明的地方：靠 UV 表情挪过去才显示的贴片（表情符号）、靠材质表情显示的部件，
+        # 初始 UV 说明不了什么，按整张图
+        return st if st[0] - st[1] + st[2] > 0 else whole
+
+    @staticmethod
+    def _see_through(st):
+        return bool(st and st[0] and st[1] >= st[0] * 0.001)
+
     def alpha_mode(self, mi_, mat):
         """OPAQUE / MASK / BLEND。
 
@@ -263,17 +329,18 @@ class MaterialBuilder:
           * 比例高（柔和的叠加层、薄纱）→ BLEND
         材质表情会把它隐藏（alpha → 0）的不透明材质用 MASK，才能真的隐藏。
         """
+        st = self.used_alpha(mi_, mat)
+        if self._see_through(self.tex_alpha.get(mat["tex"])) and not self._see_through(st):
+            self.alpha_by_uv += 1
         if mat["diffuse"][3] <= 0.001 and self.morph_max_alpha.get(mi_, 0.0) > 0.5:
             # 默认隐藏、靠材质表情显示的部件（FBX 的替换网格：另一种手势 / 张嘴的头）：
             # 用 MASK，显示出来时就是普通的不透明材质，不用 BLEND 的排序
-            st = self.tex_alpha.get(mat["tex"])
-            if st and st[0] and st[1] >= st[0] * 0.001 and st[2] >= (st[0] - st[1] + st[2]) * 0.3:
+            if self._see_through(st) and st[2] >= (st[0] - st[1] + st[2]) * 0.3:
                 return "BLEND"
             return "MASK"
         if mat["diffuse"][3] < 0.999:
             return "BLEND"
-        st = self.tex_alpha.get(mat["tex"])
-        if st and st[0] and st[1] >= st[0] * 0.001:
+        if self._see_through(st):
             n, trans, mid = st
             visible = n - trans + mid
             if visible <= 0 or mid >= visible * 0.3:
@@ -418,6 +485,8 @@ class MaterialBuilder:
         modes = [m["alphaMode"] for m in self.materials]
         log("材质透明模式：不透明 %d · 裁剪（MASK）%d · 半透明（BLEND）%d"
             % (modes.count("OPAQUE"), modes.count("MASK"), modes.count("BLEND")))
+        if self.alpha_by_uv:
+            log("材质：%d 个材质的贴图有透明部分，但模型只用到不透明的区域，按不透明处理" % self.alpha_by_uv)
         if self.is1:
             nmc = sum(1 for m in self.materials if "matcapTexture" in
                       m["extensions"]["VRMC_materials_mtoon"])

@@ -204,6 +204,27 @@ class AlphaStatsTest(unittest.TestCase):
                              [round(slow[1] / slow[0], 3), round(slow[2] / slow[0], 3)], name)
         self.assertIsNone(vrmio.png_alpha_stats(b"not a png"))
 
+    @unittest.skipUnless(textures.available(), "需要 Pillow")
+    def test_only_the_covered_area_counts(self):
+        """贴图拼着用不到的半透明图层时，材质只按 UV 用到的部分判断透明模式；
+        UV 全落在完全透明处（靠 UV 表情挪过去才显示的贴片）时按整张图。"""
+        from vrmconv.materials import MaterialBuilder
+        tmp = tempfile.mkdtemp(prefix="m2v_cov_")
+        # u < 0.5 不透明 · 0.5～0.75 半透明 · 0.75 以后完全透明（整张图看是半透明为主）
+        with open(os.path.join(tmp, "atlas.png"), "wb") as f:
+            f.write(self.png(lambda x, y: 255 if x < 32 else 128 if x < 48 else 0))
+
+        def quad(u0, u1):
+            return [{"uv": (u, v)} for u, v in ((u0, 0.1), (u1, 0.1), (u1, 0.9), (u0, 0.9))]
+        verts = quad(0.05, 0.45) + quad(0.55, 0.70) + quad(0.80, 0.95)
+        faces = [k for q in range(3) for k in (4 * q, 4 * q + 1, 4 * q + 2, 4 * q, 4 * q + 2, 4 * q + 3)]
+        mats = [{"name": n, "diffuse": [1.0, 1.0, 1.0, 1.0], "tex": 0, "faces": 6} for n in ("body", "veil", "emote")]
+        model = {"vertices": verts, "faces": faces, "materials": mats, "textures": ["atlas.png"]}
+        mb = MaterialBuilder(model, tmp, vrmio.GLBBuilder(), True, [])
+        mb.resolve_tex(0)
+        self.assertEqual([mb.alpha_mode(i, m) for i, m in enumerate(mats)], ["OPAQUE", "BLEND", "BLEND"])
+        self.assertEqual(mb.alpha_by_uv, 1)
+
 
 class DecodeImageTest(unittest.TestCase):
     """BMP / TGA 转 PNG：装了 Pillow 时走 Pillow，像素要和纯 Python 版一样（32 位 BMP 的第 4 个字节当 alpha）。"""
