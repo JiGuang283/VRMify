@@ -877,6 +877,72 @@ def png_alpha_stats(data, max_rows=512):
     return (n, trans, mid)
 
 
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".tga", ".dds", ".spa", ".sph", ".gif", ".webp", ".tif", ".tiff")
+
+
+class TextureFinder:
+    """模型里记的贴图路径（相对模型所在文件夹）→ 磁盘上的文件。
+
+    依次试：记的相对路径；模型文件夹里的同名文件（作者留了自己电脑上的绝对路径之类）；模型文件夹的
+    子文件夹里的同名文件（不分大小写，比如记的是 body.png、实际在 tex/body.png）；同名不同扩展名
+    （记的 .png、实际是 .tga / .dds）。子文件夹按需建一次索引，最多看 max_files 个文件（不只是图片）、max_depth 层，
+    拖进来的是「下载」这种大文件夹时也不会慢。find 可以在线程里调用。
+    """
+
+    def __init__(self, base_dir, max_files=20000, max_depth=6):
+        import threading
+        self.base_dir = base_dir
+        self.max_files, self.max_depth = max_files, max_depth
+        self._index = None
+        self._lock = threading.Lock()
+
+    def _build(self):
+        by_name, by_stem, n = {}, {}, 0
+        root = os.path.abspath(self.base_dir)
+        depth0 = root.rstrip("\\/").count(os.sep)
+        for d, dirs, files in os.walk(root):
+            if d.count(os.sep) - depth0 >= self.max_depth:
+                dirs[:] = []
+            dirs.sort()
+            n += len(files)                  # 所有文件都算数：模型放在「下载」这种大文件夹里时不会一直找下去
+            for f in sorted(files):
+                low = f.lower()
+                if low.endswith(IMAGE_EXTS):
+                    p = os.path.join(d, f)
+                    by_name.setdefault(low, []).append(p)
+                    by_stem.setdefault(os.path.splitext(low)[0], []).append(p)
+            if n >= self.max_files:
+                break
+        return by_name, by_stem
+
+    def find(self, rel):
+        """→ (路径, how)：how 是 "exact"（就在记的位置）、"moved"（在别处按文件名找到的）；找不到为 (None, None)。"""
+        rel = (rel or "").replace("\\", "/").strip()
+        if not rel:
+            return None, None
+        c = os.path.join(self.base_dir, *[x for x in rel.split("/") if x]) if not os.path.isabs(rel) else rel
+        if os.path.isfile(c):
+            return c, "exact"
+        name = rel.rsplit("/", 1)[-1]
+        c = os.path.join(self.base_dir, name)
+        if os.path.isfile(c):
+            return c, "moved"
+        with self._lock:
+            if self._index is None:
+                self._index = self._build()
+        by_name, by_stem = self._index
+        cands = by_name.get(name.lower()) or by_stem.get(os.path.splitext(name.lower())[0]) or []
+        if not cands:
+            return None, None
+        # 几个同名的：选所在子文件夹和记的路径对得最多的，再选层级浅的
+        want = [x.lower() for x in rel.split("/")[:-1]]
+
+        def score(p):
+            parts = os.path.relpath(os.path.dirname(p), self.base_dir).lower().replace("\\", "/").split("/")
+            return (-sum(1 for x in want if x in parts), len(parts), p)
+        return min(cands, key=score), "moved"
+
+
 def load_texture(path):
     """读取磁盘贴图，返回 (bytes, mime)；失败返回 (None, None)。"""
     try:

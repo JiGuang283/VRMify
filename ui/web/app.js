@@ -4,7 +4,7 @@
 //   run.js      run bar + log      preview.js  3D preview, toolbar, side column
 //   tune.js     tune panel (per-model adjustments written into the VRM)
 //   layout.js   drag handles for the column widths
-import { $, S, api, errText, t, toast } from './core.js';
+import { $, S, api, errText, esc, pick, t, toast } from './core.js';
 import { renderFiles } from './files.js';
 import { applyOptsToForm, renderOutFolder, syncDependents } from './options.js';
 import { appendLog, relocalizeLog, renderStatus } from './run.js';
@@ -20,10 +20,21 @@ function applyLang() {
   document.querySelectorAll('[data-i18n-title]').forEach((e) => { e.title = t(e.dataset.i18nTitle); });
   document.querySelectorAll('[data-lang]').forEach((b) => b.classList.toggle('on', b.dataset.lang === S.lang));
   $('fileList').dataset.empty = t('empty');
+  renderModeNote();
   renderStatus(); renderOutFolder(); syncDependents(); relocalizeLog();
   fillPreviewPanels(viewer.info);
   if (!$('tunePanel').hidden) renderTune();
 }
+// why the app runs in the browser instead of its own window (ui/app.py), with what still works there
+function renderModeNote() {
+  const n = S.modeNote, box = $('modeNote');
+  box.hidden = S.native || !n;
+  if (box.hidden) return;
+  const link = n.kind === 'no_webview2'
+    ? ` <a href="https://developer.microsoft.com/microsoft-edge/webview2/" target="_blank" rel="noopener">${esc(t('getWebView2'))}</a>` : '';
+  box.innerHTML = `<b>${esc(t('browserMode'))}</b> ${esc(pick(n.zh, n.en))}${link} ${esc(t('browserModeHint', { log: n.log }))}`;
+}
+
 document.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('click', () => {
   S.lang = b.dataset.lang; applyLang(); api('/api/options', { lang: S.lang });
 }));
@@ -31,7 +42,7 @@ document.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('clic
 async function loadState() {
   const st = await api('/api/state');
   Object.assign(S, { files: st.files, opts: st.opts, lang: st.lang, busy: st.busy, seq: st.seq, native: st.native,
-    features: st.features || {}, appOut: st.app_out || '', ui: st.ui || {} });
+    features: st.features || {}, appOut: st.app_out || '', ui: st.ui || {}, modeNote: st.mode_note || null });
   applyLayout();
   $('ver').textContent = st.version ? 'v' + st.version : '';
   applyOptsToForm();

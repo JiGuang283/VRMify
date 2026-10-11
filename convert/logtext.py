@@ -141,6 +141,23 @@ TEMPLATES = {
     "付与骨合并：%d 根（%s）→ 权重并入付与親": "Append bones merged: {0} ({1}) → weights moved to their append parents",
     "付与骨合并：%s 与付与親的位置略有偏差，合并后绕付与親的位置转动":
         "Append bones merged: {0} sat slightly off their append parents and now turn about the parents' positions",
+    "贴图：%d 张不在模型记录的位置，已按文件名在模型文件夹里找到（%s）":
+        "Textures: {0} weren't where the model says; found them by name in the model folder ({1})",
+    "贴图：%d 张找不到（%s），用到它们的材质只有底色。贴图要和模型放在一起：请加入整个文件夹或压缩包":
+        "Textures: {0} not found ({1}); materials using them show only their base color. Textures must be next to "
+        "the model: add the whole folder or archive",
+    "贴图：%d 张读取失败（%s），用到它们的材质只有底色": "Textures: {0} couldn't be read ({1}); materials using them show only their base color",
+    "系统里没有 WebView2 运行时（Windows 的网页组件），所以用浏览器打开。安装后重新打开程序就是独立窗口。":
+        "WebView2 (the Windows web component) is not installed, so VRMify opened in the browser. "
+        "Install it and start VRMify again to get its own window.",
+    "没有安装 pywebview，所以用浏览器打开（pip install pywebview 后就是独立窗口）。":
+        "pywebview is not installed, so VRMify opened in the browser (pip install pywebview for its own window).",
+    "上传中断": "Upload interrupted",
+    "独立窗口启动失败（%s），所以用浏览器打开。": "VRMify's window failed to start ({0}), so it opened in the browser.",
+    "拖放不可用（%s），请用「添加文件」": "Drag and drop is unavailable ({0}); use \"Add files\"",
+    "浏览器模式下只加入了 %s 本身，旁边的贴图没有一起传过来，转出来可能没有贴图：请拖入整个模型文件夹或压缩包":
+        "In browser mode only {0} itself was added; the textures next to it weren't passed along, so the result may "
+        "have no textures: drop the whole model folder or archive",
     "付与骨：%d 根按比例跟随关节的骨（%s）→ 权重按付与率分给关节骨，共 %d 个顶点":
         "Append bones: {0} bones that follow a joint partly ({1}) → their weights were shared with the joint "
         "by the append rate, {2} vertices",

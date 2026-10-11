@@ -2,9 +2,11 @@
 import { $, S, api, pick, t, toast } from './core.js';
 import { renderFiles } from './files.js';
 import { flushOpts } from './options.js';
+import { T, saveTune } from './tune.js';
 
 $('start').onclick = async () => {
   await flushOpts();
+  if (T.dirty && T.fid) await saveTune(T.edits);     // unsaved tune edits go into this conversion
   const r = await api('/api/convert', {});
   if (!r.started) toast(t('nothing'));
   S.result = null; S.logErrors = 0; renderBadge();

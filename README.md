@@ -76,7 +76,8 @@
 > [!NOTE]
 > The exe isn't code-signed, so Windows may show "Windows protected your PC" the first time: click **More info →
 > Run anyway**. The window uses the system WebView2 (built into Windows 11 and almost every Windows 10); without it
-> the UI opens in your browser. The interface and the conversion log are in English or Chinese (switch at the top
+> the UI opens in your browser, says why at the top, and still takes dropped or added files (they are copied first).
+> The interface and the conversion log are in English or Chinese (switch at the top
 > right); the first start follows the system language.
 
 ## Supported formats
@@ -179,6 +180,14 @@ python tools/qa/check_vrm.py "model.vrm"                 # validate a VRM (struc
 
 Usually UniVRM hit invalid data. Check the file with `python tools/qa/check_vrm.py file.vrm`. A Unity app's log at
 `%USERPROFILE%\AppData\LocalLow\<company>\<product>\Player.log` names the exception.
+</details>
+
+<details>
+<summary><b>The model is white or some parts have no texture</b></summary>
+
+Textures have to be next to the model, where the PMX expects them: add the whole model folder or the archive, not
+just the .pmx. A texture that sits in another subfolder of the model folder is found by its name; the conversion log
+lists any that are still missing or can't be read.
 </details>
 
 <details>

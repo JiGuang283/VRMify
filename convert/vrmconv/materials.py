@@ -156,6 +156,8 @@ class MaterialBuilder:
         self.known_alpha = known_alpha or {}
         self._pre = {}                   # prefetch 提前读好的贴图：PMX 贴图序号 → _load 的结果
         self.base_dir = base_dir
+        self.finder = vrmio.TextureFinder(base_dir)
+        self.tex_moved, self.tex_missing, self.tex_bad = set(), set(), set()   # 贴图路径：日志里汇报
         self.gb = gb
         self.is1 = is1
         self.outline = outline
@@ -185,25 +187,14 @@ class MaterialBuilder:
                     self.morph_max_alpha[mi_] = max(self.morph_max_alpha.get(mi_, 0.0), r[0][3])
 
     def _find(self, idx):
-        """PMX 贴图序号 → 磁盘上的文件路径（找不到为 None）。"""
-        rel = self.model["textures"][idx].replace("\\", "/")
-        for c in (os.path.join(self.base_dir, rel),
-                  os.path.join(self.base_dir, os.path.basename(rel))):
-            if os.path.isfile(c):
-                return c
-        return None
+        """PMX 贴图序号 → 磁盘上的文件路径（找不到为 None；查找规则见 vrmio.TextureFinder）。"""
+        return self.finder.find(self.model["textures"][idx])[0]
 
     def _load(self, idx):
         """PMX 贴图序号 → (原图数据, mime, 透明统计, 瘦身后的 (数据, mime), 缩小的 alpha)，读不了为 None。
         不改动 self 的状态，可以在线程里跑（见 prefetch）。"""
-        rel = self.model["textures"][idx].replace("\\", "/")
-        data = None
-        for c in (os.path.join(self.base_dir, rel),
-                  os.path.join(self.base_dir, os.path.basename(rel))):
-            if os.path.isfile(c):
-                data, mime = vrmio.load_texture(c)
-                if data:
-                    break
+        c = self._find(idx)
+        data, mime = vrmio.load_texture(c) if c else (None, None)
         if not data:
             return None
         # 透明度统计用原图（瘦身后可能已是 JPEG）；只有完全不透明的贴图才会转 JPEG，结论不变
@@ -237,6 +228,14 @@ class MaterialBuilder:
         if idx in self.img_cache:
             return self.img_cache[idx]
         got = self._pre.pop(idx) if idx in self._pre else self._load(idx)
+        rel = self.model["textures"][idx]
+        path, how = self.finder.find(rel)
+        if path is None:
+            self.tex_missing.add(rel)
+        elif got is None:
+            self.tex_bad.add(rel)
+        elif how == "moved":
+            self.tex_moved.add(rel)
         if got is None:
             self.img_cache[idx] = -1
             return -1
@@ -500,3 +499,14 @@ class MaterialBuilder:
         if self.sph_skipped:
             log("材质：%d 个材质的乘算球面贴图（.sph）在 MToon 中没有对应项，已忽略"
                 % self.sph_skipped, "warn")
+
+        def names(rels):
+            rels = sorted(rels)
+            return "、".join(r.replace("\\", "/").rsplit("/", 1)[-1] for r in rels[:6]) + ("…" if len(rels) > 6 else "")
+        if self.tex_moved:
+            log("贴图：%d 张不在模型记录的位置，已按文件名在模型文件夹里找到（%s）" % (len(self.tex_moved), names(self.tex_moved)))
+        if self.tex_missing:
+            log("贴图：%d 张找不到（%s），用到它们的材质只有底色。贴图要和模型放在一起：请加入整个文件夹或压缩包"
+                % (len(self.tex_missing), names(self.tex_missing)), "warn")
+        if self.tex_bad:
+            log("贴图：%d 张读取失败（%s），用到它们的材质只有底色" % (len(self.tex_bad), names(self.tex_bad)), "warn")

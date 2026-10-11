@@ -16,6 +16,7 @@ if UI not in sys.path:
 os.environ.setdefault("VRMIFY_DATA", tempfile.mkdtemp(prefix="m2v_data_"))
 import app  # noqa: E402
 import server  # noqa: E402
+import logtext  # noqa: E402,I100
 import version  # noqa: E402
 
 
@@ -297,33 +298,57 @@ class StalePreviewTest(unittest.TestCase):
 class WindowFallbackTest(unittest.TestCase):
     """pywebview 换成假模块，_browser_loop 换成记录调用，看 main() 走哪条路。"""
 
-    def run_main(self, webview2, start_error=None):
+    def run_main(self, webview2, start_error=None, loader=None):
+        """webview2：注册表检测的结果；loader：WebView2 加载器报的版本（None = 没有）。→ (_browser_loop 的调用, backend, 假模块)"""
         fake = types.ModuleType("webview")
+        fake.settings = {"WEBVIEW2_RUNTIME_PATH": None}
         fake.create_window = lambda *a, **k: types.SimpleNamespace()
 
-        def start(cb=None):
+        def start(cb=None, **kw):
             if start_error:
                 raise start_error
         fake.start = start
-        calls = []
-        with mock.patch.dict(sys.modules, {"webview": fake}), \
-                mock.patch.object(app, "_webview2_ok", lambda: webview2), \
-                mock.patch.object(app, "_browser_loop", lambda *a: calls.append(a)):
+        calls, made = [], []
+        real_serve = server.serve
+
+        def serve(port=0):
+            r = real_serve(port)
+            made.append(r[0])
+            return r
+        with mock.patch.dict(sys.modules, {"webview": fake}),                 mock.patch.object(app, "_webview2_ok", lambda: webview2),                 mock.patch.object(app, "_webview2_loader_version", lambda: loader),                 mock.patch.object(server, "serve", serve),                 mock.patch.object(app, "_browser_loop", lambda *a: calls.append(a)):
             app.main(["--port", "0"])
-        return calls
+        return calls, made[0], fake
 
     def test_window(self):
-        self.assertEqual(self.run_main(webview2=True), [])
+        calls, b, fake = self.run_main(webview2=True)
+        self.assertEqual(calls, [])
+        self.assertIsNone(b.mode_note)
+        self.assertIsNone(fake.settings["WEBVIEW2_RUNTIME_PATH"])
 
     def test_no_webview2(self):
-        calls = self.run_main(webview2=False)
+        calls, b, _ = self.run_main(webview2=False)
         self.assertEqual(len(calls), 1)
         self.assertTrue(calls[0][2])               # 打开浏览器
+        self.assertEqual(b.mode_note["kind"], "no_webview2")
+        self.assertEqual(b.state()["mode_note"]["kind"], "no_webview2")
+        with open(b.mode_note["log"], encoding="utf-8") as f:
+            self.assertIn("WebView2", f.read())     # 原因也写进 startup.log
+
+    def test_registry_misses_but_loader_finds(self):
+        """注册表里没有记录、加载器却查到运行时（精简过的系统）：照常开窗口，告诉 pywebview 用 WebView2。"""
+        calls, b, fake = self.run_main(webview2=False, loader="120.0.1.2")
+        self.assertEqual(calls, [])
+        self.assertIsNone(b.mode_note)
+        self.assertTrue(fake.settings["WEBVIEW2_RUNTIME_PATH"])
 
     def test_window_fails(self):
-        calls = self.run_main(webview2=True, start_error=RuntimeError("boom"))
+        calls, b, _ = self.run_main(webview2=True, start_error=RuntimeError("boom"))
         self.assertEqual(len(calls), 1)
         self.assertTrue(calls[0][2])
+        self.assertEqual(b.mode_note["kind"], "window_failed")
+        self.assertIn("boom", b.mode_note["zh"])
+        with open(b.mode_note["log"], encoding="utf-8") as f:
+            self.assertIn("Traceback", f.read())
 
     def test_webview2_check_runs(self):
         self.assertIsInstance(app._webview2_ok(), bool)
@@ -379,6 +404,16 @@ class ModelRouteTest(unittest.TestCase):
             st, ct, data = self.get("tex/c.dds")
             self.assertEqual((st, ct, data[:4]), (200, "image/png", bytes([0x89]) + b"PNG"))
 
+    def test_moved_texture(self):
+        """PMX 记的位置没有、文件夹里别处有同名贴图：和转换时一样按文件名找到。"""
+        deep = os.path.join(self.folder, "sub", "deep")
+        os.makedirs(deep, exist_ok=True)
+        with open(os.path.join(deep, "moved.png"), "wb") as f:
+            f.write(bytes([0x89]) + b"PNG\r\n\x1a\n")
+        self.assertEqual(self.get("moved.png")[:2], (200, "image/png"))
+        self.assertEqual(self.get("textures/moved.png")[0], 200)
+        self.assertEqual(self.get("nothere.png")[0], 404)
+
     def test_outside_refused(self):
         self.assertEqual(self.get("../secret.txt")[0], 404)
         self.assertEqual(self.get("%2E%2E/secret.txt")[0], 404)
@@ -392,3 +427,67 @@ class ModelRouteTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UploadTest(unittest.TestCase):
+    """浏览器模式：拖入 / 选择的文件传到临时文件夹再加入列表。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="m2v_up_")
+        self.p = mock.patch.object(server, "UPLOADS", os.path.join(self.tmp, "uploads"))
+        self.p.start()
+        self.backend, self.srv, self.url = server.serve(0)
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+        self.backend.close()
+        self.p.stop()
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def post(self, key, path, data):
+        import urllib.parse
+        import urllib.request
+        q = urllib.parse.urlencode({"key": key, "path": path})
+        with urllib.request.urlopen(urllib.request.Request(self.url + "api/upload?" + q, data=data, method="POST")) as r:
+            return json.loads(r.read())
+
+    def done(self, items):
+        import urllib.request
+        req = urllib.request.Request(self.url + "api/upload/done", data=json.dumps({"items": items}).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req) as r:
+            return json.loads(r.read())
+
+    def test_folder(self):
+        self.assertEqual(self.post("k1", "模型/a.pmx", b"PMX data"), {"ok": True})
+        self.assertEqual(self.post("k1", "模型/tex/b.png", b"png"), {"ok": True})
+        added = self.done([{"key": "k1", "roots": ["模型"]}])["added"]
+        self.assertEqual(len(added), 1)
+        f = self.backend.files[added[0]]
+        self.assertTrue(f["path"].startswith(server.UPLOADS))
+        self.assertEqual(os.path.relpath(f["path"], server.UPLOADS).split(os.sep)[1:], ["模型", "a.pmx"])
+        self.assertTrue(os.path.isfile(os.path.join(os.path.dirname(f["path"]), "tex", "b.png")))
+        # 同样的东西再传一次：落在同一个位置（调整按路径保存），已经在列表里就不重复加
+        self.assertEqual(self.post("k1", "模型/a.pmx", b"PMX data"), {"ok": True})
+        self.assertEqual(self.done([{"key": "k1", "roots": ["模型"]}])["added"], [])
+        # 「保存在源文件旁边」：传进来的文件改存到程序目录
+        opts = {"output": {"mode": "beside"}}
+        self.assertEqual(self.backend._opts_for(f["path"], opts)["output"]["mode"], "app")
+        self.assertIs(self.backend._opts_for(os.path.join(self.tmp, "x.pmx"), opts), opts)
+
+    def test_paths_stay_inside(self):
+        self.post("k2", "../../evil.pmx", b"x")
+        self.post("k2", "a:b?.pmx", b"x")
+        names = sorted(os.listdir(self.backend._upload_dir("k2")))
+        self.assertEqual(names, ["a_b_.pmx", "evil.pmx"])
+
+    def test_lone_pmx_warns(self):
+        self.post("k3", "单独.pmx", b"x")
+        after = self.backend.events[-1][0] if self.backend.events else 0
+        self.assertEqual(len(self.done([{"key": "k3", "roots": ["单独.pmx"]}])["added"]), 1)
+        logs = [e["msg"] for s, e in self.backend.events if s > after and e["type"] == "log"]
+        self.assertTrue(any("单独.pmx" in m and "贴图" in m for m in logs), logs)
+        self.assertTrue(all(logtext.to_en(m) for m in logs))
+

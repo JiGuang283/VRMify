@@ -1,6 +1,7 @@
 // Tune panel: per-model adjustments written into the converted VRM (convert/vrm_edit.py) — name, thumbnail,
 // which expression drives each VRM preset and how strong, gaze range, SpringBone multipliers.
-// Physics changes preview live; everything else is written on "Save".
+// Physics changes preview live; everything else is written on "Save" — or by itself before converting and when
+// switching to another file, so edits aren't lost when "Save" is forgotten.
 import { $, S, api, clone, errText, esc, num, presetLabel, t, toast } from './core.js';
 import { loadModel, modelUrl, showPanel, viewer } from './preview.js';
 
@@ -15,11 +16,14 @@ const V0_TO_V1 = { a: 'aa', i: 'ih', u: 'ou', e: 'ee', o: 'oh', joy: 'happy', so
 // which model of the file a VRM / preview URL or file name is (vrm_edit.model_key): thumbnails are kept per model
 export const modelOf = (s) => (s ? decodeURIComponent(s.split('?')[0].split('/').pop()).replace(/\.[^.]+$/, '') : null);
 
-// switching to another model drops unsaved tune edits: ask first
+// switching to another file: save the unsaved tune edits of the one on screen (in the background; that file's
+// VRM isn't on screen any more). Edits are per file, so other outputs of the same file keep them unsaved.
 export function leaveTune(id) {
   if (!T.dirty || !T.fid || T.fid === id) return true;
-  if (!confirm(t('tuneDiscard'))) return false;
+  const fid = T.fid, edits = clone(T.edits), f = S.files.find((x) => x.id === fid);
   T.dirty = false;
+  api('/api/tune/save', { id: fid, edits }).then((r) =>
+    toast(r.error ? errText(r.error, r.error_en) : t('tuneAutoSaved', { name: f ? f.name : '' })));
   return true;
 }
 
@@ -264,7 +268,7 @@ function renderPhysics(sec) {
   });
 }
 
-async function saveTune(edits) {
+export async function saveTune(edits) {
   const r = await api('/api/tune/save', { id: T.fid, edits });
   if (r.error) return toast(errText(r.error, r.error_en));
   toast(r.applied ? t('tuneSaved', { n: r.applied }) : t('tuneSavedNone'));

@@ -7,6 +7,8 @@
   GET  /api/events?after=N            长轮询：日志 / 文件状态 / 进度 / 预览就绪
   POST /api/add      {paths}          加文件（文件夹会递归展开）
   POST /api/pick     {folder}         弹系统对话框选文件 / 文件夹再加入
+  POST /api/upload?key=&path=         浏览器模式：上传一个文件（请求体是文件内容），存进临时文件夹
+  POST /api/upload/done {items}       浏览器模式：一批传完，把 [{key, roots}] 里的顶层文件 / 文件夹加入列表
   POST /api/pick_output               选输出文件夹，返回路径
   POST /api/pick_ue_ref               选 uemodel 的整身对齐参考，返回路径（参考像部件时带 warn）
   POST /api/remove   {ids} · /api/clear
@@ -102,6 +104,7 @@ import pipeline  # noqa: E402
 import parallel  # noqa: E402
 import vrm_edit  # noqa: E402
 from version import __version__  # noqa: E402
+import vrmio  # noqa: E402
 from vrmconv import textures  # noqa: E402
 
 WEB = os.path.join(ROOT, "ui", "web")
@@ -129,6 +132,15 @@ def system_lang():
 
 
 TMP_PREFIXES = ("vrmify_", "model2vrm_")     # 后一个是改名前（Model-To-VRM）的版本留下的
+# 浏览器模式下拖入 / 选择的文件：网页拿不到磁盘路径，内容传到这里再加入列表（一天没用会被 _sweep_stale_previews 删掉）
+UPLOADS = os.path.join(tempfile.gettempdir(), "vrmify_uploads")
+_BAD_CHARS = set('\\/:*?"<>|') | {chr(i) for i in range(32)}
+
+
+def _safe_name(s):
+    s = "".join("_" if c in _BAD_CHARS else c for c in s).strip().rstrip(". ")
+    return s if s not in ("", ".", "..") else "_"
+
 
 
 def _sweep_stale_previews(max_age=86400):
@@ -175,9 +187,11 @@ class Backend:
         self.seq = itertools.count(1)
         self.tokens = {}                # token → 路径（预览可读的文件）
         self.dirs = {}                  # token → 文件夹（PMX 原生预览：模型和贴图都从这里读）
+        self.finders = {}               # token → vrmio.TextureFinder（贴图不在 PMX 记的位置时按文件名找）
         self.busy = False
         self.stop_flag = False
         self.window = None              # pywebview 窗口（有的话用它的原生对话框）
+        self.mode_note = None           # 退到浏览器模式的原因 {zh, en, log}（app.py 设置，页面顶上显示）
         self.last_seen = time.time()
         _sweep_stale_previews()
         self.tmp = tempfile.mkdtemp(prefix="vrmify_preview_")
@@ -286,7 +300,7 @@ class Backend:
                     "seq": self.events[-1][0] if self.events else 0,
                     "native": self.window is not None, "version": __version__,
                     "features": {"pillow": textures.available(), "auto_jobs": parallel.auto_jobs()},
-                    "app_out": APP_OUT}
+                    "app_out": APP_OUT, "mode_note": self.mode_note}
 
     def add_paths(self, paths):
         added = []
@@ -405,9 +419,9 @@ class Backend:
             with self.lock:
                 f = self.files.get(fid)
             if f:
-                todo.append((fid, f["path"], f["name"], self._convert_edits(f)))
+                todo.append((fid, f["path"], f["name"], self._convert_edits(f), self._opts_for(f["path"], opts)))
         total = len(todo)
-        jobs = parallel.jobs_for(total, opts.get("jobs"), [pipeline.memory_estimate(p) for _, p, _, _ in todo])
+        jobs = parallel.jobs_for(total, opts.get("jobs"), [pipeline.memory_estimate(p) for _, p, _, _, _ in todo])
         st = {"done": 0, "failed": 0, "skipped": 0, "finished": 0}
         running, t0 = {}, {}
 
@@ -416,7 +430,7 @@ class Backend:
 
         def start(fid):
             t0[fid] = time.time()
-            running[fid] = next(n for i, _, n, _ in todo if i == fid)
+            running[fid] = next(n for i, _, n, _, _ in todo if i == fid)
             self._update(fid, status="running", error=None)
             progress()
 
@@ -444,17 +458,17 @@ class Backend:
         try:
             if jobs > 1:
                 self.log("并行转换 %d 个文件（共 %d 个）" % (jobs, total), "info")
-                parallel.run([(fid, pipeline.convert_file, (path, opts), {"edits": edits})
-                              for fid, path, _, edits in todo], jobs,
+                parallel.run([(fid, pipeline.convert_file, (path, fopts), {"edits": edits})
+                              for fid, path, _, edits, fopts in todo], jobs,
                              lambda fid: (lambda m, t=None: self.log(m, t, fid)),
                              start=start, done=finish, should_stop=stopped)
             else:
-                for fid, path, _, edits in todo:
+                for fid, path, _, edits, fopts in todo:
                     if stopped():
                         break
                     start(fid)
                     try:
-                        outs = pipeline.convert_file(path, opts, log=lambda m, t=None, fid=fid: self.log(m, t, fid),
+                        outs = pipeline.convert_file(path, fopts, log=lambda m, t=None, fid=fid: self.log(m, t, fid),
                                                      edits=edits)
                         finish(fid, True, outs)
                     except Exception as e:  # noqa: BLE001  一个文件失败不影响其它
@@ -469,6 +483,75 @@ class Backend:
     def stop(self):
         with self.lock:
             self.stop_flag = True
+
+    @staticmethod
+    def _uploaded(path):
+        try:
+            return os.path.commonpath([UPLOADS, os.path.abspath(path)]) == UPLOADS
+        except ValueError:
+            return False
+
+    def _opts_for(self, path, opts):
+        """浏览器模式传进来的文件在临时文件夹里：「保存在源文件旁边」时改存到程序目录的 vrm 文件夹。"""
+        if opts["output"].get("mode") == "beside" and self._uploaded(path):
+            return dict(opts, output=dict(opts["output"], mode="app"))
+        return opts
+
+    # ---------------------------------------------------------- uploads --
+    @staticmethod
+    def _upload_dir(key):
+        return os.path.join(UPLOADS, hashlib.md5(str(key).encode("utf-8")).hexdigest()[:12])
+
+    def upload(self, key, rel, stream, size):
+        """浏览器模式：页面把拖入 / 选择的文件逐个传过来（请求体就是文件内容），存到 UPLOADS/<key 的哈希>/<相对路径>。
+        key 由页面按名字、大小、修改时间算：同样的东西再传一次落在同一个位置（调整按源文件路径保存，下次还能套上），
+        已经在了就不重写。读满 size 字节再返回，连接才能接着用。"""
+        parts = [_safe_name(x) for x in str(rel or "").replace("\\", "/").split("/") if x not in ("", ".", "..")]
+        dest = os.path.join(self._upload_dir(key), *parts) if parts and key else None
+        if dest and os.path.isfile(dest) and os.path.getsize(dest) == size:
+            dest, keep = None, dest
+        else:
+            keep = None
+        tmp = dest + ".part" if dest else None
+        left = size
+        try:
+            if tmp:
+                os.makedirs(os.path.dirname(tmp), exist_ok=True)
+            with (open(tmp, "wb") if tmp else open(os.devnull, "wb")) as f:
+                while left > 0:
+                    chunk = stream.read(min(left, 1 << 20))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    left -= len(chunk)
+            if left:
+                raise OSError("上传中断")
+            if tmp:
+                os.replace(tmp, dest)
+        except OSError as e:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+            return {"error": str(e)}
+        if not (dest or keep):
+            return {"error": "bad path"}
+        return {"ok": True}
+
+    def upload_done(self, items):
+        """一批文件传完：items = [{key, roots}]，roots 是这批里顶层的文件 / 文件夹名，把它们加进列表。"""
+        paths, lone_pmx = [], []
+        for it in items or []:
+            d = self._upload_dir(it.get("key"))
+            mine = [os.path.join(d, _safe_name(r)) for r in it.get("roots") or []]
+            mine = [p for p in mine if os.path.exists(p)]
+            paths += mine
+            # 只传了 PMX 本身（没有文件夹、也没有图片跟着）：浏览器给不了它旁边的贴图
+            if not any(os.path.isdir(p) or p.lower().endswith(vrmio.IMAGE_EXTS) for p in mine):
+                lone_pmx += [os.path.basename(p) for p in mine if p.lower().endswith(".pmx")]
+        added = self.add_paths(paths)
+        if lone_pmx:
+            self.log("浏览器模式下只加入了 %s 本身，旁边的贴图没有一起传过来，转出来可能没有贴图："
+                     "请拖入整个模型文件夹或压缩包" % "、".join(lone_pmx), "warn")
+        return added
 
     # ---------------------------------------------------------- preview --
     def preview(self, fid, output=None):
@@ -776,7 +859,19 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError:
             inside = False
         if not inside or not os.path.isfile(p):
-            return self.send_error(404)
+            # 贴图不在 PMX 记的位置：和转换时一样按文件名在模型文件夹里找（vrmio.TextureFinder）
+            import vrmio
+            with self.backend.lock:
+                finder = self.backend.finders.get(tok)
+                if finder is None:
+                    finder = self.backend.finders[tok] = vrmio.TextureFinder(folder)
+            p = finder.find(rel.rsplit("/", 1)[-1])[0] if rel.lower().endswith(vrmio.IMAGE_EXTS) else None
+            try:
+                inside = bool(p) and os.path.commonpath([folder, os.path.abspath(p)]) == folder
+            except ValueError:
+                inside = False
+            if not inside:
+                return self.send_error(404)
         with open(p, "rb") as f:
             data = f.read()
         low = p.lower()
@@ -849,6 +944,10 @@ class Handler(SimpleHTTPRequestHandler):
         b = self.backend
         b.last_seen = time.time()
         u = urllib.parse.urlsplit(self.path)
+        if u.path == "/api/upload":             # 请求体是文件内容，不是 JSON
+            q = urllib.parse.parse_qs(u.query)
+            return self._json(b.upload(q.get("key", [""])[0], q.get("path", [""])[0], self.rfile,
+                                       int(self.headers.get("Content-Length", 0) or 0)))
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         except ValueError:
@@ -856,6 +955,8 @@ class Handler(SimpleHTTPRequestHandler):
         route = u.path
         if route == "/api/add":
             return self._json({"added": b.add_paths(body.get("paths") or [])})
+        if route == "/api/upload/done":
+            return self._json({"added": b.upload_done(body.get("items"))})
         if route == "/api/pick":
             return self._json({"added": b.add_paths(b.pick(folder=bool(body.get("folder"))))})
         if route == "/api/pick_ue_ref":

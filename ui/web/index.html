@@ -21,6 +21,7 @@
     <button data-lang="zh_CN">中文</button><button data-lang="en">EN</button>
   </div>
 </header>
+<div id="modeNote" class="mode-note" hidden></div>
 
 <div class="layout">
   <aside class="left">
@@ -36,6 +37,9 @@
         </div>
       </div>
       <div id="drop" class="drop"><span data-i18n="dropHint"></span></div>
+      <!-- browser mode: the page can't see file paths, so files are picked here and uploaded (files.js) -->
+      <input type="file" id="upFiles" multiple hidden>
+      <input type="file" id="upFolder" webkitdirectory hidden>
       <ul id="fileList" class="file-list"></ul>
     </section>
 

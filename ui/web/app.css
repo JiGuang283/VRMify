@@ -26,6 +26,10 @@ h3 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); font-weight: 600;
 .ver { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 4px; }
 
 .layout { flex: 1; display: flex; min-height: 0; }
+.mode-note { flex: none; padding: 6px 16px; font-size: 12px; background: var(--accent-soft); color: var(--text, inherit);
+  border-bottom: 1px solid var(--line); }
+.mode-note b { color: var(--warn); }
+.mode-note a { color: var(--accent); }
 /* left column: settings scroll, the run bar stays at the bottom */
 .left { width: var(--left-w); flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .left-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; }

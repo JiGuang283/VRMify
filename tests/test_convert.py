@@ -277,6 +277,46 @@ class PmxReadTest(unittest.TestCase):
         self.assertEqual(len(m["rigid_bodies"]), 4)                  # 后面的段没有错位
 
 
+class TextureFindTest(unittest.TestCase):
+    """贴图不在 PMX 记的位置：按文件名在模型文件夹里找；找不到 / 读不了的在日志里列出来。"""
+
+    def test_finder(self):
+        import vrmio
+        tmp = tempfile.mkdtemp(prefix="m2v_tex_")
+        try:
+            for rel in ("tex/Body.PNG", "other/sub/body.png", "deep/face.tga", "x/a/eye.png", "y/eye.png"):
+                os.makedirs(os.path.join(tmp, os.path.dirname(rel)), exist_ok=True)
+                open(os.path.join(tmp, rel), "wb").close()
+            f = vrmio.TextureFinder(tmp)
+            self.assertEqual(f.find(r"tex\Body.PNG"), (os.path.join(tmp, "tex", "Body.PNG"), "exact"))
+            p, how = f.find(r"C:\Users\作者\Desktop\tex\body.png")      # 作者电脑上的绝对路径
+            self.assertEqual((os.path.relpath(p, tmp), how), (os.path.join("tex", "Body.PNG"), "moved"))
+            self.assertEqual(os.path.relpath(f.find("face.png")[0], tmp), os.path.join("deep", "face.tga"))  # 扩展名不同
+            self.assertEqual(os.path.relpath(f.find("a/eye.png")[0], tmp), os.path.join("x", "a", "eye.png"))
+            self.assertEqual(os.path.relpath(f.find("eye.png")[0], tmp), os.path.join("y", "eye.png"))     # 浅的优先
+            self.assertEqual(f.find("missing.png"), (None, None))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_conversion_log(self):
+        tmp = tempfile.mkdtemp(prefix="m2v_tex_")
+        try:
+            pmx = synth.build(os.path.join(tmp, "src"))
+            src = os.path.dirname(pmx)
+            os.makedirs(os.path.join(src, "moved"))
+            os.replace(os.path.join(src, "tex", "body.png"), os.path.join(src, "moved", "body.png"))
+            os.remove(os.path.join(src, "tex", "hair.png"))
+            logs = []
+            out = os.path.join(tmp, "a.vrm")
+            pmx2vrm.convert(pmx, out, log=lambda m, t=None: logs.append((m, t)))
+            self.assertIn(("贴图：1 张不在模型记录的位置，已按文件名在模型文件夹里找到（body.png）", None), logs)
+            self.assertTrue(any(m.startswith("贴图：1 张找不到（hair.png）") and t == "warn" for m, t in logs), logs)
+            g, _ = vrmio.read_glb(out)
+            self.assertEqual(len(g["images"]), 1)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class PartialAppendTest(unittest.TestCase):
     """按比例跟随关节的付与骨（ひざ補助 0.5）：权重按付与率分给关节骨；自检能发现没处理到的。"""
 
