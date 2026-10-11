@@ -73,6 +73,14 @@ class BoneNameTest(unittest.TestCase):
         bones = [{"name": "下半身", "name_en": ""}, {"name": "Hips", "name_en": ""}]
         self.assertEqual(_map_humanoid(bones, True, {})["hips"], 0)
 
+    def test_mmd_names_win_over_earlier_name_en(self):
+        """模型旁边另放的控制骨（左肩調整，英文名和本体一样是 L_Shoulder）排在前面，也不能抢走 左肩。"""
+        bones = [{"name": "左肩調整", "name_en": "L_Shoulder"}, {"name": "上半身3", "name_en": ""},
+                 {"name": "左肩", "name_en": "L_Shoulder"}, {"name": "右肩調整", "name_en": "R_Shoulder"}]
+        human = _map_humanoid(bones, True, {})
+        self.assertEqual(human["leftShoulder"], 2)
+        self.assertEqual(human["rightShoulder"], 3)         # 没有日文名的，英文名照常补位
+
 
 class ExpressionNameTest(unittest.TestCase):
     def test_presets(self):

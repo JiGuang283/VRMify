@@ -304,6 +304,7 @@ def _map_humanoid(bones, is1, alias):
     """PMX 骨 → VRM humanoid 骨位，返回 {骨位: PMX 骨索引}。"""
     human = {}
     fingers = {}                     # (side, finger) → {节号: 骨索引}
+    alt = {}                         # PMX 英文名（name_en）对上的：骨位 → 骨索引，日文名都分完再补位
     en = {}                          # 英文骨名兜底：骨位 → 骨索引
     # HumanIK 的 LeftLeg 是小腿（大腿叫 LeftUpLeg）；只有 Leg、没有 UpLeg / Thigh 时 Leg 才是大腿
     has_upleg = any(re.search(r"upleg|upperleg|thigh", (b["name"] or "").lower()) for b in bones)
@@ -316,10 +317,14 @@ def _map_humanoid(bones, is1, alias):
             fingers.setdefault(fk[:2], {}).setdefault(fk[2], i)
             continue
         v = MMD_TO_VRM.get(b["name"])
-        if not v:
+        if v:
+            human.setdefault(v, i)
+        else:
+            # 英文名只补位：有的模型旁边另放一套控制骨（左肩調整 …），英文名和本体一样（L_Shoulder），
+            # 排在前面的话会抢走 左肩 的骨位，肩膀跑到模型外面
             v = ALT_TO_VRM.get(_norm(b.get("name_en") or ""))
-        if v and v not in human:
-            human[v] = i
+            if v:
+                alt.setdefault(v, i)
         if not v:
             r = _en_bone(b["name"], thumb_mc)
             if r and r[0] == "finger":
@@ -357,6 +362,8 @@ def _map_humanoid(bones, is1, alias):
                 en["chest"] = seq[1]
                 en.pop("upperChest", None)
     # 英文名只在 MMD 名没对上时补位（同一个模型两套都有时以 MMD 名为准）
+    for k, i in alt.items():
+        human.setdefault(k, i)
     for k, i in en.items():
         if k[0] == "finger":
             if (k[1], k[2]) not in fingers:
