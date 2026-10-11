@@ -7,6 +7,7 @@ Schema 校验需要 jsonschema（requirements-dev.txt），贴图瘦身需要 Pi
 """
 import copy
 import io
+import math
 import os
 import random
 import shutil
@@ -315,6 +316,44 @@ class TextureFindTest(unittest.TestCase):
             self.assertEqual(len(g["images"]), 1)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class OneSidedLayerTest(unittest.TestCase):
+    """「所有材质双面」时仍保持单面的描边外壳：紧贴在表面外面、翻了面的那层；单独翻了面的不算。"""
+
+    @staticmethod
+    def sphere(center, radius, bone, flip, n=12):
+        verts, faces = [], []
+        for i in range(n + 1):
+            th = math.pi * i / n
+            for j in range(2 * n):
+                ph = math.pi * j / n
+                d = (math.sin(th) * math.cos(ph), math.cos(th), math.sin(th) * math.sin(ph))
+                verts.append({"pos": tuple(center[k] + radius * d[k] for k in range(3)),
+                              "normal": tuple(-x if flip else x for x in d), "wbones": [bone], "wweights": []})
+        for i in range(n):
+            for j in range(2 * n):
+                a, b = i * 2 * n + j, i * 2 * n + (j + 1) % (2 * n)
+                c, e = a + 2 * n, b + 2 * n
+                for tri in ((a, b, c), (b, e, c)):      # 叉积朝外
+                    faces.extend(tri[::-1] if flip else tri)
+        return verts, faces
+
+    def test_hull(self):
+        from vrmconv import materials
+        model = {"vertices": [], "faces": [], "materials": [],
+                 "bones": [{"name": "頭", "pos": (0, 10, 0), "tail_kind": 0, "tail": (0, 0.1, 0)},
+                           {"name": "玉", "pos": (5, 0, 0), "tail_kind": 0, "tail": (0, 0.1, 0)}]}
+        for name, center, radius, bone, flip in (("顔", (0, 10, 0), 1.0, 0, False), ("顔エッジ", (0, 10, 0), 1.02, 0, True),
+                                                 ("裏返し", (5, 0, 0), 1.0, 1, True)):
+            v, f = self.sphere(center, radius, bone, flip)
+            base = len(model["vertices"])
+            model["vertices"] += v
+            model["faces"] += [base + x for x in f]
+            model["materials"].append({"name": name, "flag": 0, "faces": len(f)})
+        self.assertEqual(sorted(materials.one_sided_layers(model)), [1])   # 只有外壳；单独翻面的不算
+        model["materials"][1]["flag"] = 1                                   # 本来就是双面的不用管
+        self.assertEqual(materials.one_sided_layers(model), {})
 
 
 class PartialAppendTest(unittest.TestCase):

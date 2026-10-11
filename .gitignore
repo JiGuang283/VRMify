@@ -22,6 +22,7 @@ tools/qa/.schema-cache/
 # UI settings and per-model tuning (per machine)
 settings.json
 edits.json
+startup.log
 edits/
 
 # Editors and local tool config

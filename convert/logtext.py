@@ -141,6 +141,9 @@ TEMPLATES = {
     "付与骨合并：%d 根（%s）→ 权重并入付与親": "Append bones merged: {0} ({1}) → weights moved to their append parents",
     "付与骨合并：%s 与付与親的位置略有偏差，合并后绕付与親的位置转动":
         "Append bones merged: {0} sat slightly off their append parents and now turn about the parents' positions",
+    "材质：%d 个材质是描边外壳或内侧面（%s），「所有材质双面」时仍保持单面，否则会盖住模型或重叠闪烁":
+        "Materials: {0} are outline shells or inner sides ({1}) and stay single-sided with \"All materials double-sided\"; "
+        "otherwise they would cover the model or flicker against the outer layer",
     "贴图：%d 张不在模型记录的位置，已按文件名在模型文件夹里找到（%s）":
         "Textures: {0} weren't where the model says; found them by name in the model folder ({1})",
     "贴图：%d 张找不到（%s），用到它们的材质只有底色。贴图要和模型放在一起：请加入整个文件夹或压缩包":

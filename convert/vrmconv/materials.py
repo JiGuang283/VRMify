@@ -118,6 +118,119 @@ def _toon_shading(col):
     return col[0], col[-1], shift, toony
 
 
+def one_sided_layers(model, samples=300, inward_min=0.7, opposite_min=0.5):
+    """PMX 里设计成单面、背后紧贴着一层反向表面的材质 → {材质序号: (朝里的比例, 法线相反的比例)}。
+
+    两类：描边外壳（把脸 / 身体复制一份往外推、翻面、涂黑：单面时只在边缘露出一圈当轮廓线，叫
+    「顔エッジ」「outline」之类）和内侧面（裙子、袖子里面另做一层翻过来的面显示里侧的贴图）。
+    「所有材质双面」不能套到它们上：外壳会整片盖住脸和身体，内侧面会和外层重叠闪烁。
+
+    名字靠不住，按几何判断，每个单面材质抽样最多 samples 个三角面：
+      朝里   面的朝向（PMX 绕序的叉积）指向它所属骨骼那一段（主要权重的骨，骨头 → 骨尾）
+      反向   离它最近的别的材质的顶点（模型高度的 3% 以内），顶点法线和这个面相反——外壳和它下面的表面、
+             内侧面和外层都是这样；眼睛、嘴里朝里的面旁边是方向一致的眼白、牙齿，不算
+    两项都过半（朝里 ≥ inward_min，反向 ≥ opposite_min，有效样本至少 20 个）的才算。
+    """
+    V, F, B = model["vertices"], model["faces"], model["bones"]
+    mats = model["materials"]
+    if not V or not B or not any(m["faces"] >= 3 and not (m["flag"] & 0x01) for m in mats):
+        return {}
+    ys = [v["pos"][1] for v in V]
+    h = (max(ys) - min(ys)) or 1.0
+    r, eps = 0.03 * h, 0.0003 * h
+    tails = []
+    for b in B:
+        t = b.get("tail")
+        if b.get("tail_kind") == 1 and isinstance(t, int) and 0 <= t < len(B):
+            tails.append(B[t]["pos"])
+        elif b.get("tail_kind") == 0 and t and not isinstance(t, int):
+            tails.append(tuple(b["pos"][i] + t[i] for i in range(3)))
+        else:
+            tails.append(b["pos"])
+    mat_of = [0] * len(V)
+    k = 0
+    for mi, m in enumerate(mats):
+        for t in range(k, min(k + m["faces"], len(F))):
+            mat_of[F[t]] = mi
+        k += m["faces"]
+    cell = r / 4                     # 细网格，由近到远一圈圈找：外壳离下面的表面通常只有零点几毫米
+    grid = {}
+    for vi, v in enumerate(V):
+        p = v["pos"]
+        grid.setdefault((int(p[0] // cell), int(p[1] // cell), int(p[2] // cell)), []).append(vi)
+
+    def nearest_other(p, mi):
+        cx, cy, cz = int(p[0] // cell), int(p[1] // cell), int(p[2] // cell)
+        best, bd = -1, r
+        for ring in range(5):        # 第 ring 圈：切比雪夫距离正好是 ring 的格子
+            if best >= 0 and bd <= (ring - 1) * cell:
+                break
+            rng = range(-ring, ring + 1)
+            for dx in rng:
+                for dy in rng:
+                    for dz in rng:
+                        if max(abs(dx), abs(dy), abs(dz)) != ring:
+                            continue
+                        for vi in grid.get((cx + dx, cy + dy, cz + dz), ()):
+                            if mat_of[vi] != mi:
+                                q = V[vi]["pos"]
+                                dd = math.sqrt((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2)
+                                if eps < dd < bd:
+                                    best, bd = vi, dd
+        return best
+
+    def bone_of(v):
+        ws = list(v["wweights"]) or [1.0]
+        bi = max(zip(ws, v["wbones"]))[1] if v["wbones"] else -1
+        return bi if 0 <= bi < len(B) else -1
+
+    out, k = {}, 0
+    for mi, m in enumerate(mats):
+        n = m["faces"] // 3
+        start, k = k, k + m["faces"]
+        if n < 1 or m["flag"] & 0x01:
+            continue
+        step = max(1, n // samples)
+        tot, inward = 0, []          # 先只算朝里（便宜），不够的材质不用找邻居
+        for t in range(start, start + n * 3, 3 * step):
+            if t + 2 >= len(F):
+                break
+            a, b_, c = (V[F[t + j]]["pos"] for j in range(3))
+            u = (b_[0] - a[0], b_[1] - a[1], b_[2] - a[2])
+            w = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+            fn = (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+            ln = math.sqrt(fn[0] ** 2 + fn[1] ** 2 + fn[2] ** 2)
+            bi = bone_of(V[F[t]])
+            if ln < 1e-12 or bi < 0:
+                continue
+            p = ((a[0] + b_[0] + c[0]) / 3, (a[1] + b_[1] + c[1]) / 3, (a[2] + b_[2] + c[2]) / 3)
+            s0, s1 = B[bi]["pos"], tails[bi]               # 骨头 → 骨尾上离 p 最近的点
+            ab = (s1[0] - s0[0], s1[1] - s0[1], s1[2] - s0[2])
+            ll = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2
+            f = 0.0 if ll < 1e-12 else max(0.0, min(1.0, sum((p[i] - s0[i]) * ab[i] for i in range(3)) / ll))
+            d = tuple(p[i] - s0[i] - ab[i] * f for i in range(3))
+            if math.sqrt(d[0] ** 2 + d[1] ** 2 + d[2] ** 2) < eps:
+                continue
+            tot += 1
+            if fn[0] * d[0] + fn[1] * d[1] + fn[2] * d[2] < 0:
+                inward.append((p, fn, ln))
+        if tot < 20 or len(inward) < inward_min * tot:
+            continue
+        opposite = 0
+        for p, fn, ln in inward:
+            q = nearest_other(p, mi)
+            if q >= 0:
+                nq = V[q]["normal"]
+                lq = math.sqrt(nq[0] ** 2 + nq[1] ** 2 + nq[2] ** 2) or 1.0
+                if (fn[0] * nq[0] + fn[1] * nq[1] + fn[2] * nq[2]) / (ln * lq) < -0.5:
+                    opposite += 1
+            if opposite >= opposite_min * tot:
+                break
+        if opposite >= opposite_min * tot:
+            out[mi] = (len(inward) / tot, opposite / tot)
+    return out
+
+
 def _morph_material(mat, ops, mi):
     """把材质表情作用到材质 mi 上，返回权重为 1 时的 (漫反射 RGBA, 环境色 RGB)。
 
@@ -162,6 +275,8 @@ class MaterialBuilder:
         self.is1 = is1
         self.outline = outline
         self.force_double_sided = force_double_sided
+        # 「所有材质双面」时仍保持单面的：描边外壳、内侧面（one_sided_layers）
+        self.keep_one_sided = one_sided_layers(model) if force_double_sided else {}
         self.materials = []
         self.props_0x = []
         self.img_cache = {}
@@ -357,7 +472,7 @@ class MaterialBuilder:
         # 几乎看不出来，星铁、鸣潮的脸又白又平；原生 VRoid 皮肤的阴影是粉色的
         diff, shade, shift, toony = self.lit_shade(mat, _mmd_color(mat["diffuse"], mat["ambient"]))
         mode = self.alpha_mode(mi_, mat)
-        double = True if self.force_double_sided else bool(mat["flag"] & 0x01)
+        double = bool(mat["flag"] & 0x01) or (self.force_double_sided and mi_ not in self.keep_one_sided)
         # 加算球面贴图（sph_mode 2）≈ MToon 的 matcap（同样是加算）；
         # 乘算（1）没有对应项，跳过
         si = -1
@@ -499,6 +614,10 @@ class MaterialBuilder:
         if self.sph_skipped:
             log("材质：%d 个材质的乘算球面贴图（.sph）在 MToon 中没有对应项，已忽略"
                 % self.sph_skipped, "warn")
+        if self.keep_one_sided:
+            names = [self.model["materials"][i]["name"] for i in sorted(self.keep_one_sided)]
+            log("材质：%d 个材质是描边外壳或内侧面（%s），「所有材质双面」时仍保持单面，否则会盖住模型或重叠闪烁"
+                % (len(names), "、".join(names[:6]) + ("…" if len(names) > 6 else "")))
 
         def names(rels):
             rels = sorted(rels)

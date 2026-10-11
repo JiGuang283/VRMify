@@ -207,8 +207,9 @@ chain to see which colliders it uses.
 <details>
 <summary><b>Holes, black edges or missing hair sheets</b></summary>
 
-Turn on "All materials double-sided" under *Advanced* on the Convert tab. The conversion log also shows how the
-triangle winding was decided.
+Turn on "All materials double-sided" under *Advanced* on the Convert tab. Outline shells (an inverted copy around the
+face or body) and the inner sides of clothes stay single-sided, otherwise they would cover the model; the log lists
+them. The conversion log also shows how the triangle winding was decided.
 </details>
 
 <details>
