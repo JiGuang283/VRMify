@@ -11,7 +11,7 @@ import math
 from types import SimpleNamespace
 
 from .humanoid import (REQUIRED_0X, REQUIRED_1_0, _HIPS_Y, _SYNTH, _append_aliases,
-                       _clean_parents, _fix_humanoid_hierarchy, _map_humanoid, _pick_toes, _reparent,
+                       _bone_len, _clean_parents, _fix_humanoid_hierarchy, _is_ancestor, _map_humanoid, _pick_toes, _reparent,
                        _topo_bones, _tpose_globals, _vrm_anchor)
 from .mathutil import _I3, _m3vec
 
@@ -100,6 +100,93 @@ def prepare_bones(bones, is1, log, weighted=()):
     order, remap = _topo_bones(parents)
     return SimpleNamespace(parents=parents, alias=alias, required=required,
                            human_b=human_b, order=order, remap=remap)
+
+
+def split_partial(bones, bs, vweights, rigid_bodies, log):
+    """按比例跟随关节的付与骨（ひざ補助 跟 ひざ 转 0.5、尻 跟 足 转 0.5 之类）→ 新的逐顶点权重。
+
+    这些骨让关节弯曲时保持体积：MMD 里绕自己的位置转关节角度的一部分。VRM 没有付与，原样导出时它们
+    只跟父骨走，关节一弯这部分就瘪下去。这里把它（和它下面的骨）上的权重按付与率拆开：付与率那份给
+    关节骨，其余留在原骨上，线性混合出来约等于转了一部分角度（误差约为不拆的一半到四分之一）。
+    静止姿势不变，在 T-pose 之后做（T-pose 里这些骨已按付与率跟转）。
+
+    只拆：付与親（并入后）是 humanoid 骨、付与率在 0.05～1 之间、和关节骨跟着同一根 humanoid 骨移动
+    （见 humanoid._append_aliases）、自己和下面的骨都不带物理刚体的。付与率 1 却没能并入付与親的
+    （偏差超过半节骨长）在偏差不超过一节骨长时整份转过去；再远的不动——它的顶点要是都在自己的转动点
+    附近，改绕关节转反而比不动偏得多，留给自检在日志里提示。
+    """
+    n = len(bones)
+    if not n:
+        return vweights
+    hum = set(bs.human_b.values())
+    phys = {rb.get("bone") for rb in rigid_bodies or () if rb.get("mode") in (1, 2)}
+    kids = [[] for _ in range(n)]
+    for c, p in enumerate(bs.parents):
+        if 0 <= p < n and p != c:
+            kids[p].append(c)
+
+    def anchor(i):
+        seen = set()
+        while 0 <= i < n and i not in seen:
+            if i in hum:
+                return i
+            seen.add(i)
+            i = bs.parents[i]
+        return -1
+
+    def subtree(i):                  # 到下一根 humanoid 骨为止
+        out, todo = {i}, [i]
+        while todo:
+            for c in kids[todo.pop()]:
+                if c not in hum and c not in out:
+                    out.add(c)
+                    todo.append(c)
+        return out
+
+    plan, names = {}, []
+    for i, b in enumerate(bones):
+        ir = b.get("inherit_rot")
+        if not ir or i in hum or i in bs.alias or not (0 <= ir[0] < n) or not (0.05 <= ir[1] <= 1.0001):
+            continue
+        s = bs.alias.get(ir[0], ir[0])
+        if s not in hum or _is_ancestor(bs.parents, i, s) or _is_ancestor(bs.parents, s, i):
+            continue
+        if anchor(bs.parents[i]) != anchor(bs.parents[s]):
+            continue
+        if ir[1] >= 0.999 and math.dist(b["pos"], bones[s]["pos"]) > max(
+                math.dist(bones[bs.parents[s]]["pos"], bones[s]["pos"]) if bs.parents[s] >= 0 else 0.0,
+                _bone_len(bones, bs.parents, s)):
+            continue                 # 100% 跟随却离关节一节骨长以上：绕关节转可能比不动还偏，留给自检提示
+        sub = subtree(i)
+        if phys.intersection(sub):
+            continue
+        for k in sub:
+            if k == i or not bones[k].get("inherit_rot"):
+                plan.setdefault(k, (s, min(1.0, ir[1])))
+        names.append(bones[i]["name"])
+    if not plan:
+        return vweights
+    out, nv = list(vweights), 0
+    for vi, wl in enumerate(vweights):
+        if not any(b in plan for b, _ in wl):
+            continue
+        acc = {}
+        for b, w in wl:
+            if b in plan:
+                s, r = plan[b]
+                acc[s] = acc.get(s, 0.0) + w * r
+                if r < 1.0:
+                    acc[b] = acc.get(b, 0.0) + w * (1.0 - r)
+            else:
+                acc[b] = acc.get(b, 0.0) + w
+        top = sorted(acc.items(), key=lambda t: -t[1])[:4]
+        tot = sum(w for _, w in top) or 1.0
+        out[vi] = [(b, w / tot) for b, w in top]
+        nv += 1
+    if nv:
+        log("付与骨：%d 根按比例跟随关节的骨（%s）→ 权重按付与率分给关节骨，共 %d 个顶点"
+            % (len(names), "、".join(names[:6]) + ("…" if len(names) > 6 else ""), nv))
+    return out
 
 
 def apply_tpose(verts, bones, bs, vweights, tpose, log):

@@ -230,18 +230,22 @@ def _reparent(parents, child, new_parent):
     return True
 
 
-def _append_aliases(bones, parents, eps, loose=0.15):
+def _append_aliases(bones, parents, eps, loose=0.5):
     """「付与回転 100%」跟随付与親的骨 → 付与親，返回 {骨: 付与親}。
 
     典型是 足D / ひざD / 足首D：网格权重全在 D 骨上，D 骨靠 PMX 的付与
     跟随 足 / ひざ / 足首 转动；而 humanoid 映射指向的是 足 / ひざ / 足首。
     glTF/VRM 没有付与机制，原样导出时转大腿网格完全不动。
     和付与親在静止姿势下重合（差不超过 eps）、旋转也 1:1 跟随的，把权重和子骨并到付与親上是等价的。
-    不重合的（足首D 比 足首 靠后 2～3 cm 之类）也合并，条件是：两者是兄弟骨（D 骨的父骨并入后就是
-    付与親的父骨）、偏差不超过付与親那一节骨长的 loose 倍、D 骨本身不是 humanoid 骨位（左目 跟随 両目
-    就不能并）。合并后网格绕付与親的位置转，和 MMD 只差一个很小的平移（偏差 2.5 cm、转 30° 时约 1 cm）；
+    不重合的（足首D 比 足首 靠后 2～3 cm 之类）也合并，条件是：
+      * 两者跟着同一根 humanoid 骨移动：各自的父骨往上找到的第一根 humanoid 骨相同（D 骨的父骨
+        并入后算付与親那边的）。中间隔着 腰キャンセル 之类在 VRM 里不动的骨不要紧；挂在别处
+        （全ての親 下的道具骨）的不并，否则它会跟着付与親整体平移
+      * 偏差不超过付与親那一节骨长（父骨→付与親、付与親→它的尾端，取长的）的 loose 倍
+      * D 骨本身不是 humanoid 骨位（左目 跟随 両目 就不能并）
+    合并后网格绕付与親的位置转，和 MMD 只差一个平移（偏差 2.5 cm、转 30° 时约 1 cm）；
     不合并的话它在 VRM 里完全不动，挂在付与親子骨上的部分（鞋尖）却跟着转，鞋子从中间裂开。
-    付与率不是 1（腕捩1 的 0.25、腰キャンセル 的 -1 等）的不动。
+    付与率不是 1 的（ひざ補助 的 0.5 等）见 skeleton.split_partial；负的（腰キャンセル 的 -1）不动。
     """
     n = len(bones)
     alias, near = {}, {}
@@ -269,17 +273,39 @@ def _append_aliases(bones, parents, eps, loose=0.15):
             seen.add(i)
             i = alias[i]
         return i
+    hset = set(_map_humanoid(bones, True, {}).values()) if near else set()
+
+    def anchor(i):                   # 往上第一根 humanoid 骨（并入的骨按付与親算）
+        seen = set()
+        while i >= 0 and i not in seen:
+            i = resolve(i)
+            if i in hset:
+                return i
+            seen.add(i)
+            i = parents[i]
+        return -1
     grew = True
     while grew:                      # D 骨的父骨可能也是这样并进来的（ひざD → 足首D）
         grew = False
         for i, (src, d) in near.items():
             pi, ps = parents[i], parents[src]
-            if i in alias or pi < 0 or ps < 0 or resolve(pi) != resolve(ps):
+            if i in alias or pi < 0 or ps < 0 or anchor(pi) != anchor(ps):
                 continue
-            if d <= loose * math.dist(bones[ps]["pos"], bones[src]["pos"]):
+            if d <= loose * max(math.dist(bones[ps]["pos"], bones[src]["pos"]), _bone_len(bones, parents, src)):
                 alias[i] = src
                 grew = True
     return {i: resolve(i) for i in alias}
+
+
+def _bone_len(bones, parents, i):
+    """骨 i 到它尾端的长度：尾端指向的骨，或尾端偏移；都没有就取到最远子骨的距离。"""
+    b = bones[i]
+    t = b.get("tail")
+    if b.get("tail_kind") == 1 and isinstance(t, int) and 0 <= t < len(bones) and t != i:
+        return math.dist(b["pos"], bones[t]["pos"])
+    if b.get("tail_kind") == 0 and t and not isinstance(t, int) and any(t):
+        return math.hypot(*t)
+    return max((math.dist(b["pos"], bones[c]["pos"]) for c, p in enumerate(parents) if p == i), default=0.0)
 
 
 def _pick_toes(bones, human, alias, weighted):

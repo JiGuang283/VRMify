@@ -277,6 +277,62 @@ class PmxReadTest(unittest.TestCase):
         self.assertEqual(len(m["rigid_bodies"]), 4)                  # 后面的段没有错位
 
 
+class PartialAppendTest(unittest.TestCase):
+    """按比例跟随关节的付与骨（ひざ補助 0.5）：权重按付与率分给关节骨；自检能发现没处理到的。"""
+
+    def rig(self, rate=0.5, physics=False):
+        """0 下半身 1 左足 2 左ひざ 3 左足首 4 左ひざ補助（挂 左足 下，跟 左ひざ 转 rate）"""
+        from types import SimpleNamespace
+        bones = [LegBonesTest.bone("下半身", -1, (0, 11, 0)), LegBonesTest.bone("左足", 0, (1, 10, 0)),
+                 LegBonesTest.bone("左ひざ", 1, (1, 6, 0)), LegBonesTest.bone("左足首", 2, (1, 1, 0)),
+                 LegBonesTest.bone("左ひざ補助", 1, (1, 6, -0.5))]
+        bones[4]["inherit_rot"] = (2, rate)
+        bs = SimpleNamespace(parents=[-1, 0, 1, 2, 1], alias={},
+                             human_b={"hips": 0, "leftUpperLeg": 1, "leftLowerLeg": 2, "leftFoot": 3})
+        rbs = [{"bone": 4, "mode": 1}] if physics else []
+        weights = [[(4, 1.0)]] * 30 + [[(4, 0.6), (1, 0.4)]] * 10 + [[(2, 1.0)]]
+        return bones, bs, rbs, weights
+
+    def test_split(self):
+        from vrmconv import skeleton
+        bones, bs, rbs, w = self.rig()
+        out = skeleton.split_partial(bones, bs, w, rbs, lambda *a: None)
+        self.assertEqual(sorted(out[0]), [(2, 0.5), (4, 0.5)])
+        self.assertEqual(sorted((b, round(x, 6)) for b, x in out[30]), [(1, 0.4), (2, 0.3), (4, 0.3)])
+        self.assertEqual(out[40], [(2, 1.0)])
+        bones, bs, rbs, w = self.rig(physics=True)                         # 带物理的不动
+        self.assertIs(skeleton.split_partial(bones, bs, w, rbs, lambda *a: None), w)
+        bones, bs, rbs, w = self.rig(rate=-0.5)                            # 负的付与率不动
+        self.assertIs(skeleton.split_partial(bones, bs, w, rbs, lambda *a: None), w)
+        bones, bs, rbs, w = self.rig(rate=1.0)                             # 100% 跟随、离关节半节骨长：整份转过去
+        self.assertEqual(skeleton.split_partial(bones, bs, w, rbs, lambda *a: None)[0], [(2, 1.0)])
+        bones[4]["pos"] = (1, 6, -6)                                       # 离关节超过一节骨长（5）：不动
+        self.assertIs(skeleton.split_partial(bones, bs, w, rbs, lambda *a: None), w)
+
+    def test_follow_check(self):
+        from vrmconv import checks, skeleton
+        bones, bs, rbs, w = self.rig()
+        found = checks.follow(bones, bs, w, w)
+        self.assertEqual([(c, b, h) for c, b, h, _, _ in found], [(40, 4, "leftLowerLeg")])
+        self.assertAlmostEqual(found[0][3], 0.5 * (30 + 0.6 * 10) / 40)
+        self.assertEqual(found[0][4], 0.0)
+        out = skeleton.split_partial(bones, bs, w, rbs, lambda *a: None)
+        self.assertEqual(checks.follow(bones, bs, w, out), [])
+
+    def test_odd_bones(self):
+        from types import SimpleNamespace
+        from vrmconv import checks
+        vpos = [(x * 0.1, y * 0.5, 0.0) for x in range(-30, 31) for y in range(0, 41)]   # 6 宽、20 高的板
+        bpos = [(0, 10, 0), (0, 14, 0), (1, 15, 0), (-1, 15, 0), (2.5, 15, 0), (-8, 15, 0), (2.9, 1, 0)]
+        human = {"hips": 0, "spine": 1, "leftShoulder": 2, "rightShoulder": 3, "leftUpperArm": 4,
+                 "rightUpperArm": 5, "leftLowerArm": 6}
+        found = checks.odd_bones(SimpleNamespace(human_b=human), bpos, vpos)
+        self.assertEqual([(h, why) for h, _, why, _ in found], [("rightUpperArm", "far"), ("leftLowerArm", "seg")])
+        bpos[2] = (-9.7, 16, 0)                                            # 左肩 跑到右边外面（控制骨）
+        found = checks.odd_bones(SimpleNamespace(human_b=human), bpos, vpos)
+        self.assertEqual(found[0][:3], ("leftShoulder", 2, "side"))
+
+
 class LegBonesTest(unittest.TestCase):
     """腿部的 D 骨合并、脚趾选骨、左右权重不一致的检查。"""
 
@@ -295,13 +351,34 @@ class LegBonesTest(unittest.TestCase):
 
     def test_aliases(self):
         from vrmconv import humanoid
-        for off, merged in ((0.0, True), (0.3, True), (1.5, False)):       # 足首 那一节长 5：15% 是 0.75
+        for off, merged in ((0.0, True), (0.3, True), (2.0, True), (3.0, False)):   # 足首 那一节长 5：一半是 2.5
             bones = self.leg(off)
             alias = humanoid._append_aliases(bones, humanoid._clean_parents(bones), eps=0.01)
             self.assertEqual(alias.get(4), 1)
             self.assertEqual(alias.get(5), 2)
             self.assertEqual(alias.get(6), 3 if merged else None, off)
             self.assertNotIn(10, alias)                                    # humanoid 骨（左目）不并
+
+    def test_thigh_d_beside_its_parent(self):
+        """足D 偏离 足 0.4，父骨 腰キャンセル 和 足D 重合：按 足 那一节（长 4）算容差，照样合并。"""
+        from vrmconv import humanoid
+        b = self.bone
+        bones = [b("下半身", -1, (0, 11, 0)), b("腰キャンセル左", 0, (1.1, 10, -0.4)),
+                 b("左足", 1, (1, 10, 0)), b("左ひざ", 2, (1, 6, 0)), b("左足D", 1, (1.1, 10, -0.4), 2)]
+        alias = humanoid._append_aliases(bones, humanoid._clean_parents(bones), eps=0.01)
+        self.assertEqual(alias.get(4), 2)
+
+    def test_same_chain_not_siblings(self):
+        """足D 挂在 下半身 下、足 挂在 腰キャンセル 下：都跟着 hips 动，照样合并；挂在 全ての親 下的道具骨不并。"""
+        from vrmconv import humanoid
+        b = self.bone
+        bones = [b("全ての親", -1, (0, 0, 0)), b("下半身", 0, (0, 11, 0)), b("腰キャンセル左", 1, (1, 10, 0)),
+                 b("左足", 2, (1, 10, 0)), b("左ひざ", 3, (1, 6, 0)), b("左足D", 1, (1.1, 10, -0.4), 3),
+                 b("剣", 0, (1.3, 10, -0.4), 3)]
+        bones[2]["inherit_rot"] = (1, -1.0)
+        alias = humanoid._append_aliases(bones, humanoid._clean_parents(bones), eps=0.01)
+        self.assertEqual(alias.get(5), 3)
+        self.assertNotIn(6, alias)
 
     def test_toes(self):
         from vrmconv import humanoid

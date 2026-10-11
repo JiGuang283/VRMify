@@ -141,6 +141,21 @@ TEMPLATES = {
     "付与骨合并：%d 根（%s）→ 权重并入付与親": "Append bones merged: {0} ({1}) → weights moved to their append parents",
     "付与骨合并：%s 与付与親的位置略有偏差，合并后绕付与親的位置转动":
         "Append bones merged: {0} sat slightly off their append parents and now turn about the parents' positions",
+    "付与骨：%d 根按比例跟随关节的骨（%s）→ 权重按付与率分给关节骨，共 %d 个顶点":
+        "Append bones: {0} bones that follow a joint partly ({1}) → their weights were shared with the joint "
+        "by the append rate, {2} vertices",
+    "自检：%d 个顶点主要挂在 %s 上，MMD 里跟着 %s 转 %d%%，VRM 里只跟 %d%%，动作时这部分会变形":
+        "Self-check: {0} vertices mainly on {1} turn {3}% with {2} in MMD but only {4}% in the VRM; "
+        "this part will deform when animated",
+    "自检：humanoid 骨 %s（%s）在身体的另一侧，可能对应错了骨骼，动作时这部分会被拉开":
+        "Self-check: humanoid bone {0} ({1}) is on the other side of the body; it may be the wrong bone, "
+        "and this part will be pulled away when animated",
+    "自检：humanoid 骨 %s（%s）离 %s 有 %d cm，可能对应错了骨骼，动作时这部分会被拉开":
+        "Self-check: humanoid bone {0} ({1}) is {3} cm from {2}; it may be the wrong bone, "
+        "and this part will be pulled away when animated",
+    "自检：humanoid 骨 %s（%s）离网格超过 %d cm，可能对应错了骨骼，动作时这部分会被拉开":
+        "Self-check: humanoid bone {0} ({1}) is more than {2} cm from the mesh; it may be the wrong bone, "
+        "and this part will be pulled away when animated",
     "hips：已移至骨盆，下移 %.1f cm（原与 spine 相距 %.1f mm）": "hips: moved down to the pelvis by {0} cm (was {1} mm from spine)",
     "骨骼：模型缺少 %s，已生成占位骨骼": "Bones: the model has no {0}, added a placeholder bone",
     "骨骼：%s 与 %s 对应同一根骨骼，已忽略 %s": "Bones: {0} and {1} are the same bone, {2} ignored",

@@ -63,6 +63,17 @@ python tools/regress.py check --code ../旧版本的代码目录          # 用�
 * `check` 对每个样本：转换 → `check_vrm` 结构和 Schema 校验 → 列出 JSON 里不同的路径（最多 20 条）、二进制块是否一致。
   有错误或差异时退出码为 1。变化是否符合预期要自己判断，确认后重新 `record`。
 
+## 骨骼自检扫描 `scan_models.py`
+
+```bash
+python tools/scan_models.py model ~/Downloads -o 结果.txt
+```
+
+对目录里的每个 PMX（压缩包在临时目录里解开）只跑骨骼处理和转换时的自检，不写 VRM，几秒一个：
+付与骨合并了几根、按比例拆权重的骨有几根，以及自检问题——网格在 MMD 里跟着关节转、在 VRM 里却不跟，
+或者 humanoid 骨位置明显不对（在身体另一侧、离父骨或网格太远）。这些问题转换时也会写进日志。
+改骨骼相关的代码前后各跑一次对比，发版前跑一次；有自检问题时退出码为 1。
+
 ## 表情截图 `qa/snapshots.py`
 
 ```bash

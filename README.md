@@ -99,7 +99,10 @@ Output: **VRM 1.0** (with SpringBone physics), **VRM 0.x** (no physics), or **PM
 
 - MMD standard bone names (and common English, VRChat, Mixamo and Unity names) map to the VRM humanoid; missing
   required bones get placeholders so the hierarchy stays valid.
-- Append (付与) bones such as 足D are merged into the bones they follow, together with their weights.
+- Append (付与) bones such as 足D are merged into the bones they follow, together with their weights; helper
+  bones that follow a joint partly (knee or elbow helpers) share their weights with the joint.
+- The log warns when part of the mesh would not follow the joint it follows in MMD, or when a humanoid bone sits
+  clearly in the wrong place.
 - Bones that move nothing in VRM — IK, tip bones, operation centres — are removed. With "Remove control bones"
   (on by default) unweighted intermediate bones such as センター or グルーブ go too, so the hierarchy is
   Root > Hips. Skinning and motion are unchanged.

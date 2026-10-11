@@ -32,7 +32,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
         sys.path.insert(0, _p)
 import pmxio  # noqa: E402
 import vrmio  # noqa: E402
-from vrmconv import autophys, expressions, mesh, morphbake, skeleton, textures, vrm_ext  # noqa: E402
+from vrmconv import autophys, checks, expressions, mesh, morphbake, skeleton, textures, vrm_ext  # noqa: E402
 from vrmconv.materials import MaterialBuilder  # noqa: E402
 from vrmconv.springbone import _build_springs  # noqa: E402
 
@@ -180,6 +180,9 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     spring_ext = None
     if spring and is1 and auto_spring and autophys.needed(model):
         autophys.synthesize(model, bs.parents, bs.alias, bs.human_b, _log)
+    # 按比例跟随的付与骨拆权重：放在自动补物理之后，补出来的摆动骨也算带物理、不拆
+    vweights = skeleton.split_partial(bones, bs, vweights, model.get("rigid_bodies"), _log)
+    checks.report(bones, bs, raw_weights, vweights, bpos, vpos, scale, _log)
     if spring and is1:
         spring_ext = _build_springs(
             model, bs.parents, bs.alias, bs.human_b, glob, bpos, scale, xf,
