@@ -1,5 +1,5 @@
 // File list: add / remove, per-file status and outputs, drag & drop.
-import { $, S, api, esc, t, toast } from './core.js';
+import { $, S, api, esc, pick, t, toast } from './core.js';
 import { loadModel, previewFile } from './preview.js';
 import { leaveTune, loadTune } from './tune.js';
 
@@ -21,7 +21,7 @@ export function renderFiles() {
       d.innerHTML = t('outputs') + '：' + f.outputs.map((o, k) => `<a data-out="${k}" title="${esc(o.path)}">${esc(o.name)}</a>`).join('');
       li.append(d);
     }
-    if (f.error) { const d = document.createElement('div'); d.className = 'err'; d.textContent = f.error; li.append(d); }
+    if (f.error) { const d = document.createElement('div'); d.className = 'err'; d.textContent = pick(f.error, f.error_en); li.append(d); }
     if (f.status === 'skipped') { const d = document.createElement('div'); d.className = 'note'; d.textContent = t('skippedNote'); li.append(d); }
     li.addEventListener('click', (e) => {
       const act = e.target.dataset.act, out = e.target.dataset.out;

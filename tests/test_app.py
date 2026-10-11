@@ -236,6 +236,46 @@ class AutoThumbTest(unittest.TestCase):
                 b.close()
 
 
+class LanguageTest(unittest.TestCase):
+    """界面语言：没选过时跟系统；日志事件带英文版（convert/logtext.py）。"""
+
+    def test_default_follows_the_system(self):
+        tmp = tempfile.mkdtemp(prefix="m2v_lang_")
+        settings = os.path.join(tmp, "settings.json")
+        with mock.patch.object(server, "SETTINGS", settings), \
+                mock.patch.object(server, "EDITS", os.path.join(tmp, "edits.json")):
+            for sys_lang in ("en", "zh_CN"):
+                with mock.patch.object(server, "system_lang", return_value=sys_lang):
+                    b = server.Backend()
+                    try:
+                        self.assertEqual(b.lang, sys_lang)
+                    finally:
+                        b.close()
+            with open(settings, "w", encoding="utf-8") as f:
+                json.dump({"v": 2, "lang": "zh_CN"}, f)
+            with mock.patch.object(server, "system_lang", return_value="en"):
+                b = server.Backend()
+                try:
+                    self.assertEqual(b.lang, "zh_CN")              # 选过的不变
+                finally:
+                    b.close()
+        self.assertIn(server.system_lang(), server.LANGS)
+
+    def test_log_events_carry_english(self):
+        tmp = tempfile.mkdtemp(prefix="m2v_lang_")
+        with mock.patch.object(server, "SETTINGS", os.path.join(tmp, "settings.json")), \
+                mock.patch.object(server, "EDITS", os.path.join(tmp, "edits.json")):
+            b = server.Backend()
+            try:
+                b.log("完成，用时 1.5 秒", "ok")
+                b.log("没有对照的一句")
+                ev = [e for _, e in b.events if e["type"] == "log"][-2:]
+                self.assertEqual(ev[0]["en"], "Done in 1.5 s")
+                self.assertIsNone(ev[1]["en"])
+            finally:
+                b.close()
+
+
 class StalePreviewTest(unittest.TestCase):
     def test_sweep(self):
         """启动时删一天以前遗留的预览临时目录，新的不动。"""

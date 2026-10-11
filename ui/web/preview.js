@@ -1,6 +1,6 @@
 // 3D preview (viewer-core.js), its toolbar and the side column (light / expressions / tune / info).
 import { BONE_COLORS, Viewer } from '/viewer/viewer-core.js';
-import { $, S, api, esc, t, toast } from './core.js';
+import { $, S, api, errText, esc, t, toast } from './core.js';
 import { renderFiles } from './files.js';
 import { flushOpts } from './options.js';
 import { T, leaveTune, loadTune, springParams } from './tune.js';
@@ -30,7 +30,7 @@ export async function previewFile(id, output) {
   const r = await api('/api/preview', output === undefined ? { id } : { id, output });
   if (r.url) loadModel(r.url, r.name);
   else if (r.pending) showBusy(t('pvMaking'));
-  else if (r.error) toast(r.error);
+  else if (r.error) toast(errText(r.error, r.error_en));
 }
 
 export async function loadModel(url, name, keepView) {

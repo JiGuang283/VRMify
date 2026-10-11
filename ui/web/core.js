@@ -20,6 +20,13 @@ export function t(key, args) {
 }
 export const presetLabel = (p) => ((STRINGS[S.lang] || STRINGS.zh_CN).preset || {})[p] || p;
 
+// Text from the server comes in Chinese, with an English version next to it when there is one
+// (log lines, conversion errors: convert/logtext.py)
+export const pick = (zh, en) => (S.lang === 'en' && en) || zh;
+// an error from the server: a few fixed codes have their own strings, the rest come as zh + English version
+const ERR = { 'no such file': 'errNoFile', 'not previewable': 'errNoPreview', 'file not found': 'errNotFound' };
+export const errText = (e, en) => (ERR[e] ? t(ERR[e]) : pick(e, en));
+
 export async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return r.json();

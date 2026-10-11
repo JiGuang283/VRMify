@@ -50,7 +50,7 @@ a = Analysis(
     # 界面页面和预览组件（three.js / three-vrm 离线副本）；server.py 在 _MEIPASS 下按同样的相对路径找
     datas=[('ui/web', 'ui/web'), ('ui/viewer', 'ui/viewer')],
     hiddenimports=[
-        'server', 'version', 'pipeline', 'parallel', 'pmx2vrm', 'vrm_edit',
+        'server', 'version', 'pipeline', 'parallel', 'pmx2vrm', 'vrm_edit', 'logtext',
         'vrmconv', 'vrmconv.humanoid', 'vrmconv.skeleton', 'vrmconv.mesh', 'vrmconv.materials',
         'vrmconv.expressions', 'vrmconv.springbone', 'vrmconv.vrm_ext', 'vrmconv.mathutil',
         'vrmconv.textures', 'vrmconv.autophys', 'vrmconv.morphbake',

@@ -97,6 +97,7 @@ for _p in ("convert", "formats"):
 # Windows 超长路径（MAX_PATH 260）兼容层：要在其它模块 import 之前装上（导入即生效），
 # Unity 资源包解出的深层目录树超过 260 字符时 open / makedirs 才不会报 FileNotFoundError
 import longpath  # noqa: E402,F401
+import logtext  # noqa: E402
 import pipeline  # noqa: E402
 import parallel  # noqa: E402
 import vrm_edit  # noqa: E402
@@ -112,6 +113,19 @@ _OLD_DEFAULT_OUTPUT = {"mode": "beside", "folder": "", "subfolder": True}
 EDITS = os.path.join(DATA_DIR, "edits.json")
 EDITS_DIR = os.path.join(DATA_DIR, "edits")
 LANGS = ("zh_CN", "en")
+
+
+def system_lang():
+    """第一次启动（还没选过语言）时的界面语言：系统是中文就用中文，否则英文。"""
+    try:
+        if os.name == "nt":
+            import ctypes
+            return "zh_CN" if (ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF) == 0x04 else "en"
+        import locale
+        loc = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG")             or (locale.getlocale()[0] or "")
+        return "zh_CN" if loc.lower().startswith("zh") else "en"
+    except Exception:  # noqa: BLE001
+        return "zh_CN"
 
 
 TMP_PREFIXES = ("vrmify_", "model2vrm_")     # 后一个是改名前（Model-To-VRM）的版本留下的
@@ -177,7 +191,7 @@ class Backend:
                 s = json.load(f)
         except (OSError, ValueError):
             s = {}
-        lang = s.get("lang") if s.get("lang") in LANGS else "zh_CN"
+        lang = s.get("lang") if s.get("lang") in LANGS else system_lang()
         opts = pipeline.merged(s.get("opts"))
         # 界面的默认保存位置是程序目录下的 vrm。以前的设置文件（没有 v）里还是旧默认值（源文件旁）的，
         # 多半是没选过，换成新默认；自己选过别的（指定文件夹、关了子文件夹）的不动
@@ -254,11 +268,14 @@ class Backend:
                 self.cond.wait(left)
 
     def log(self, msg, tag=None, fid=None):
-        self.emit(type="log", msg=str(msg), tag=tag, file=fid)
+        """日志按中文生成，en 是英文版（logtext；对照表里没有的为 None，界面就显示中文）。"""
+        msg = str(msg)
+        self.emit(type="log", msg=msg, en=logtext.to_en(msg), tag=tag, file=fid)
 
     # ------------------------------------------------------------ files --
     def _entry(self, f):
         e = {k: f[k] for k in ("id", "path", "name", "kind", "size", "status", "outputs", "error")}
+        e["error_en"] = logtext.to_en(f["error"]) if f.get("error") else None
         e["tuned"] = not vrm_edit.is_empty(self._user_edits(self.edits.get(self._key(f))))
         return e
 
@@ -521,7 +538,8 @@ class Backend:
                 self.emit(type="preview", file=fid, url=url, name=name)
             except Exception as e:  # noqa: BLE001
                 self.log(traceback.format_exc(), "err", fid)
-                self.emit(type="preview", file=fid, error="%s: %s" % (type(e).__name__, e))
+                err = "%s: %s" % (type(e).__name__, e)
+                self.emit(type="preview", file=fid, error=err, error_en=logtext.to_en(err))
 
         threading.Thread(target=work, daemon=True).start()
         return {"pending": True}
@@ -551,7 +569,7 @@ class Backend:
         try:
             info = vrm_edit.describe(targets[0])
         except (OSError, ValueError) as e:
-            return {"error": str(e)}
+            return {"error": str(e), "error_en": logtext.to_en(str(e))}
         key = vrm_edit.model_key(targets[0])
         th = vrm_edit.thumb_for(edits, targets[0])
         own = (edits.get("thumbnails") or {}).get(key)

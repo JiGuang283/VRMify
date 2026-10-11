@@ -4,10 +4,10 @@
 //   run.js      run bar + log      preview.js  3D preview, toolbar, side column
 //   tune.js     tune panel (per-model adjustments written into the VRM)
 //   layout.js   drag handles for the column widths
-import { $, S, api, t, toast } from './core.js';
+import { $, S, api, errText, t, toast } from './core.js';
 import { renderFiles } from './files.js';
 import { applyOptsToForm, renderOutFolder, syncDependents } from './options.js';
-import { appendLog, renderStatus } from './run.js';
+import { appendLog, relocalizeLog, renderStatus } from './run.js';
 import { applyLayout } from './layout.js';
 import { fillPreviewPanels, loadModel, previewFile, showBusy, viewer } from './preview.js';
 import { T, loadTune, renderTune } from './tune.js';
@@ -20,7 +20,7 @@ function applyLang() {
   document.querySelectorAll('[data-i18n-title]').forEach((e) => { e.title = t(e.dataset.i18nTitle); });
   document.querySelectorAll('[data-lang]').forEach((b) => b.classList.toggle('on', b.dataset.lang === S.lang));
   $('fileList').dataset.empty = t('empty');
-  renderStatus(); renderOutFolder(); syncDependents();
+  renderStatus(); renderOutFolder(); syncDependents(); relocalizeLog();
   fillPreviewPanels(viewer.info);
   if (!$('tunePanel').hidden) renderTune();
 }
@@ -39,7 +39,7 @@ async function loadState() {
 }
 
 function handleEvent(ev) {
-  if (ev.type === 'log') appendLog(ev.msg, ev.tag, ev.file);
+  if (ev.type === 'log') appendLog(ev.msg, ev.tag, ev.file, ev.en);
   else if (ev.type === 'file') {
     const i = S.files.findIndex((f) => f.id === ev.file.id);
     const was = i >= 0 ? S.files[i].status : null;
@@ -63,7 +63,7 @@ function handleEvent(ev) {
   else if (ev.type === 'preview_busy') { if (ev.file === S.current) showBusy(t('pvMaking')); }
   else if (ev.type === 'preview') {
     if (ev.file !== S.current) return;
-    if (ev.error) { showBusy(null); toast(t('pvFailed', { err: ev.error })); } else { loadModel(ev.url, ev.name); loadTune(); }
+    if (ev.error) { showBusy(null); toast(t('pvFailed', { err: errText(ev.error, ev.error_en) })); } else { loadModel(ev.url, ev.name); loadTune(); }
   }
 }
 

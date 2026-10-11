@@ -76,7 +76,8 @@
 > [!NOTE]
 > The exe isn't code-signed, so Windows may show "Windows protected your PC" the first time: click **More info →
 > Run anyway**. The window uses the system WebView2 (built into Windows 11 and almost every Windows 10); without it
-> the UI opens in your browser.
+> the UI opens in your browser. The interface and the conversion log are in English or Chinese (switch at the top
+> right); the first start follows the system language.
 
 ## Supported formats
 

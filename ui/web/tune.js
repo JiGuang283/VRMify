@@ -1,7 +1,7 @@
 // Tune panel: per-model adjustments written into the converted VRM (convert/vrm_edit.py) — name, thumbnail,
 // which expression drives each VRM preset and how strong, gaze range, SpringBone multipliers.
 // Physics changes preview live; everything else is written on "Save".
-import { $, S, api, clone, esc, num, presetLabel, t, toast } from './core.js';
+import { $, S, api, clone, errText, esc, num, presetLabel, t, toast } from './core.js';
 import { loadModel, modelUrl, showPanel, viewer } from './preview.js';
 
 export const T = {
@@ -94,7 +94,7 @@ export function renderTune() {
   body.innerHTML = '';
   const msg = (text) => { body.innerHTML = `<div class="tune-msg">${esc(text)}</div>`; $('tuneFoot').hidden = true; };
   if (!T.info || T.fid !== S.current) return msg(t('tuneNoFile'));
-  if (T.info.error) return msg(T.info.error);
+  if (T.info.error) return msg(errText(T.info.error, T.info.error_en));
   if (T.info.editable === false) return msg(t('tuneNotEditable'));
   if (!T.info.ready) {
     const f = S.files.find((x) => x.id === T.fid);
@@ -124,7 +124,7 @@ function renderMeta(sec) {
     const a = e.target.dataset.a;
     if (!a || !viewer.loaded) return;
     const r = await api('/api/tune/thumb', { id: T.fid, data: a === 'shot' ? viewer.snapshotSquare(1024) : '', model: modelOf(modelUrl) });
-    if (r.error) return toast(r.error);
+    if (r.error) return toast(errText(r.error, r.error_en));
     T.info.thumbnail = r.thumbnail || null;
     T.info.thumbnail_auto = false;                                 // set by hand now: never replaced automatically
     toast(t('thumbSaved'));
@@ -266,7 +266,7 @@ function renderPhysics(sec) {
 
 async function saveTune(edits) {
   const r = await api('/api/tune/save', { id: T.fid, edits });
-  if (r.error) return toast(r.error);
+  if (r.error) return toast(errText(r.error, r.error_en));
   toast(r.applied ? t('tuneSaved', { n: r.applied }) : t('tuneSavedNone'));
   T.dirty = false;
   if (modelUrl && r.applied) await loadModel(modelUrl, viewer.name, true);
