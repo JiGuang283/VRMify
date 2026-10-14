@@ -12,8 +12,10 @@
 * 表情：materialColorBinds 的材质号、morphTargetBinds 的 node / index 在范围内。
 * SpringBone（VRM 1.0）：相邻关节是祖先关系、关节不落在 humanoid 骨上、参数有限、
   碰撞组号合法、同一节点不重复当关节。
-* Schema（VRM 1.0）：用 vrm-c/vrm-specification 的官方 JSON Schema 校验 VRMC_vrm、
-  VRMC_springBone、VRMC_materials_mtoon。需要 jsonschema 包；第一次运行时从 GitHub
+* SpringBone（VRM 0.x）：硬度键名是 stiffiness、参数有限、碰撞组号合法、组根子树不含
+  humanoid 骨、同一节点不落在两个组的子树里（0.x 组根下面整棵子树都会摆动）。
+* Schema：用 vrm-c/vrm-specification 的官方 JSON Schema 校验 VRMC_vrm、
+  VRMC_springBone、VRMC_materials_mtoon，以及 VRM 0.x 的 VRM 扩展。需要 jsonschema 包；第一次运行时从 GitHub
   下载固定版本的 schema，缓存在 tools/qa/.schema-cache/。UniVRM 对不合规的数据很少
   容错（例如 targetValue 少一个分量就 IndexOutOfRange），所以这一项很有用。
 """
@@ -68,6 +70,14 @@ SPEC_FILES = {
         "VRMC_springBone.shape.schema.json", "VRMC_springBone.spring.schema.json"],
     "VRMC_materials_mtoon-1.0": [
         "VRMC_materials_mtoon.schema.json", "mtoon.shadingShiftTexture.schema.json"],
+    "0.0": [
+        "vrm.schema.json", "vrm.meta.schema.json", "vrm.humanoid.schema.json", "vrm.humanoid.bone.schema.json",
+        "vrm.firstperson.schema.json", "vrm.firstperson.degreemap.schema.json",
+        "vrm.firstperson.meshannotation.schema.json", "vrm.blendshape.schema.json",
+        "vrm.blendshape.group.schema.json", "vrm.blendshape.bind.schema.json",
+        "vrm.blendshape.materialbind.schema.json", "vrm.secondaryanimation.schema.json",
+        "vrm.secondaryanimation.spring.schema.json", "vrm.secondaryanimation.collidergroup.schema.json",
+        "vrm.material.schema.json"],
 }
 # glTF 本体的几个 schema 只被引用、不需要逐项校验，用最小定义代替
 _GLTF_STUBS = {
@@ -111,8 +121,9 @@ def load_validators():
         resources.append((_BASE + fn, Resource.from_contents(doc, default_specification=DRAFT4)))
     registry = Registry().with_resources(resources)
     out = {}
-    for ext in ("VRMC_vrm", "VRMC_springBone", "VRMC_materials_mtoon"):
-        schema = registry.contents(_BASE + ext + ".schema.json")
+    for ext, fn in (("VRMC_vrm", "VRMC_vrm"), ("VRMC_springBone", "VRMC_springBone"),
+                    ("VRMC_materials_mtoon", "VRMC_materials_mtoon"), ("VRM", "vrm")):
+        schema = registry.contents(_BASE + fn + ".schema.json")
         out[ext] = jsonschema.Draft4Validator(schema, registry=registry)
     return out, None
 
@@ -130,6 +141,8 @@ def schema_errors(g, validators):
         run("VRMC_vrm", ext["VRMC_vrm"], "VRMC_vrm")
     if "VRMC_springBone" in ext:
         run("VRMC_springBone", ext["VRMC_springBone"], "VRMC_springBone")
+    if "VRM" in ext:
+        run("VRM", ext["VRM"], "VRM")
     for i, m in enumerate(g.get("materials", [])):
         mt = m.get("extensions", {}).get("VRMC_materials_mtoon")
         if mt is not None:
@@ -240,10 +253,52 @@ def check(path, validators=None):
         summary.update(springs=len(sb["springs"]),
                        joints=sum(len(sp["joints"]) for sp in sb["springs"]),
                        colliders=len(sb.get("colliders", [])))
+    sa = None if is1 else ext["VRM"].get("secondaryAnimation")
+    if sa and sa.get("boneGroups"):
+        errs += _check_secondary(sa, nodes, par, set(hb.values()))
+        summary.update(springs=len(sa["boneGroups"]),
+                       colliders=sum(len(c.get("colliders", [])) for c in sa.get("colliderGroups", [])))
 
-    if validators and is1:
+    if validators:
         errs += schema_errors(g, validators)
     return errs, notes, summary
+
+
+def _check_secondary(sa, nodes, par, hum):
+    """VRM 0.x 的 secondaryAnimation：组根子树整棵都会摆动，同一节点在两个组里会被模拟两次。"""
+    errs = []
+    kids = {i: n.get("children", []) for i, n in enumerate(nodes)}
+    ncg = len(sa.get("colliderGroups", []))
+    owner = {}
+    for gi, grp in enumerate(sa["boneGroups"]):
+        name = grp.get("comment") or "#%d" % gi
+        if "stiffness" in grp and "stiffiness" not in grp:
+            errs.append("secondaryAnimation %s：硬度要写成 stiffiness（规范里的拼写），stiffness 不会被读取" % name)
+        for k in ("stiffiness", "gravityPower", "dragForce", "hitRadius"):
+            if k in grp and not math.isfinite(grp[k]):
+                errs.append("secondaryAnimation %s：%s 不是有限值" % (name, k))
+        for cg in grp.get("colliderGroups", []):
+            if not 0 <= cg < ncg:
+                errs.append("secondaryAnimation %s：碰撞组号 %d 越界" % (name, cg))
+        for r in grp.get("bones", []):
+            if not 0 <= r < len(nodes):
+                errs.append("secondaryAnimation %s：根节点 %d 越界" % (name, r))
+                continue
+            stack = [r]
+            while stack:
+                n = stack.pop()
+                if n in hum:
+                    errs.append("secondaryAnimation %s：humanoid 骨 %s 在摆动子树里" % (name, nodes[n]["name"]))
+                if n in owner:
+                    errs.append("secondaryAnimation：节点 %s 同时在组 %s 和 %s 的子树里（会被模拟两次）"
+                                % (nodes[n]["name"], owner[n], name))
+                    continue
+                owner[n] = name
+                stack.extend(kids[n])
+    for ci, cg in enumerate(sa.get("colliderGroups", [])):
+        if not 0 <= cg.get("node", -1) < len(nodes):
+            errs.append("secondaryAnimation：碰撞组 %d 的节点越界" % ci)
+    return errs
 
 
 def iter_files(paths):

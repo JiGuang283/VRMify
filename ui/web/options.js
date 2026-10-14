@@ -49,7 +49,7 @@ export function syncDependents() {
   document.querySelector('.settings-card').classList.toggle('pmx', target === 'pmx');
   $('targetHint').textContent = t('targetHint_' + target);
   document.querySelectorAll('[data-opt="vrm.spring"], [data-opt="vrm.spring_skirt"], [data-opt="vrm.auto_spring"], [data-opt="vrm.spring_stiffness"]')
-    .forEach((el) => dim(el, target === 'vrm0' || (el.dataset.opt !== 'vrm.spring' && !spring)));
+    .forEach((el) => dim(el, el.dataset.opt !== 'vrm.spring' && !spring));
   document.querySelectorAll('[data-opt="vrm.gaze"], [data-opt="vrm.combo_expr"], [data-opt="vrm.extra_expr"]').forEach((el) => dim(el, !getOpt('vrm.morphs')));
   $('chooseOut').disabled = getOpt('output.mode') !== 'folder';
   // texture slimming needs Pillow on the Python side

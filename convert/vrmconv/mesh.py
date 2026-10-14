@@ -269,8 +269,11 @@ def _zero_target(gb, pr, sparse):
     return pr["zero"]
 
 
-def build_meshes(gb, prims, groups, target_names, name, sparse=True):
-    """group_meshes 的分组 → (glTF meshes, where)。where[全局 target 序号] = [(网格号, 网格内序号)]。"""
+def build_meshes(gb, prims, groups, target_names, name, sparse=True, prim_names=False):
+    """group_meshes 的分组 → (glTF meshes, where)。where[全局 target 序号] = [(网格号, 网格内序号)]。
+
+    prim_names：morph target 名也写进每个 primitive 的 extras（VRM 0.x：UniVRM 自己导出时两处都写，
+    老版本的读取端只看 primitive，读不到时 BlendShape 名变成编号）。"""
     meshes = []
     where = [[] for _ in target_names]
     for mi, (ids, slots) in enumerate(groups):
@@ -281,6 +284,8 @@ def build_meshes(gb, prims, groups, target_names, name, sparse=True):
             if slots:
                 p["targets"] = [{"POSITION": pr["tmap"][s] if s in pr["tmap"] else _zero_target(gb, pr, sparse)}
                                 for s in slots]
+                if prim_names:
+                    p["extras"] = {"targetNames": [target_names[s] for s in slots]}
             m["primitives"].append(p)
         if slots:
             m["extras"] = {"targetNames": [target_names[s] for s in slots]}

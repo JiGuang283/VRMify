@@ -52,14 +52,11 @@ def _finger_slots(finger, digits, is1):
     if finger != "Thumb":
         return {d: s for d, s in ((1, "Proximal"), (2, "Intermediate"),
                                   (3, "Distal")) if d in digits}
-    if is1:
-        if 0 in digits:
-            return {d: s for d, s in ((0, "Metacarpal"), (1, "Proximal"),
-                                      (2, "Distal")) if d in digits}
-        return {d: s for d, s in ((1, "Proximal"), (2, "Distal"))
-                if d in digits}
-    present = [d for d in (0, 1, 2) if d in digits]
-    return dict(zip(present, ("Proximal", "Intermediate", "Distal")))
+    # 拇指按解剖位置对应：节号 0 = 掌根那节（1.0 Metacarpal / 0.x Proximal），1 = 1.0 Proximal /
+    # 0.x Intermediate，2 = Distal。两个版本同一根骨对应同一节，套同一个手部动作时拇指才一致
+    # （以前 0.x 把没有 親指０ 的两节拇指当成第一、二节，1.0 当成第二、三节）
+    names = ("Metacarpal", "Proximal", "Distal") if is1 else ("Proximal", "Intermediate", "Distal")
+    return {d: names[d] for d in (0, 1, 2) if d in digits}
 
 # 英文名兜底
 ALT_TO_VRM = {
@@ -423,9 +420,24 @@ def _map_humanoid(bones, is1, alias):
         if _is_ancestor(parents, human["upperChest"], human["chest"]):
             human["chest"], human["upperChest"] = human["upperChest"], human["chest"]
     for (side, finger), digits in fingers.items():
+        if finger == "Thumb" and 0 not in digits and 1 in digits and _thumb_at_root(bones, human, fingers, side, digits[1]):
+            digits = {d - 1: i for d, i in digits.items() if d >= 1}
         for d, slot in _finger_slots(finger, digits, is1).items():
             human.setdefault(side + finger + slot, digits[d])
     return human
+
+
+def _thumb_at_root(bones, human, fingers, side, b):
+    """只有 親指１、親指２ 的拇指：親指１ 是不是掌根那节（離手腕近）。
+
+    带 親指０ 的模型里，按「手腕 → 中指根」的长度算，親指０ 离手腕 0.1～0.6、親指１ 在 0.7～1.0。
+    老模型没有 親指０ 时 親指１ 一般还在 0.7 以上，是第二节；离手腕不到 0.65 的才当掌根那节。"""
+    hd, mid = human.get(side + "Hand"), fingers.get((side, "Middle"), {}).get(1)
+    if hd is None or mid is None:
+        return False
+    w = bones[hd]["pos"]
+    ref = math.dist(w, bones[mid]["pos"])
+    return ref > 1e-6 and math.dist(w, bones[b]["pos"]) < 0.65 * ref
 
 
 def _vrm_anchor(name, present):
@@ -478,25 +490,65 @@ def _fix_humanoid_hierarchy(human, parents, bones, required, log):
                 % (h, bones[c]["name"]), "warn")
 
 
-def _tpose_globals(bones, parents, order, human, log):
-    """算出把 A-pose 手臂抬成 T-pose 的逐骨全局变换。
+_DIGIT_SEGS = ("Metacarpal", "Proximal", "Intermediate", "Distal")
+_HAND_FINGERS = ("Thumb", "Index", "Middle", "Ring", "Little")
 
-    VRM 规范要求静止姿势是 T-pose（上臂、前臂沿 ±X 水平），MMD 模型多是
-    手臂下垂 30～40° 的 A-pose；不改的话套 humanoid 动作手臂会整体偏一个角度。
-    在 PMX 坐标里算：上臂、前臂各转一次对齐到水平 ±X，子骨跟着走；
-    带付与回転的骨（腕補助 等）按付与率跟转。
+
+def _seg_end(bones, kids, b):
+    """骨 b 这一节的末端位置（PMX 坐标）：PMX 的 tail（偏移或骨）→ 第一根子骨 → None。"""
+    bb, pos = bones[b], bones[b]["pos"]
+    tail = bb.get("tail", -1)
+    if bb.get("tail_kind") == 0 and isinstance(tail, (list, tuple)):
+        if sum(x * x for x in tail) > 1e-10:
+            return tuple(pos[k] + tail[k] for k in range(3))
+    elif isinstance(tail, int) and 0 <= tail < len(bones) and tail != b:
+        q = bones[tail]["pos"]
+        if sum((q[k] - pos[k]) ** 2 for k in range(3)) > 1e-10:
+            return q
+    for c in kids.get(b, ()):
+        q = bones[c]["pos"]
+        if sum((q[k] - pos[k]) ** 2 for k in range(3)) > 1e-10:
+            return q
+    return None
+
+
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _tpose_globals(bones, parents, order, human, log):
+    """算出把模型摆成 VRM T-pose 的逐骨全局变换。
+
+    VRM 规范（VRMC_vrm-1.0/tpose.md）要求静止姿势：上臂、前臂、手沿 ±X 水平伸直，掌心朝下；
+    四指沿 ±X 伸直；拇指水平、指向 ±X 与正前方之间的 45°。动作数据（Unity 的 humanoid、
+    VRMA、手部追踪）都是「从这个姿势开始转多少度」，静止姿势偏多少，套上任何动作后就一直
+    偏多少。MMD 模型多是手臂下垂 30～40° 的 A-pose，手指微弯、拇指贴着手掌。
+
+    在 PMX 坐标里算（左 +X、前 -Z）：
+      * 上臂、前臂各转一次对齐到水平 ±X；
+      * 手：先把「手腕 → 中指根」转到 ±X，再绕这个方向转，让掌心朝下（掌面横向取食指根 → 小指根）；
+      * 四指每节转到 ±X、拇指每节转到水平 45°（指甲的侧向朝向从骨骼位置看不出来，只转方向）。
+    父骨先转、子骨跟着走，再算自己还差多少；带付与回転的骨（腕補助 等）按付与率跟转。
     返回 {骨: (M, t)}，x' = M·x + t；没有需要转的返回 None。
     """
     pos = [b["pos"] for b in bones]
+    kids = {}
+    for i, p in enumerate(parents):
+        kids.setdefault(p, []).append(i)
     local = {}
+    sides = {}                                # side → ±1（左右手伸出去的方向）
     for side in ("left", "right"):
         ua = human.get(side + "UpperArm")
         la = human.get(side + "LowerArm")
         hd = human.get(side + "Hand")
+        if hd is not None:
+            ref = pos[ua] if ua is not None else (0.0, 0.0, 0.0)
+            sides[side] = 1.0 if pos[hd][0] - ref[0] >= 0 else -1.0
         if ua is None or la is None:
             continue
         d1 = [pos[la][k] - pos[ua][k] for k in range(3)]
         tgt = (1.0 if d1[0] >= 0 else -1.0, 0.0, 0.0)
+        sides[side] = tgt[0]
         r1, a1 = _align(d1, tgt)
         if a1 > math.radians(1.0):
             local[ua] = r1
@@ -515,8 +567,31 @@ def _tpose_globals(bones, parents, order, human, log):
             log("T-pose：%s 上臂 %.1f° · 前臂 %.1f°"
                 % ("左" if side == "left" else "右",
                    math.degrees(a1), math.degrees(a2)))
-    if not local:
-        return None
+
+    # 手和手指：要转到的方向，在下面按父骨在前的顺序边走边算（要用父骨转过之后的朝向）
+    aim = {}                                  # 骨 → (末端位置, 目标方向, 手的掌面 (食指根, 小指根) 或 None, side, 类别)
+    for side, sx in sides.items():
+        hd = human[side + "Hand"]
+        chains = {}
+        for f in _HAND_FINGERS:
+            chains[f] = [human[side + f + s_] for s_ in _DIGIT_SEGS if side + f + s_ in human]
+        mid, idx, lit = chains["Middle"][:1], chains["Index"][:1], chains["Little"][:1]
+        if mid:
+            aim[hd] = (pos[mid[0]], (sx, 0.0, 0.0),
+                       (idx[0], lit[0]) if idx and lit else None, side, "hand")
+        thumb = (sx * math.sqrt(0.5), 0.0, -math.sqrt(0.5))
+        for f, ch in chains.items():
+            for k, b in enumerate(ch):
+                end = pos[ch[k + 1]] if k + 1 < len(ch) else _seg_end(bones, kids, b)
+                if end is not None and k + 1 == len(ch) and k > 0:
+                    # 末节的方向只能靠 tail / 子骨猜：FBX 转来的 PMX 末端骨 tail 是默认的朝上偏移，
+                    # 和上一节差得远（> 60°）的不可信，这一节就跟着上一节转
+                    prev = [pos[b][j] - pos[ch[k - 1]][j] for j in range(3)]
+                    if _align(prev, [end[j] - pos[b][j] for j in range(3)])[1] > math.radians(60.0):
+                        end = None
+                if end is not None:
+                    aim[b] = (end, thumb if f == "Thumb" else (sx, 0.0, 0.0), None, side,
+                              "thumb" if f == "Thumb" else "finger")
 
     # 付与回転：按付与率缩放付与親的局部旋转（递归处理付与链）
     memo = {}
@@ -535,11 +610,37 @@ def _tpose_globals(bones, parents, order, human, log):
         memo[i] = m
         return m
 
+    worst = {}                                # (side, 类别) → 最大转角（度）
     glob = {}
     for i in order:
         p = parents[i]
         pm, pt = glob.get(p, (_I3, (0.0, 0.0, 0.0)))
         lm = local_of(i)
+        if i in aim:
+            end, tgt, palm, side, kind = aim[i]
+            base = pm if lm is None else _m3mul(pm, lm)
+            fwd = [end[k] - pos[i][k] for k in range(3)]
+            r, a = _align(_m3vec(base, fwd), tgt)
+            roll = 0.0
+            if palm is not None:
+                # 掌面法线（掌心那一侧）：左手 前进方向 × (小指根 − 食指根)，右手反过来
+                across = [pos[palm[1]][k] - pos[palm[0]][k] for k in range(3)]
+                n = _m3vec(_m3mul(r, base), _cross(fwd, across))
+                n = [x * tgt[0] for x in n]
+                n = [n[k] - tgt[k] * sum(n[j] * tgt[j] for j in range(3)) for k in range(3)]
+                if sum(x * x for x in n) > 1e-12:
+                    r2, roll = _align(n, (0.0, -1.0, 0.0))
+                    if roll > math.radians(1.0):
+                        r = _m3mul(r2, r)
+                    else:
+                        roll = 0.0
+            if a > math.radians(1.0) or roll:
+                lm = _m3mul(_m3T(pm), _m3mul(r, base))
+                local[i] = memo[i] = lm
+                key = (side, kind)
+                worst[key] = max(worst.get(key, 0.0), math.degrees(a))
+                if roll:
+                    worst[(side, "palm")] = math.degrees(roll)
         if lm is None:
             glob[i] = (pm, pt)
             continue
@@ -549,6 +650,13 @@ def _tpose_globals(bones, parents, order, human, log):
         m = _m3mul(pm, lm)
         t = _m3vec(pm, lt)
         glob[i] = (m, (t[0] + pt[0], t[1] + pt[1], t[2] + pt[2]))
+    for side in sides:
+        w = [worst.get((side, k), 0.0) for k in ("hand", "palm", "finger", "thumb")]
+        if any(w):
+            log("T-pose：%s 手 %.1f° · 掌心 %.1f° · 四指最多 %.1f° · 拇指最多 %.1f°"
+                % (("左" if side == "left" else "右",) + tuple(w)))
+    if not local:
+        return None
     return glob
 
 

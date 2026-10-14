@@ -112,7 +112,6 @@ TEMPLATES = {
     "X 轴取反": "X mirrored",
     "缩放：%.5f（MMD 单位 → 米）· 手性修正：%s · 绕序：%s":
         "Scale: {0} (MMD units → metres) · handedness fix: {1} · winding: {2}",
-    "物理：VRM 0.x 不支持 SpringBone，头发和裙摆不会摆动": "Physics: VRM 0.x has no SpringBone, hair and skirts won't sway",
     "视线：左右 %.1f° · 下 %.1f° · 上 %.1f°（%s）": "Gaze: sideways {0}° · down {1}° · up {2}° ({3})",
     "视线：%s": "Gaze: {0}",
     "按眼球结构计算，瞳孔最多移动约 %d%% 瞳孔宽度": "from the eyeball shape, the pupil moves at most about {0}% of its width",
@@ -184,6 +183,11 @@ TEMPLATES = {
     "骨骼层级：%s（%s）无法修正，已从 humanoid 中移除": "Bone hierarchy: {0} ({1}) can't be fixed, removed from the humanoid",
     "骨骼层级：%s（%s）无法修正，部分软件可能无法加载": "Bone hierarchy: {0} ({1}) can't be fixed, some programs may not load it",
     "T-pose：%s 上臂 %.1f° · 前臂 %.1f°": "T-pose: {0} upper arm {1}° · forearm {2}°",
+    "T-pose：%s 手 %.1f° · 掌心 %.1f° · 四指最多 %.1f° · 拇指最多 %.1f°":
+        "T-pose: {0} hand {1}° · palm {2}° · fingers up to {3}° · thumb up to {4}°",
+    "骨骼：拇指只有两节（%s），已在手腕和第二节之间补上掌根那节，0.x 和 1.0 的拇指各节对应一致":
+        "Bones: two-segment thumbs ({0}), so the root segment was added between the wrist and the second "
+        "segment and the thumb segments match between 0.x and 1.0",
     "左": "left",
     "右": "right",
     "肩": "shoulder", "上臂": "upper arm", "前臂": "forearm", "手": "hand",
@@ -213,6 +217,15 @@ TEMPLATES = {
         "{0} skirt–leg collisions were adjusted to the skirt panels' direction so the legs split the skirt less",
     "SpringBone：已按裙片朝向修正 %d 处裙摆与腿的碰撞方向":
         "SpringBone: {0} skirt–leg collisions adjusted to the skirt panels' direction",
+    "SpringBone（0.x）：%d 根随关节刚性转动的骨（中间节、链末端的配饰）权重并到关节上（%d 个顶点），0.x 会让组里所有子骨都摆动":
+        "SpringBone (0.x): the weights of {0} bones that only follow a joint rigidly (in-between segments, "
+        "accessories at chain ends) were moved onto that joint ({1} vertices), since 0.x sways every bone in a group",
+    "SpringBone（0.x）：%d 条链 → %d 个摆动组%s · 碰撞组 %d（胶囊换成 %d 个球）":
+        "SpringBone (0.x): {0} chains → {1} spring groups{2} · {3} collider groups (capsules as {4} spheres)",
+    "（%d 条分叉链并入上层链的组）": " ({0} branching chains joined the group of the chain they hang from)",
+    "SpringBone（0.x）：每组只有一个碰撞半径，静止时会重叠的碰撞体缩小 %d 处、取消 %d 处":
+        "SpringBone (0.x): one hit radius per group, so colliders that would overlap at rest were shrunk "
+        "{0} times and turned off {1} times",
     # ---- 表情
     "表情预设：%s": "Preset expressions: {0}",
     "%s · 未找到：%s": "{0} · not found: {1}",

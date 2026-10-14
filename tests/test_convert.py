@@ -90,6 +90,13 @@ class ConvertTest(Base):
         self.assertTrue(all(p == p.lower() for p in presets), presets)
         self.assertEqual(presets.count("joy"), 1)          # にこり 和 笑い 只能有一个是 joy
         self.assertIn("blink", presets)
+        # morph target 名网格和图元两处都写（UniVRM 的 0.x 导出也是这样，老读取端只看图元）
+        for m in g["meshes"]:
+            for pr in m["primitives"]:
+                self.assertEqual(pr["extras"]["targetNames"], m["extras"]["targetNames"])
+        # 1.0 只写网格那一处（输出和以前一样）
+        g1, _ = vrmio.read_glb(self.convert("v1n"))
+        self.assertTrue(all("extras" not in pr for m in g1["meshes"] for pr in m["primitives"]))
 
     def test_meta(self):
         meta = {"title": "T", "author": "me", "avatar_permission": "onlyAuthor",
@@ -105,6 +112,13 @@ class ConvertTest(Base):
         out0 = self.convert("meta0", spec="0.x", meta=meta)
         m0 = vrmio.read_glb(out0)[0]["extensions"]["VRM"]["meta"]
         self.assertEqual((m0["allowedUserName"], m0["commercialUssageName"]), ("OnlyAuthor", "Allow"))
+        self.assertEqual((m0["licenseName"], m0["otherLicenseUrl"]), ("Other", ""))
+        # 默认不允许再分发：0.x 只有 licenseName 能表达
+        m0 = vrmio.read_glb(self.convert("meta0d", spec="0.x"))[0]["extensions"]["VRM"]["meta"]
+        self.assertEqual(m0["licenseName"], "Redistribution_Prohibited")
+        m0 = vrmio.read_glb(self.convert("meta0u", spec="0.x", meta={"license_url": "https://example.com/l"}))
+        m0 = m0[0]["extensions"]["VRM"]["meta"]
+        self.assertEqual((m0["licenseName"], m0["otherLicenseUrl"]), ("Other", "https://example.com/l"))
 
     def test_auto_spring(self):
         # 去掉所有刚体：头发骨（髪1～3）应按名字自动补成 SpringBone，身体补碰撞体
@@ -635,6 +649,44 @@ class EditTest(Base):
         self.assertNotIn("blink", by)
         vrm_edit.apply(self.v0, {})
         self.assertEqual(vrmio.read_glb(self.v0), orig)
+
+    def test_spring_0x(self):
+        """0.x 的摆动组在调整页里是「链」：倍率作用在组参数上，关掉 = 去掉这一组，空调整还原。"""
+        orig = vrmio.read_glb(self.v0)
+        info = vrm_edit.describe(self.v0)
+        self.assertEqual(info["spec"], "0.x")
+        self.assertEqual(len(info["springs"]), 1)
+        c = info["springs"][0]
+        g, _ = vrmio.read_glb(self.v0)
+        grp = g["extensions"]["VRM"]["secondaryAnimation"]["boneGroups"][0]
+        # 组根下面整棵子树都是关节
+        self.assertEqual(c["joints"][0]["node"], grp["bones"][0])
+        self.assertGreaterEqual(len(c["joints"]), 2)
+        self.assertEqual(c["joints"][0]["stiffness"], grp["stiffiness"])
+        vrm_edit.apply(self.v0, {"spring": {"stiffness": 2.0, "drag": 0.5, "gravity": 0.2, "chains": {}}})
+        self.assertValid(self.v0)
+        new = vrmio.read_glb(self.v0)[0]["extensions"]["VRM"]["secondaryAnimation"]["boneGroups"][0]
+        self.assertAlmostEqual(new["stiffiness"], round(grp["stiffiness"] * 2, 4))
+        self.assertAlmostEqual(new["dragForce"], round(grp["dragForce"] * 0.5, 4))
+        self.assertAlmostEqual(new["gravityPower"], round(grp["gravityPower"] + 0.2, 4))
+        self.assertNotIn("stiffness", new)
+        vrm_edit.apply(self.v0, {"spring": {"chains": {c["key"]: {"off": True}}}})
+        self.assertValid(self.v0)
+        self.assertEqual(vrmio.read_glb(self.v0)[0]["extensions"]["VRM"]["secondaryAnimation"]["boneGroups"], [])
+        vrm_edit.apply(self.v0, {})
+        self.assertEqual(vrmio.read_glb(self.v0), orig)
+
+    def test_spring_0x_old_baseline(self):
+        """以前调整过（基准里还没有 0.x 物理）的文件：当前的物理就是转换时的，补记进基准。"""
+        g, b = vrmio.read_glb(self.v0)
+        orig = copy.deepcopy(g["extensions"]["VRM"]["secondaryAnimation"])
+        vrm_edit.apply(self.v0, {"title": "x"})
+        g, b = vrmio.read_glb(self.v0)
+        del g["extras"]["vrmconv_base"]["secondary"]
+        vrmio.write_glb(g, b, self.v0)
+        vrm_edit.apply(self.v0, {"spring": {"stiffness": 2.0}})
+        vrm_edit.apply(self.v0, {})
+        self.assertEqual(vrmio.read_glb(self.v0)[0]["extensions"]["VRM"]["secondaryAnimation"], orig)
 
     def test_is_empty(self):
         self.assertTrue(vrm_edit.is_empty({}))
@@ -1323,6 +1375,12 @@ class SkirtTest(Base):
     def setUpClass(cls):
         super().setUpClass()
         m = pmxio.read_pmx(cls.pmx)
+        cls.add_skirt(m)
+        cls.pmx = os.path.join(cls.tmp, "src", "裙.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+
+    @staticmethod
+    def add_skirt(m):
         idx = {b["name"]: i for i, b in enumerate(m["bones"])}
         z, ys = 1.5, (10.6, 9.0, 7.4, 5.8)
         cols = {"A": 0.35, "B": 1.45}                      # 左腿轴在 x = 0.9
@@ -1357,8 +1415,6 @@ class SkirtTest(Base):
         for c, x in cols.items():
             for k in range(3):
                 m["rigid_bodies"].append(rb("後裙%s%d" % (c, k), "後裙%s%d" % (c, k), (x, ys[k], z), 1))
-        cls.pmx = os.path.join(cls.tmp, "src", "裙.pmx")
-        pmxio.write_pmx(m, cls.pmx)
 
     def leg_shifts(self, out):
         """每条裙链用到的左腿碰撞体，相对原碰撞体（挂在左足上、半径最大的那个）的平移。"""
@@ -1393,6 +1449,255 @@ class SkirtTest(Base):
         d = self.leg_shifts(self.convert("skirt_off", spring_opts={"leg_proxy": False}))
         for c in "AB":
             self.assertEqual(d[c], [0.0, 0.0, 0.0])
+
+
+def add_hands(m, thumb="3"):
+    """给合成模型加手指：顺着下垂的前臂伸出去、每节往下弯一点，掌面横着转了一个角度，拇指贴着手掌。
+    thumb："3" = 親指０～２；"2far" = 只有 親指１、２（親指１ 在第二节的位置）；"2near" = 只有两节、親指１ 在掌根。"""
+    B = m["bones"]
+    idx = {b["name"]: i for i, b in enumerate(B)}
+
+    def bone(name, parent, pos):
+        idx[name] = len(B)
+        B.append({"name": name, "name_en": "", "pos": tuple(pos), "parent": idx[parent], "layer": 0,
+                  "flag": 0x0001 | 0x0002 | 0x0008 | 0x0010, "tail": -1})
+        f = synth._box(m, pos, 0.06, idx[name])
+        m["faces"] += f
+        m["materials"].append(dict(m["materials"][0], name="手_" + name, faces=len(f)))
+
+    for s, sx in (("左", 1), ("右", -1)):
+        w = B[idx[s + "手首"]]["pos"]
+        e = B[idx[s + "ひじ"]]["pos"]
+        fwd = [w[k] - e[k] for k in range(3)]
+        n = math.sqrt(sum(x * x for x in fwd))
+        fwd = [x / n for x in fwd]
+        down = [-fwd[1] * sx, fwd[0] * sx, 0.0]                # 臂所在竖直面里、朝下的方向
+        if down[1] > 0:
+            down = [-x for x in down]
+        # 掌面横向：前后（-Z 是前）稍微往下歪，模拟掌心没完全朝下
+        across = [0.3 * down[k] for k in range(3)]
+        across[2] += 1.0
+
+        def walk(start, offs, curls, name, side_off):
+            p = [start[k] + side_off * across[k] for k in range(3)]
+            out = []
+            for k, (L, c) in enumerate(zip(offs, curls)):
+                c = math.radians(c)
+                d = [math.cos(c) * fwd[j] + math.sin(c) * down[j] for j in range(3)]
+                p = [p[j] + L * d[j] for j in range(3)]
+                out.append(list(p))
+            return out
+        base = [w[k] + 0.55 * fwd[k] for k in range(3)]
+        for f, z in (("人指", -0.25), ("中指", -0.08), ("薬指", 0.08), ("小指", 0.25)):
+            pts = walk(base, (0.0, 0.3, 0.25, 0.2), (0, 15, 30, 45), f, z)
+            parent = s + "手首"
+            for k, nm in enumerate(("１", "２", "３", "先")):
+                bone(s + f + nm, parent, pts[k])
+                parent = s + f + nm
+        tb = [w[k] + 0.1 * fwd[k] - 0.25 * across[k] for k in range(3)]
+        names = {"3": ("０", "１", "２", "先"), "2far": ("１", "２", "先"), "2near": ("１", "２", "先")}[thumb]
+        lens = {"3": (0.0, 0.3, 0.25, 0.2), "2far": (0.3, 0.25, 0.2), "2near": (0.0, 0.25, 0.2)}[thumb]
+        p = list(tb)
+        parent = s + "手首"
+        for nm, L in zip(names, lens):
+            p = [p[j] + L * (0.8 * fwd[j] - 0.6 * across[j]) for j in range(3)]
+            bone(s + "親指" + nm, parent, p)
+            parent = s + "親指" + nm
+    return m
+
+
+class HandTPoseTest(Base):
+    """手、四指、拇指也摆成 VRM T-pose（tpose.md）：手和四指沿 ±X、掌心朝下，拇指水平指向 ±X 与正前方的 45°。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.src = {}
+        for kind in ("3", "2far", "2near"):
+            m = add_hands(pmxio.read_pmx(cls.pmx), kind)
+            cls.src[kind] = os.path.join(cls.tmp, "src", "hand_%s.pmx" % kind)
+            pmxio.write_pmx(m, cls.src[kind])
+
+    def conv(self, kind, spec, **kw):
+        out = os.path.join(self.tmp, "hand_%s_%s_%d.vrm" % (kind, spec, len(kw)))
+        pmx2vrm.convert(self.src[kind], out, spec=spec, **kw)
+        self.assertValid(out)
+        g = vrmio.read_glb(out)[0]
+        if spec == "1.0":
+            hb = {k: v["node"] for k, v in g["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"].items()}
+        else:
+            hb = {x["bone"]: x["node"] for x in g["extensions"]["VRM"]["humanoid"]["humanBones"]}
+        return g, hb
+
+    def angle(self, a, b):
+        c = sum(x * y for x, y in zip(a, b)) / math.sqrt(sum(x * x for x in a) * sum(x * x for x in b))
+        return math.degrees(math.acos(max(-1.0, min(1.0, c))))
+
+    def test_spec_pose(self):
+        for spec in ("1.0", "0.x"):
+            g, hb = self.conv("3", spec)
+            P = {k: SkeletonTest.world(self, g, n) for k, n in hb.items()}
+            front = 1.0 if spec == "1.0" else -1.0               # 1.0 前 +Z；0.x 前 -Z（左 -X）
+            for side in ("left", "right"):
+                sx = (1.0 if side == "left" else -1.0) * (1.0 if spec == "1.0" else -1.0)
+                X, T = (sx, 0, 0), (sx, 0, front)
+                seg = lambda a, b: [P[side + b][k] - P[side + a][k] for k in range(3)]   # noqa: E731
+                self.assertLess(self.angle(seg("UpperArm", "LowerArm"), X), 0.5)
+                self.assertLess(self.angle(seg("Hand", "MiddleProximal"), X), 0.5, (spec, side))
+                for f in ("Index", "Middle", "Ring", "Little"):
+                    self.assertLess(self.angle(seg(f + "Proximal", f + "Intermediate"), X), 0.5)
+                    self.assertLess(self.angle(seg(f + "Intermediate", f + "Distal"), X), 0.5)
+                th = ("ThumbMetacarpal", "ThumbProximal", "ThumbDistal") if spec == "1.0" else \
+                    ("ThumbProximal", "ThumbIntermediate", "ThumbDistal")
+                self.assertLess(self.angle(seg(th[0], th[1]), T), 0.5, (spec, side))
+                self.assertLess(self.angle(seg(th[1], th[2]), T), 0.5)
+                # 掌心朝下：掌面水平（食指根和小指根一样高），拇指在前面
+                self.assertAlmostEqual(P[side + "IndexProximal"][1], P[side + "LittleProximal"][1], places=3)
+                self.assertGreater((P[side + "IndexProximal"][2] - P[side + "LittleProximal"][2]) * front, 0)
+
+    def test_keep_pose(self):
+        g, hb = self.conv("3", "1.0", tpose=False)
+        P = {k: SkeletonTest.world(self, g, n) for k, n in hb.items()}
+        d = [P["leftIndexDistal"][k] - P["leftIndexIntermediate"][k] for k in range(3)]
+        self.assertGreater(self.angle(d, (1, 0, 0)), 20)       # 不摆：手指还是弯的、手臂下垂
+
+    def test_two_segment_thumb(self):
+        names = lambda g, hb: {k: g["nodes"][n]["name"] for k, n in hb.items() if "leftThumb" in k}  # noqa: E731
+        # 親指１ 在第二节的位置：1.0 是 Proximal / Distal；0.x 是 Intermediate / Distal，掌根那节补占位
+        g, hb = self.conv("2far", "1.0")
+        self.assertEqual(names(g, hb), {"leftThumbProximal": "左親指１", "leftThumbDistal": "左親指２"})
+        g, hb = self.conv("2far", "0.x")
+        self.assertEqual(names(g, hb), {"leftThumbProximal": "vrm_leftThumbProximal",
+                                        "leftThumbIntermediate": "左親指１", "leftThumbDistal": "左親指２"})
+        self.assertIn(hb["leftThumbIntermediate"], g["nodes"][hb["leftThumbProximal"]]["children"])
+        # 親指１ 在掌根：两个版本都从掌根那节开始
+        g, hb = self.conv("2near", "1.0")
+        self.assertEqual(names(g, hb), {"leftThumbMetacarpal": "左親指１", "leftThumbProximal": "左親指２"})
+        g, hb = self.conv("2near", "0.x")
+        self.assertEqual(names(g, hb), {"leftThumbProximal": "左親指１", "leftThumbIntermediate": "左親指２"})
+
+
+class SpringV0Test(Base):
+    """VRM 0.x 的 SpringBone（secondaryAnimation）：组根下面整棵子树都会摆动。
+
+    在 SkirtTest 的模型（两条后裙链 + 左腿胶囊）上再改头发：髪2 和 髪3 之间插一根很短的物理骨 髪2b
+    （抽稀后刚性跟随 髪2）、髪3 下挂一个不带物理的发饰、髪2 上分叉出一条 髪B。三根骨都带顶点。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        m = pmxio.read_pmx(cls.pmx)
+        SkirtTest.add_skirt(m)
+        B = m["bones"]
+        idx = {b["name"]: i for i, b in enumerate(B)}
+
+        def bone(name, parent, pos):
+            idx[name] = len(B)
+            B.append({"name": name, "name_en": "", "pos": pos, "parent": idx[parent], "layer": 0,
+                      "flag": 0x0001 | 0x0002 | 0x0008 | 0x0010, "tail": -1})
+        bone("髪2b", "髪2", (0, 15.0, 1.25))
+        B[idx["髪3"]]["parent"] = idx["髪2b"]
+        bone("髪飾り", "髪3", (0, 13.0, 1.9))
+        bone("髪B", "髪2", (1.0, 14.6, 1.3))
+        bone("髪B先", "髪B", (1.2, 12.8, 1.4))
+        for name in ("髪2b", "髪飾り", "髪B"):
+            f = synth._box(m, B[idx[name]]["pos"], 0.2, idx[name])
+            m["faces"] += f
+            m["materials"].append(dict(m["materials"][1], name="髪_" + name, faces=len(f)))
+        rbi = {r["name"]: i for i, r in enumerate(m["rigid_bodies"])}
+        rb0 = m["rigid_bodies"][rbi["髪2"]]
+        for name in ("髪2b", "髪B"):
+            m["rigid_bodies"].append(dict(rb0, name=name, name_en=name, bone=idx[name], pos=B[idx[name]]["pos"]))
+            rbi[name] = len(m["rigid_bodies"]) - 1
+        j0 = m["joints"][0]
+        m["joints"] += [dict(j0, name="髪2-2b", rb_a=rbi["髪2"], rb_b=rbi["髪2b"]),
+                        dict(j0, name="髪2-B", rb_a=rbi["髪2"], rb_b=rbi["髪B"])]
+        cls.pmx = os.path.join(cls.tmp, "src", "spring0.pmx")
+        pmxio.write_pmx(m, cls.pmx)
+        cls.log0 = []
+        cls.v0 = os.path.join(cls.tmp, "s0.vrm")
+        pmx2vrm.convert(cls.pmx, cls.v0, spec="0.x", log=lambda msg, tag=None: cls.log0.append(msg))
+        cls.v1 = os.path.join(cls.tmp, "s1.vrm")
+        pmx2vrm.convert(cls.pmx, cls.v1)
+
+    def node(self, g, name):
+        return next(i for i, n in enumerate(g["nodes"]) if n.get("name") == name)
+
+    def test_groups(self):
+        s = self.assertValid(self.v0)                 # check_vrm：同一节点不在两个组的子树里、0.0 schema
+        g, _ = vrmio.read_glb(self.v0)
+        sa = g["extensions"]["VRM"]["secondaryAnimation"]
+        roots = {g["nodes"][r]["name"] for grp in sa["boneGroups"] for r in grp["bones"]}
+        # 头发一组（分叉出来的 髪B 并进 髪2 的组，不另列根），两条裙链各一组
+        self.assertEqual(roots, {"髪2", "後裙A0", "後裙B0"})
+        self.assertEqual(s["springs"], 3)
+        for grp in sa["boneGroups"]:
+            self.assertIn("stiffiness", grp)
+            self.assertNotIn("stiffness", grp)
+            self.assertEqual(grp["center"], g["scenes"][0]["nodes"][0])
+            self.assertEqual(grp["gravityDir"], {"x": 0.0, "y": -1.0, "z": 0.0})
+        # 刚性跟随的中间骨、发饰被并掉；尾节点 髪先 留着当叶子；髪3 直接挂在 髪2 下面、排第一个
+        names = {n["name"] for n in g["nodes"]}
+        self.assertFalse({"髪2b", "髪飾り"} & names)
+        self.assertIn("髪先", names)
+        h2 = self.node(g, "髪2")
+        self.assertEqual(g["nodes"][h2]["children"][0], self.node(g, "髪3"))
+        self.assertIn(self.node(g, "髪B"), g["nodes"][h2]["children"])
+        self.assertTrue(any("1 条分叉链并入上层链的组" in x for x in self.log0), self.log0)
+
+    def test_weights_folded(self):
+        g1, b1 = vrmio.read_glb(self.v1)
+        g0, b0 = vrmio.read_glb(self.v0)
+        w1, w0 = PruneTest.bone_weights(self, g1, b1), PruneTest.bone_weights(self, g0, b0)
+        self.assertAlmostEqual(w0["髪2"], w1["髪2"] + w1["髪2b"], places=3)
+        self.assertAlmostEqual(w0["髪3"], w1["髪3"] + w1["髪飾り"] + w1["髪先"], places=3)
+        self.assertNotIn("髪先", w0)
+        self.assertAlmostEqual(w0["髪B"], w1["髪B"], places=3)
+        self.assertAlmostEqual(sum(w0.values()), sum(w1.values()), places=2)
+        self.assertIn("髪2b", {n["name"] for n in g1["nodes"]})      # 1.0 不受影响
+
+    def test_colliders(self):
+        g, _ = vrmio.read_glb(self.v0)
+        sa = g["extensions"]["VRM"]["secondaryAnimation"]
+        leg = self.node(g, "左足")
+        legs = [c for c in sa["colliderGroups"] if c["node"] == leg]
+        self.assertTrue(legs)
+        for c in legs:
+            self.assertGreaterEqual(len(c["colliders"]), 3)        # 胶囊 → 一串球
+        # 裙链碰得到左腿
+        for grp in sa["boneGroups"]:
+            if g["nodes"][grp["bones"][0]]["name"].startswith("後裙"):
+                self.assertTrue(any(sa["colliderGroups"][i]["node"] == leg for i in grp["colliderGroups"]))
+
+    def test_to_secondary_shapes(self):
+        """胶囊沿轴线每隔一个半径一个球、offset 的 Z 取反；静止时就在碰撞体里、缩不下去的不碰。"""
+        from vrmconv import springbone_v0
+        nodes = [{"name": "root", "translation": [0, 0, 0], "children": [1, 3]},
+                 {"name": "a", "translation": [0, 1, 0], "children": [2]},
+                 {"name": "b", "translation": [0, -0.2, 0]},
+                 {"name": "leg", "translation": [0.1, 0.5, 0]}]
+        j = {"stiffness": 1.0, "gravityPower": 0.0, "dragForce": 0.4, "hitRadius": 0.05}
+        ext = {"springs": [{"name": "s", "joints": [dict(j, node=1), dict(j, node=2)], "colliderGroups": [0]}],
+               "colliders": [{"node": 3, "shape": {"capsule": {"offset": [0, 0, 0.1], "tail": [0, 0.2, 0.1],
+                                                               "radius": 0.05}}},
+                             {"node": 0, "shape": {"sphere": {"offset": [0, 0.8, 0], "radius": 0.08}}}],
+               "colliderGroups": [{"colliders": [0, 1]}]}
+        sa = springbone_v0.to_secondary(ext, nodes, center=0)
+        cap = sa["colliderGroups"][0]
+        self.assertEqual(len(cap["colliders"]), 5)                  # 0.2 / 0.05 + 1
+        self.assertEqual([c["offset"]["z"] for c in cap["colliders"]], [-0.1] * 5)
+        self.assertEqual([c["offset"]["y"] for c in cap["colliders"]], [0.0, 0.05, 0.1, 0.15, 0.2])
+        # 球心 (0, 0.8, 0)、半径 0.08；尾端 b 也在 (0, 0.8, 0)：静止就在里面，缩不下去 → 这一组不碰它
+        self.assertEqual(len(sa["colliderGroups"]), 1)
+        grp = sa["boneGroups"][0]
+        self.assertEqual((grp["bones"], grp["colliderGroups"], grp["center"]), ([1], [0], 0))
+        self.assertEqual(grp["stiffiness"], 1.0)
+
+    def test_spring_off(self):
+        out = self.convert("s0off", spec="0.x", spring=False)
+        g, _ = vrmio.read_glb(out)
+        self.assertEqual(g["extensions"]["VRM"]["secondaryAnimation"]["boneGroups"], [])
+        self.assertIn("髪2b", {n["name"] for n in g["nodes"]})       # 没有物理就不并权重
 
 
 class SnapshotTest(Base):

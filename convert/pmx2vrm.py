@@ -32,7 +32,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "formats")):
         sys.path.insert(0, _p)
 import pmxio  # noqa: E402
 import vrmio  # noqa: E402
-from vrmconv import autophys, checks, expressions, mesh, morphbake, skeleton, textures, vrm_ext  # noqa: E402
+from vrmconv import autophys, checks, expressions, mesh, morphbake, skeleton, springbone_v0, textures, vrm_ext  # noqa: E402
 from vrmconv.materials import MaterialBuilder  # noqa: E402
 from vrmconv.springbone import _build_springs  # noqa: E402
 
@@ -173,17 +173,20 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
 
     # ---- 骨骼 → glTF 节点；humanoid 缺的必需骨位补占位
     tree = skeleton.NodeTree(bones, bs, bpos, xf)
-    human = tree.humanoid(bs.human_b, bs.required, unit, _log)
+    # 0.x 的两节拇指（没有掌根那节）：补上 ThumbProximal，和 1.0 一样从第二节（Intermediate）开始对应
+    roots = [] if is1 else [s + "ThumbProximal" for s in ("left", "right")
+                            if s + "ThumbIntermediate" in bs.human_b and s + "ThumbProximal" not in bs.human_b]
+    human = tree.humanoid(bs.human_b, bs.required, unit, _log, roots)
     tree.lower_hips(human, _log)
 
-    # ---- PMX 物理 → SpringBone（只写 VRM 1.0 的 VRMC_springBone）
+    # ---- PMX 物理 → SpringBone（1.0 写 VRMC_springBone；0.x 由同一份结果换算成 secondaryAnimation）
     spring_ext = None
-    if spring and is1 and auto_spring and autophys.needed(model):
+    if spring and auto_spring and autophys.needed(model):
         autophys.synthesize(model, bs.parents, bs.alias, bs.human_b, _log)
     # 按比例跟随的付与骨拆权重：放在自动补物理之后，补出来的摆动骨也算带物理、不拆
     vweights = skeleton.split_partial(bones, bs, vweights, model.get("rigid_bodies"), _log)
     checks.report(bones, bs, raw_weights, vweights, bpos, vpos, scale, _log)
-    if spring and is1:
+    if spring:
         spring_ext = _build_springs(
             model, bs.parents, bs.alias, bs.human_b, glob, bpos, scale, xf,
             tree.bone_node, tree.node_pos, tree.add_node,
@@ -191,10 +194,12 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             gravity=spring_gravity, gravity_lower=spring_gravity_skirt,
             set_parent=tree.set_parent, cloth=(vnrm, vweights, xf_dir), log=_log,
             **(spring_opts or {}))
-    elif spring and model.get("rigid_bodies"):
-        _log("物理：VRM 0.x 不支持 SpringBone，头发和裙摆不会摆动", "warn")
+    if spring_ext and not is1:
+        vweights = springbone_v0.fold(tree, bones, vweights, spring_ext, human.values(), _log)
     human = _prune_nodes(tree, bones, vweights, human, spring_ext, collapse_bones, _log)
     nodes, top_nodes = tree.gltf_nodes()
+    if spring_ext and not is1:
+        springbone_v0.order_children(nodes, spring_ext)
 
     # ---- 视线转角：按眼球几何算（lookAt 和补的视线表情都用它）
     look, note = None, None
@@ -243,7 +248,7 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
     # ---- 按表情分网格（每个网格只带动得到它的 morph target）
     groups = mesh.group_meshes(prims, len(target_names))
     gltf_meshes, where = mesh.build_meshes(gb, prims, groups, target_names,
-                                           model["name"] or "body", sparse_morphs)
+                                           model["name"] or "body", sparse_morphs, prim_names=not is1)
     if len(gltf_meshes) > 1:
         _log("网格：按表情分为 %d 个（%s）" % (len(gltf_meshes), "、".join(
             "%s：%d 个表情" % (m["name"], len(m.get("extras", {}).get("targetNames", ()))) for m in gltf_meshes)))
@@ -315,8 +320,11 @@ def convert(pmx_path, vrm_path, spec="1.0", scale_mode="auto",
             gltf["extensions"]["VRMC_springBone"] = spring_ext
     else:
         gltf["extensionsUsed"] = ["VRM"]
+        secondary = (springbone_v0.to_secondary(spring_ext, nodes, root_index if spring_center else None, _log)
+                     if spring_ext else None)
         gltf["extensions"] = {"VRM": vrm_ext.build_vrm0(meta, title, human, expr,
-                                                        mats.props_0x, look, len(gltf_meshes))}
+                                                        mats.props_0x, look, len(gltf_meshes),
+                                                        secondary)}
 
     size = vrmio.write_glb(gltf, gb.bin, vrm_path)
     n_expr = (len(expr["preset"]) + len(expr["custom"])) if is1 else len(expr["blend_groups"])

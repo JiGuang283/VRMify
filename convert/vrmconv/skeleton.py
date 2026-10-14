@@ -287,8 +287,10 @@ class NodeTree:
     def set_parent(self, node, parent):
         self.parent[node] = parent
 
-    def humanoid(self, human_b, required, unit, log):
+    def humanoid(self, human_b, required, unit, log, roots=()):
         """humanoid 骨位 → 节点；缺失的必需骨位补占位骨（vrm_*）。
+
+        roots：另外要补的骨位（0.x 的两节拇指缺掌根那节 ThumbProximal 时补一个，插在手和第二节之间）。
 
         unit(左, 上, 前) → 当前规范下的方向向量（1.0 左 +X 前 +Z；0.x 反过来）。
         """
@@ -331,6 +333,12 @@ class NodeTree:
             if r not in human:
                 ensure(r)
                 log("骨骼：模型缺少 %s，已生成占位骨骼" % r, "warn")
+        added = [r for r in roots if r not in human]
+        for r in added:
+            ensure(r)
+        if added:
+            log("骨骼：拇指只有两节（%s），已在手腕和第二节之间补上掌根那节，0.x 和 1.0 的拇指各节对应一致"
+                % "、".join(added))
         return human
 
     def lower_hips(self, human, log):

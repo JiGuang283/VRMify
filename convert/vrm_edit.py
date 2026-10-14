@@ -73,6 +73,7 @@ def _base(g, create):
              "meta": copy.deepcopy(v["meta"])}
     b["thumb"] = None
     _base_look(b, v)
+    _base_secondary(b, v)
     g.setdefault("extras", {})[BASE_KEY] = b
     return b
 
@@ -89,6 +90,23 @@ def _base_look(b, vrm):
     if "look" not in b:
         b["look"] = copy.deepcopy(vrm.get("lookAt") if b["spec"] == "1.0" else
                                   {k: vrm.get("firstPerson", {}).get(k) for ks in _LOOK_0.values() for k in ks})
+
+
+def _base_secondary(b, vrm):
+    """0.x 的基准里记下转换时的物理（以前调整过、基准里还没有这一项的文件，补记当前的——
+    那时还不能调 0.x 的物理，当前值就是转换时的值）。"""
+    if b["spec"] != "1.0" and "secondary" not in b:
+        b["secondary"] = copy.deepcopy(vrm.get("secondaryAnimation"))
+
+
+def _subtree(nodes, roots):
+    out, stack = [], list(roots)
+    while stack:
+        n = stack.pop(0)
+        if 0 <= n < len(nodes) and n not in out:
+            out.append(n)
+            stack[:0] = nodes[n].get("children", [])
+    return out
 
 
 def _look_deg(b):
@@ -215,6 +233,14 @@ def _chain_keys(springs):
     return keys
 
 
+# 1.0 关节参数名 → 0.x 组参数名（硬度是规范里拼错的 stiffiness）
+_FIELDS_0 = {"stiffness": "stiffiness", "gravityPower": "gravityPower", "dragForce": "dragForce"}
+
+
+def _group_keys(groups):
+    return _chain_keys([{"name": grp.get("comment")} for grp in groups])
+
+
 def _label(sid):
     return sid[1:] if sid.startswith("@") else sid
 
@@ -242,6 +268,14 @@ def describe(path):
         pool, assign = _sources_0(b["groups"])
         out["presets"] = PRESETS_0
         out["title"] = b["meta"].get("title", "")
+        # 0.x 的一个摆动组 = 界面里的一条链；组根下面整棵子树都是关节，参数整组共用
+        _base_secondary(b, ext["VRM"])
+        groups = (b.get("secondary") or {}).get("boneGroups") or []
+        for k, grp in zip(_group_keys(groups), groups):
+            par = {f: grp.get(f0, SPRING_DEFAULTS[f]) for f, f0 in _FIELDS_0.items()}
+            out["springs"].append({
+                "key": k, "name": grp.get("comment") or k,
+                "joints": [dict(node=n, **par) for n in _subtree(g["nodes"], grp.get("bones") or [])]})
     out["expressions"] = [{"id": sid, "label": _label(sid)} for sid in pool]
     out["assign"] = assign
     _base_look(b, ext["VRMC_vrm"] if b["spec"] == "1.0" else ext["VRM"])
@@ -347,6 +381,33 @@ def _apply_spring(g, base_sb, edits):
             used.remove("VRMC_springBone")
 
 
+def _apply_secondary(vrm, base_sa, edits):
+    """0.x：和 _apply_spring 一样的倍率 / 按链覆盖 / 关闭，作用在每个摆动组的参数上。"""
+    if base_sa is None:
+        return
+    sa = copy.deepcopy(base_sa)
+    if edits:
+        gs = _num(edits.get("stiffness"), 1.0)
+        gd = _num(edits.get("drag"), 1.0)
+        gg = _num(edits.get("gravity"), 0.0)
+        chains = edits.get("chains") or {}
+        groups = []
+        for k, grp in zip(_group_keys(sa.get("boneGroups") or []), sa.get("boneGroups") or []):
+            c = chains.get(k) or {}
+            if c.get("off"):
+                continue
+            cs, cg = _num(c.get("stiffness"), 1.0), _num(c.get("gravity"), 0.0)
+            st = grp.get("stiffiness", SPRING_DEFAULTS["stiffness"])
+            gp = grp.get("gravityPower", SPRING_DEFAULTS["gravityPower"])
+            dr = grp.get("dragForce", SPRING_DEFAULTS["dragForce"])
+            grp["stiffiness"] = round(max(0.0, st * gs * cs), 4)
+            grp["gravityPower"] = round(max(0.0, gp + gg + cg), 4)
+            grp["dragForce"] = round(min(1.0, max(0.0, dr * gd)), 4)
+            groups.append(grp)
+        sa["boneGroups"] = groups
+    vrm["secondaryAnimation"] = sa
+
+
 def _drop_thumb(g, bin_data, thumb):
     """去掉上一次加的缩略图。它总是追加在最后，在末尾时连数据一起截掉。"""
     if not thumb:
@@ -442,6 +503,8 @@ def apply(path, edits, out_path=None):
         _apply_spring(g, b.get("springBone"), edits.get("spring"))
     else:
         _apply_expr_0(vrm, b["groups"], edits.get("expressions"))
+        _base_secondary(b, vrm)
+        _apply_secondary(vrm, b.get("secondary"), edits.get("spring"))
     _apply_intensity(vrm, is1, edits.get("intensity"))
     _apply_look(vrm, b, edits.get("lookAt"), g)
     n += bool(edits.get("expressions")) + bool(edits.get("spring")) + bool(edits.get("lookAt"))

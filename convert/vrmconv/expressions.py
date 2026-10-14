@@ -523,8 +523,9 @@ _REPORT_ORDER = ["happy", "angry", "sad", "relaxed", "surprised", "blink", "blin
                  "aa", "ih", "ou", "ee", "oh"]
 
 
-def report(expr_preset, blend_groups, is1, log):
-    """一行汇总：每个预设用了哪些表情（权重不是 1 的标 ×w），缺哪些。眨眼、「あ」缺了是警告。"""
+def report(expr_preset, blend_groups, is1, log, sources0=None):
+    """一行汇总：每个预设用了哪些表情（权重不是 1 的标 ×w），缺哪些。眨眼、「あ」缺了是警告。
+    sources0：0.x 组合表情的组名 → 来源表情（「上+びっくり」；0.x 的 surprised 组名是 Surprised）。"""
     got, miss = [], []
     for p in _REPORT_ORDER:
         if is1:
@@ -535,7 +536,7 @@ def report(expr_preset, blend_groups, is1, log):
             p0 = _TO_0X.get(p, p) if p != "surprised" else None
             gr = next((g for g in blend_groups if g["presetName"] == p0 or
                        (p0 is None and g["name"] == "Surprised")), None)
-            src = gr and gr["name"]
+            src = gr and ((sources0 or {}).get(gr["name"]) or gr["name"])
             ws = [b["weight"] / 100.0 for b in (gr or {}).get("binds", [])]
         if not src:
             miss.append(p)
@@ -566,6 +567,7 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     expr_preset = {}
     expr_custom = {}
     blend_groups = []
+    sources0 = {}
     n_mat_expr = 0
     winks = wink_presets(flat, mats.model["vertices"], is1)
     # 日文名 / 中文名占用的预设，英文名不抢
@@ -747,8 +749,9 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
                 for gr in blend_groups:
                     if gr["presetName"] == p0:
                         gr["presetName"] = "unknown"
-            name = label if p0 else p.capitalize()
-            blend_groups.append({"name": uniq_name(name, {g["name"] for g in blend_groups}),
+            name = uniq_name(label if p0 else p.capitalize(), {g["name"] for g in blend_groups})
+            sources0[name] = label
+            blend_groups.append({"name": name,
                                  "presetName": p0 or "unknown",
                                  "binds": [{"mesh": 0, "index": s, "weight": round(w * 100, 2)} for s, w in binds],
                                  "materialValues": [], "isBinary": False})
@@ -779,6 +782,6 @@ def build_expressions(flat, prims, mats, mat_gidx, gb, xf, vmat, is1, sparse_mor
     lr = [by_side.get("blinkLeft" if is1 else "blink_l"), by_side.get("blinkRight" if is1 else "blink_r")]
     if not have("blink") and all(n in slot_of for n in lr if n) and all(lr):
         add_multi("blink", [(lr[0], 1.0), (lr[1], 1.0)], "+".join(lr))
-    report(expr_preset, blend_groups, is1, log)
+    report(expr_preset, blend_groups, is1, log, sources0)
     return {"target_names": target_names, "preset": expr_preset, "custom": expr_custom,
             "blend_groups": blend_groups}

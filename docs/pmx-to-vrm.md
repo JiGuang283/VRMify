@@ -9,7 +9,7 @@ mmd_tools、Unity 或 UniVRM。
 # VRM 1.0（默认）
 python convert/pmx2vrm.py "model.pmx" -o "model.vrm"
 
-# VRM 0.x（只有老软件需要；0.x 不输出 SpringBone）
+# VRM 0.x（只认 0.x 的软件用）
 python convert/pmx2vrm.py "model.pmx" --spec 0x --title "名字" --author "作者"
 
 # 检查输出（结构 + VRM 官方 JSON Schema，需要 jsonschema）
@@ -20,7 +20,7 @@ python tools/qa/check_vrm.py "model.vrm"
 |---|---|
 | `--spec 1.0` / `--spec 0x` | VRM 版本，默认 1.0 |
 | `--scale auto` / 倍率 | 默认把身高归一到 1.6 m |
-| `--keep-pose` | 保留原姿势（默认把 A-pose 手臂抬成 T-pose） |
+| `--keep-pose` | 保留原姿势（默认把手臂、手、手指摆成 VRM 规范的 T-pose） |
 | `--keep-control-bones` | 保留没有权重的中间骨（全ての親 / センター / グルーブ / 腰 等；默认去掉，层级像 VRoid）。IK、末端骨这类不起作用的骨总会去掉 |
 | `--flip-winding` | 强制反转三角形绕序（默认自动判定） |
 | `--force-double-sided` | 所有材质双面 |
@@ -71,8 +71,8 @@ python tools/qa/check_vrm.py "model.vrm"
 | 骨骼表情 | 在静止姿势下摆骨、按线性蒙皮算出顶点位移，烘焙成 morph target |
 | UV 表情 | 整个材质一起缩放 / 平移的 → 贴图偏移绑定；做不到的跳过并提示 |
 | 左右眼骨 | humanoid leftEye / rightEye，lookAt 用骨骼 |
-| 物理刚体 + 关节 | `VRMC_springBone`（仅 1.0） |
-| 跟随骨骼的刚体 | SpringBone 碰撞体（球 / 胶囊） |
+| 物理刚体 + 关节 | 1.0：`VRMC_springBone`；0.x：`secondaryAnimation` |
+| 跟随骨骼的刚体 | SpringBone 碰撞体（球 / 胶囊；0.x 只有球，胶囊换成一串球） |
 
 ### 骨骼
 
@@ -83,7 +83,8 @@ MMD 标准骨名对应 VRM humanoid：下半身 → hips、上半身 → spine�
 | MMD | VRM 1.0 | VRM 0.x |
 |---|---|---|
 | 親指０ / １ / ２ | ThumbMetacarpal / Proximal / Distal | ThumbProximal / Intermediate / Distal |
-| 親指１ / ２（没有 ０ 的模型） | ThumbProximal / Distal | ThumbProximal / Intermediate |
+| 親指１ / ２（没有 ０，親指１ 离手腕较远） | ThumbProximal / Distal | ThumbIntermediate / Distal，掌根补占位 ThumbProximal |
+| 親指１ / ２（没有 ０，親指１ 在掌根） | ThumbMetacarpal / Proximal | ThumbProximal / Intermediate |
 | 人指・中指・薬指・小指 １ / ２ / ３ | Proximal / Intermediate / Distal | 同左 |
 
 常见的英文骨名（Unity / Mixamo / VRoid / Blender 风格）也能对应。转换时自动修正：
@@ -99,7 +100,10 @@ MMD 标准骨名对应 VRM humanoid：下半身 → hips、上半身 → spine�
   下半身下，静止姿势下顶点不动。
 - **hips 位置**：MMD 的下半身和上半身从同一点出发，hips 和 spine 几乎重合。hips 离 spine 太近时把它移到骨盆
   （大腿根往上），和 VRoid 的比例接近；只挪节点，网格和权重不变。
-- **T-pose**：上臂、前臂对齐到水平，子骨和顶点（含法线、表情偏移）按蒙皮权重一起转。
+- **T-pose**：按 VRM 规范的静止姿势摆——上臂、前臂、手沿水平 ±X，掌心朝下，四指伸直，拇指水平指向
+  外侧与正前方之间的 45°。动作和手部追踪都是「从这个姿势开始转多少度」，静止姿势歪多少，动起来就一直歪多少。
+  从手臂往指尖依次转，子骨和顶点（含法线、表情偏移）按蒙皮权重一起转。末节手指没有真实子骨、tail 方向又和上一节
+  差得远（FBX 转来的模型常见）时，这一节跟着上一节转。
 - **占位骨**：缺少规范必需的骨（以及 chest、neck，很多程序默认它们存在）时补 `vrm_xxx` 占位节点，并保证层级合法。
 - **去掉无效骨**：既不带权重、也不是 humanoid 骨或物理关节 / 碰撞体，下面也没有这类骨的节点（IK、末端骨、合并掉的
   付与骨、操作中心等）不写进 VRM。「精简控制骨」（默认开，`--keep-control-bones` 关闭）再去掉没有权重的中间骨（全ての親 / センター /
@@ -149,7 +153,7 @@ MMD 标准骨名对应 VRM humanoid：下半身 → hips、上半身 → spine�
     面各自收成一点的表情。高光直接画在瞳孔贴图里的模型做不了，日志里会说明。
   - `tongue`：吐舌，复制模型里的「舌出し」「ぺろっ」「べー」「tongueOut」等表情。
 
-### 物理 → SpringBone（仅 VRM 1.0）
+### 物理 → SpringBone
 
 目标是在 UniVRM、three-vrm 里的手感接近原生 VRM 模型，而不是复刻 MMD 的 Bullet 物理。参数按 VRM 官方和 VRoid
 示例模型在同一套动作（待机、转身、走路、跑步、抬腿）下的表现校准。
@@ -175,14 +179,24 @@ MMD 标准骨名对应 VRM humanoid：下半身 → hips、上半身 → spine�
 
 手感不合适时，先用 `--spring-stiffness` 整体调；导入 Unity 后也可以在 UniVRM 里逐条调，或者用界面的「调整」面板。
 
+**VRM 0.x**：先按上面的规则算出 1.0 的链，再换成 0.x 的结构。0.x 只列每组的根骨，根骨下面整棵子树都会摆动，
+每组只有一套参数，碰撞体只有球，所以：
+
+- 只是跟着关节转的骨（被抽稀掉的中间节、链末端的配饰）把权重并到那个关节上、节点去掉，动起来和 1.0 一样；
+  0.x 文件里的骨因此比 1.0 少。每个关节的下一节排在第一个子节点（0.x 用它定这一节的方向）。
+- 一条链一组。从别的链上分叉出来的链并入上层链的组（不然会被模拟两次）；组内的碰撞体按关节数多数决定。
+- 硬度、阻尼、重力、碰撞半径取组内的中位数；静止时会和碰撞体重叠的，给这一组配一个缩小的碰撞体。
+- 胶囊碰撞体沿轴线每隔一个半径换成一个球。
+
 ## 已知限制
 
-1. **VRM 0.x 不输出 SpringBone**。
+1. **VRM 0.x 的物理**比 1.0 粗一些：每组一套参数和一个碰撞半径、碰撞体只有球（见上文）。
 2. **物理**是近似换算：链间横向关节舍弃，整片裙子的联动不如原 PMX；腿抬得很高时裙摆最上一圈和大腿根部会有少量
    重叠（原生 VRM 模型同样如此）。
 3. **材质**：乘算球面贴图、共享 toon07～10 没有对应；材质表情只转换显示颜色和透明度。
 4. **骨骼表情**按静止姿势和线性蒙皮烘焙，不经过 IK；权重在 0 和 1 之间时和 MMD 里略有差别（MMD 是旋转插值）。
-5. **T-pose** 用线性蒙皮重摆，肩部权重混合区在大角度时会轻微收缩。
+5. **T-pose** 用线性蒙皮重摆，肩部权重混合区在大角度时会轻微收缩；拇指要转 20～35°，虎口处会有少量拉伸。
+   拇指指甲的侧向朝向从骨骼位置看不出来，只摆方向。
 6. **表情预设**按名字对应和组合；名字都认不出的模型组合不出来，可以在界面的「调整」里手动指定。
 
 ## 授权信息

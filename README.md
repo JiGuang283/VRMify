@@ -91,7 +91,7 @@
 | **zip / 7z / rar** | models inside are found and converted; 7z / rar use 7-Zip, WinRAR, Bandizip or Windows' `tar` |
 | **VRM** | opens in the preview and the Tune panel |
 
-Output: **VRM 1.0** (with SpringBone physics), **VRM 0.x** (no physics), or **PMX** only.
+Output: **VRM 1.0** or **VRM 0.x** (both with SpringBone physics), or **PMX** only.
 
 ## What the conversion does
 
@@ -107,7 +107,8 @@ Output: **VRM 1.0** (with SpringBone physics), **VRM 0.x** (no physics), or **PM
 - Bones that move nothing in VRM — IK, tip bones, operation centres — are removed. With "Remove control bones"
   (on by default) unweighted intermediate bones such as センター or グルーブ go too, so the hierarchy is
   Root > Hips. Skinning and motion are unchanged.
-- A-pose arms are raised to the T-pose VRM expects; hips are moved to the pelvis.
+- Posed into the T-pose VRM expects: A-pose arms raised, palms down, fingers straight, thumbs 45° forward;
+  hips are moved to the pelvis.
 </details>
 
 <details>
@@ -220,7 +221,8 @@ Turn on "Extra 180° turn" or try another "Texture alpha" mode on the Other form
 
 ## Known limitations
 
-- VRM 0.x has no physics (SpringBone is written for VRM 1.0 only).
+- VRM 0.x physics is approximated from the 1.0 result: one set of parameters and one hit radius per chain, and
+  sphere colliders only.
 - PMX joints between neighbouring skirt chains have no SpringBone equivalent, so skirts move less as one piece than
   in MMD.
 - Multiply sphere maps and the shared toon07–10 textures have no MToon equivalent; outlines are off by default.

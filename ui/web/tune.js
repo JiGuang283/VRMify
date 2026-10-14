@@ -209,7 +209,7 @@ function renderLook(sec) {
   sec.append(row);
 }
 
-// ---- physics (VRM 1.0 SpringBone): overall multipliers, then each chain (collapsed by default)
+// ---- physics (VRM 1.0 SpringBone / 0.x spring groups): overall multipliers, then each chain (collapsed by default)
 // the chain kept shown in the preview (pin button), per file; hovering another chain shows that one meanwhile
 let pinned = null;                 // { fid, key, nodes }
 const pinnedNodes = () => (pinned && pinned.fid === T.fid ? pinned.nodes : null);

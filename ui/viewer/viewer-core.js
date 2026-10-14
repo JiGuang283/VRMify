@@ -476,7 +476,10 @@ export class Viewer {
     const v = this.vrm;
     if (!v) return;
     const p = MOTIONS[this.motion](f), n = (b) => v.humanoid.getNormalizedBoneNode(b);
-    const set = (b, x, y, z) => { const o = n(b); if (o) o.rotation.set(x, y, z); };
+    // three-vrm 里 VRM 0.x 的 normalized 骨（rotateVRM0 之后）X、Z 轴转向和 1.0 相反：
+    // 不取反的话 0.x 模型放下手臂时手臂往上抬、腿往后摆
+    const s = v.meta && v.meta.metaVersion === '0' ? -1 : 1;
+    const set = (b, x, y, z) => { const o = n(b); if (o) o.rotation.set(x * s, y, z * s); };
     set('hips', 0, p.yaw || 0, p.roll || 0);
     set('spine', 0, p.spineYaw || 0, 0);
     v.scene.position.y = (p.bob || 0) * this.height / 1.6;

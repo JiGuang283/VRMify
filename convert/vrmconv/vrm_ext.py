@@ -76,8 +76,9 @@ def build_vrm1(meta, title, human, mesh_nodes, expr, look=None):
     return vrm_ext
 
 
-def build_vrm0(meta, title, human, expr, material_props, look=None, n_meshes=1):
-    """VRM 0.x 的 VRM 扩展。material_props：materials.MaterialBuilder.props_0x。"""
+def build_vrm0(meta, title, human, expr, material_props, look=None, n_meshes=1, secondary=None):
+    """VRM 0.x 的 VRM 扩展。material_props：materials.MaterialBuilder.props_0x；
+    secondary：springbone_v0.to_secondary 的结果（没有物理时 None）。"""
     return {
         "exporterVersion": "VRMify",
         "specVersion": "0.0",
@@ -96,7 +97,10 @@ def build_vrm0(meta, title, human, expr, material_props, look=None, n_meshes=1):
             "commercialUssageName": ("Allow" if meta.get("commercial_usage") in
                                      ("personalProfit", "corporation") else "Disallow"),
             "otherPermissionUrl": "",
-            "licenseName": "Other",
+            # 0.x 只有 licenseName 这一项能表达再分发：没给许可链接时按「是否允许再分发」选，
+            # 给了链接就是 Other + 链接（作者 / 改编 / 署名之类的条件写在链接的文档里）
+            "licenseName": ("Other" if meta.get("license_url") or meta.get("allow_redistribution")
+                            else "Redistribution_Prohibited"),
             "otherLicenseUrl": meta.get("license_url") or "",
         },
         "humanoid": {
@@ -120,6 +124,6 @@ def build_vrm0(meta, title, human, expr, material_props, look=None, n_meshes=1):
             "lookAtVerticalUp": _degmap(90, _look_deg(look)["lookUp"]),
         },
         "blendShapeMaster": {"blendShapeGroups": expr["blend_groups"]},
-        "secondaryAnimation": {"boneGroups": []},
+        "secondaryAnimation": secondary or {"boneGroups": [], "colliderGroups": []},
         "materialProperties": material_props,
     }

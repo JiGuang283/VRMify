@@ -123,6 +123,9 @@ async function measure(path, mname) {
     if (best) legCols.push(best[1]);
   }
   const node = (n) => h.getNormalizedBoneNode(n);
+  // VRM 0.x normalized bones (after rotateVRM0) turn the other way round X and Z in three-vrm
+  const sg = vrm.meta && vrm.meta.metaVersion === '0' ? -1 : 1;
+  const rot = (n, x, y, z, order) => node(n).rotation.set(x * sg, y, z * sg, order);
   for (let i = 0; i < 60; i++) vrm.update(1 / 60);       // settle before measuring
   vrm.scene.updateMatrixWorld(true);
   const rest = chains.map(loc);
@@ -150,15 +153,15 @@ async function measure(path, mname) {
   const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   for (let f = 0; f < N + 120; f++) {
     const p = f < N ? MOTIONS[mname](f) : (mname === 'idle' ? MOTIONS[mname](N - 1) : {});
-    node('hips').rotation.set(0, p.yaw || 0, p.roll || 0);
-    if (p.spineYaw != null) node('spine').rotation.set(0, p.spineYaw, 0);
+    rot('hips', 0, p.yaw || 0, p.roll || 0);
+    if (p.spineYaw != null) rot('spine', 0, p.spineYaw, 0);
     vrm.scene.position.set(0, p.bob || 0, p.rootZ || 0);
-    node('leftUpperLeg').rotation.set(p.lLeg || 0, 0, 0); node('rightUpperLeg').rotation.set(p.rLeg || 0, 0, 0);
-    node('leftLowerLeg').rotation.set(p.lKnee || 0, 0, 0); node('rightLowerLeg').rotation.set(p.rKnee || 0, 0, 0);
+    rot('leftUpperLeg', p.lLeg || 0, 0, 0); rot('rightUpperLeg', p.rLeg || 0, 0, 0);
+    rot('leftLowerLeg', p.lKnee || 0, 0, 0); rot('rightLowerLeg', p.rKnee || 0, 0, 0);
     if (p.armDown != null) {
       const a = 1.22 * Math.min(1, p.armDown / 0.7);
-      node('leftUpperArm').rotation.set(p.armSwingL || 0, 0, -a, 'XYZ'); node('rightUpperArm').rotation.set(p.armSwingR || 0, 0, a, 'XYZ');
-      node('leftLowerArm').rotation.set(0, p.armSwingL ? -0.3 : 0, 0); node('rightLowerArm').rotation.set(0, p.armSwingR ? 0.3 : 0, 0);
+      rot('leftUpperArm', p.armSwingL || 0, 0, -a, 'XYZ'); rot('rightUpperArm', p.armSwingR || 0, 0, a, 'XYZ');
+      rot('leftLowerArm', 0, p.armSwingL ? -0.3 : 0, 0); rot('rightLowerArm', 0, p.armSwingR ? 0.3 : 0, 0);
     }
     // physics at FPS (optionally jittered), motion sampled at 60 Hz
     acc60 += 1 / 60;

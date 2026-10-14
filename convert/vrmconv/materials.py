@@ -604,8 +604,10 @@ class MaterialBuilder:
         if self.is1:
             nmc = sum(1 for m in self.materials if "matcapTexture" in
                       m["extensions"]["VRMC_materials_mtoon"])
-            if nmc:
-                log("材质：%d 个加算球面贴图转为 MToon 的 matcap" % nmc)
+        else:
+            nmc = sum(1 for p in self.props_0x if "_SphereAdd" in p["textureProperties"])
+        if nmc:
+            log("材质：%d 个加算球面贴图转为 MToon 的 matcap" % nmc)
         if self.tex_opt is not None:
             if not self.tex_opt.active and (self.tex_opt.max_size or self.tex_opt.jpeg):
                 log("贴图：未安装 Pillow，缩小贴图和 JPEG 存储未生效", "warn")
