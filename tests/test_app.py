@@ -133,6 +133,107 @@ class SkippedStatusTest(unittest.TestCase):
                 b.close()
 
 
+class PreviewCacheTest(unittest.TestCase):
+    """还没转换的文件（压缩包、FBX …）预览时先转一份临时 VRM：换了转换设置要重新转，同样的设置用缓存，
+    连点不重复转，转的途中又换了设置时旧的那份不推给页面，每个文件只留最近几份。"""
+
+    def setUp(self):
+        import threading
+        self.tmp = tempfile.mkdtemp(prefix="m2v_pv_")
+        src = os.path.join(self.tmp, "a.fbx")
+        with open(src, "wb") as f:
+            f.write(b"Kaydara FBX Binary")
+        self.patches = [mock.patch.object(server, "SETTINGS", os.path.join(self.tmp, "settings.json")),
+                        mock.patch.object(server, "EDITS", os.path.join(self.tmp, "edits.json")),
+                        mock.patch.object(server.pipeline, "convert_file", self.fake)]
+        for p in self.patches:
+            p.start()
+        self.calls, self.gate = [], threading.Event()
+        self.gate.set()
+        self.b = server.Backend()
+        self.b.add_paths([src])
+        self.fid = next(iter(self.b.files))
+
+    def tearDown(self):
+        self.gate.set()
+        self.b.close()
+        for p in self.patches:
+            p.stop()
+
+    def fake(self, src, opts, log=None, out_dir=None, edits=None):
+        self.gate.wait(10)
+        self.calls.append((opts["vrm"]["spec"], opts["vrm"]["spring_stiffness"]))
+        p = os.path.join(out_dir, "a.vrm")
+        with open(p, "wb") as f:
+            f.write(b"glTF")
+        return [p]
+
+    def wait(self):
+        import time
+        for _ in range(500):
+            with self.b.lock:
+                if not self.b.preview_jobs:
+                    return
+            time.sleep(0.01)
+        self.fail("preview conversion did not finish")
+
+    def setopt(self, **vrm):
+        self.b.set_options(dict(self.b.opts, vrm=dict(self.b.opts["vrm"], **vrm)))
+
+    def shown(self):
+        """推给页面的预览事件个数。"""
+        return len([e for _, e in self.b.events if e["type"] == "preview" and e.get("url")])
+
+    def test_settings_change_reconverts(self):
+        self.assertEqual(self.b.preview(self.fid), {"pending": True})
+        self.wait()
+        self.assertIn("url", self.b.preview(self.fid))                  # 同样的设置：直接用缓存
+        self.assertEqual(self.calls, [("1.0", 1.0)])
+        self.setopt(spec="0.x")
+        self.assertEqual(self.b.preview(self.fid), {"pending": True})  # 换了版本：重新转
+        self.wait()
+        self.assertEqual(self.calls[-1], ("0.x", 1.0))
+        self.setopt(spec="1.0")
+        self.assertIn("url", self.b.preview(self.fid))                  # 改回来：之前那份还在
+        self.assertEqual(len(self.calls), 2)
+        # 只改输出位置不算换设置
+        self.b.set_options(dict(self.b.opts, output={"mode": "folder", "folder": self.tmp, "subfolder": False}))
+        self.assertIn("url", self.b.preview(self.fid))
+
+    def test_no_duplicate_job(self):
+        self.gate.clear()
+        self.assertEqual(self.b.preview(self.fid), {"pending": True})
+        self.assertEqual(self.b.preview(self.fid), {"pending": True})
+        self.gate.set()
+        self.wait()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.shown(), 1)
+
+    def test_superseded_job_not_shown(self):
+        self.gate.clear()
+        self.b.preview(self.fid)                          # 1.0，还在转
+        self.setopt(spec="0.x")
+        self.b.preview(self.fid)                          # 用户换成 0.x 又点了预览
+        self.gate.set()
+        self.wait()
+        self.assertEqual(sorted(c[0] for c in self.calls), ["0.x", "1.0"])
+        self.assertEqual(self.shown(), 1)                 # 只推 0.x 那份
+        f = self.b.files[self.fid]
+        want = f["previews"][f["preview_want"]]
+        self.assertEqual(f["preview_path"], want[1])
+
+    def test_old_previews_removed(self):
+        dirs = []
+        for k in range(5):
+            self.setopt(spring_stiffness=1.0 + k)
+            self.b.preview(self.fid)
+            self.wait()
+            dirs.append(os.path.dirname(self.b.files[self.fid]["preview_path"]))
+        cache = self.b.files[self.fid]["previews"]
+        self.assertEqual(len(cache), server._PREVIEW_KEEP)
+        self.assertEqual([os.path.isdir(d) for d in dirs], [False, False, True, True, True])
+
+
 class AutoThumbTest(unittest.TestCase):
     """转换后自动生成的缩略图：记成 auto；手动设置过的不覆盖；不算「调整过」；关掉选项后转换不再带上。"""
 

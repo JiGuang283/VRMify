@@ -73,6 +73,10 @@ function gait(f, freq, thigh, knee, bob, armSwing) {
     lKnee: 0.1 + knee * Math.max(0, Math.sin(ph + 0.9)), rKnee: 0.1 + knee * Math.max(0, Math.sin(ph + 0.9 + Math.PI)),
     armDown: 0.7, armSwingL: armSwing * s, armSwingR: -armSwing * s };
 }
+// relaxed hand for the preview (degrees per segment, proximal → distal; thumb: metacarpal → distal)
+const RELAX = { Thumb: [12, 10, 8], Index: [10, 15, 10], Middle: [12, 18, 12], Ring: [15, 20, 13], Little: [18, 22, 15] };
+const THUMB_IN = 25;               // the thumb's first segment also turns in toward the index finger (rest: 45° out)
+
 export const MOTIONS = {
   tpose: () => ({}),
   idle: (f) => ({ armDown: 0.7, yaw: Math.sin(f / 60 * Math.PI * 2 * 0.25) * 0.05, bob: Math.sin(f / 60 * Math.PI * 2 * 0.3) * 0.004 }),
@@ -488,6 +492,28 @@ export class Viewer {
     const a = 1.22 * Math.min(1, (p.armDown || 0) / 0.7);
     set('leftUpperArm', p.armSwingL || 0, 0, -a); set('rightUpperArm', p.armSwingR || 0, 0, a);
     set('leftLowerArm', 0, p.armSwingL ? -0.3 : 0, 0); set('rightLowerArm', 0, p.armSwingR ? 0.3 : 0, 0);
+    this._relaxHands(n, s, a / 1.22);
+  }
+
+  // Relaxed hands (preview only): the VRM rest pose has straight fingers and the thumb out at 45°, so with the
+  // arms down the hands would look stiff. Each segment bends toward the palm (−Y at rest) by RELAX degrees × k
+  // (k follows the arms: 0 in T-pose). Axis = rest direction × down; s flips X/Z for VRM 0.x like set() above
+  _relaxHands(n, s, k) {
+    const down = new THREE.Vector3(0, -1, 0), ax = new THREE.Vector3(), q = new THREE.Quaternion(), qi = new THREE.Quaternion();
+    for (const [side, sx] of [['left', 1], ['right', -1]]) {
+      qi.setFromAxisAngle(new THREE.Vector3(0, sx, 0), THREE.MathUtils.degToRad(THUMB_IN * k));
+      for (const [f, degs] of Object.entries(RELAX)) {
+        const dir = f === 'Thumb' ? new THREE.Vector3(sx, 0, 1).normalize() : new THREE.Vector3(sx, 0, 0);
+        ax.crossVectors(dir, down).normalize();
+        ax.set(ax.x * s, ax.y, ax.z * s);
+        (f === 'Thumb' ? ['Metacarpal', 'Proximal', 'Distal'] : ['Proximal', 'Intermediate', 'Distal']).forEach((seg, i) => {
+          const o = n(side + f + seg);
+          if (!o) return;
+          q.setFromAxisAngle(ax, THREE.MathUtils.degToRad(degs[i] * k));
+          o.quaternion.copy(f === 'Thumb' && i === 0 ? qi.clone().multiply(q) : q);
+        });
+      }
+    }
   }
 
   // -------------------------------------------------------- expressions --

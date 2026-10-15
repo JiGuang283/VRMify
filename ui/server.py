@@ -143,6 +143,20 @@ def _safe_name(s):
 
 
 
+# 预览缓存：不影响转换结果的设置不算进缓存键；每个文件最多留几份临时 VRM（压缩包转出来常有几十 MB）
+_PREVIEW_IGNORE = ("target", "jobs", "output")
+_PREVIEW_KEEP = 3
+
+
+def _preview_key(src, opts):
+    """临时预览 VRM 的缓存键：源文件 + 修改时间 + 转换设置的指纹。以前只有前两项，
+    改了设置（VRM 版本、物理……）再点预览还是拿到用旧设置转的那份。"""
+    sig = json.dumps({k: v for k, v in opts.items() if k not in _PREVIEW_IGNORE}, sort_keys=True,
+                     ensure_ascii=False)
+    return "%s|%s|%s" % (os.path.normcase(src), os.path.getmtime(src),
+                         hashlib.md5(sig.encode("utf-8")).hexdigest()[:12])
+
+
 def _sweep_stale_previews(max_age=86400):
     """删掉以前遗留的预览临时目录：正常退出时会删，程序崩溃或被强制结束时会留下来（每个几十 MB）。
     只删一天以前的——同时开着的另一个窗口的目录还在用。"""
@@ -188,6 +202,7 @@ class Backend:
         self.tokens = {}                # token → 路径（预览可读的文件）
         self.dirs = {}                  # token → 文件夹（PMX 原生预览：模型和贴图都从这里读）
         self.finders = {}               # token → vrmio.TextureFinder（贴图不在 PMX 记的位置时按文件名找）
+        self.preview_jobs = set()       # 正在后台转的预览（缓存键）：再点预览不重复转
         self.busy = False
         self.stop_flag = False
         self.window = None              # pywebview 窗口（有的话用它的原生对话框）
@@ -559,7 +574,9 @@ class Backend:
 
         预览的对象：指定了 output（输出列表里的序号）就是那个输出；否则依次是输出的 VRM、
         输出的 PMX（「只转 PMX」时）、源文件本身。PMX 直接原生预览（three.js 的 MMDLoader，
-        MMD 的着色、IK、物理）；FBX 等其它格式先快速转一份临时 VRM，按「文件 + 修改时间」缓存。
+        MMD 的着色、IK、物理）；FBX 等其它格式先快速转一份临时 VRM，按「文件 + 修改时间 + 转换设置」
+        缓存（_preview_key）。同一份正在转时再点只返回 pending；转完时用户已经换了设置（要的不是这份）
+        就只存进缓存、不推给页面。
         """
         with self.lock:
             f = self.files.get(fid)
@@ -585,17 +602,22 @@ class Backend:
                 if not os.path.isfile(src):
                     return {"error": "file not found"}
                 return {"url": self.dir_url(src), "name": os.path.basename(src)}
+            opts = json.loads(json.dumps(self.opts))
+            opts["target"] = "vrm"
             try:
-                key = "%s|%s" % (os.path.normcase(src), os.path.getmtime(src))
+                key = _preview_key(src, opts)
             except OSError:
                 return {"error": "file not found"}
+            f["preview_want"] = key
             cache = f.setdefault("previews", {})
             if key in cache and os.path.isfile(cache[key][1]):
-                url, vrm = cache[key]
+                url, vrm = cache[key][:2]
+                cache[key] = cache.pop(key)          # 刚用过的排到最后，清理时最后删
                 f["preview"], f["preview_path"] = url, vrm
                 return {"url": url, "name": os.path.basename(src)}
-            opts = json.loads(json.dumps(self.opts))
-        opts["target"] = "vrm"
+            if key in self.preview_jobs:
+                return {"pending": True}
+            self.preview_jobs.add(key)
         out_dir = os.path.join(self.tmp, fid, hashlib.md5(key.encode("utf-8")).hexdigest()[:10])
         name = os.path.basename(src)
 
@@ -614,12 +636,22 @@ class Backend:
                 vrm = [p for p in res if p.lower().endswith(".vrm")][-1]
                 url = self._outputs([vrm])[0]["url"]
                 with self.lock:
-                    if fid in self.files:
-                        ff = self.files[fid]
-                        ff.setdefault("previews", {})[key] = (url, vrm)
-                        ff["preview"], ff["preview_path"] = url, vrm
+                    self.preview_jobs.discard(key)
+                    ff = self.files.get(fid)
+                    if ff is None:
+                        return
+                    cache = ff.setdefault("previews", {})
+                    cache[key] = (url, vrm, out_dir)
+                    # 只留最近几份：更早的连同临时文件夹一起删（正在用的总在最后，删不到）
+                    for old in list(cache)[:-_PREVIEW_KEEP]:
+                        shutil.rmtree(cache.pop(old)[2], ignore_errors=True)
+                    if ff.get("preview_want") != key:         # 转的时候用户又换了设置：这份只留着备用
+                        return
+                    ff["preview"], ff["preview_path"] = url, vrm
                 self.emit(type="preview", file=fid, url=url, name=name)
             except Exception as e:  # noqa: BLE001
+                with self.lock:
+                    self.preview_jobs.discard(key)
                 self.log(traceback.format_exc(), "err", fid)
                 err = "%s: %s" % (type(e).__name__, e)
                 self.emit(type="preview", file=fid, error=err, error_en=logtext.to_en(err))
